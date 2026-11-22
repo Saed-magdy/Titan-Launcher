@@ -332,6 +332,65 @@ public final class AvrcpMetadataTracker {
         sendPassThrough(dev, heldSeekKey, KEY_STATE_PRESSED, null);
     }
 
+    public void seekToMs(final long posMs) {
+        final long target = Math.max(0L, posMs);
+        boolean handled = false;
+        MediaController mc = getBluetoothMediaController();
+        if (mc != null) {
+            try {
+                mc.getTransportControls().seekTo(target);
+                handled = true;
+            } catch (Throwable t) {
+                Log.w("AvrcpMetadataTracker", "seekToMs failed on Bluetooth MediaController: " + t.getMessage());
+            }
+        }
+        if (!handled) {
+            handled = CockpitMediaListenerService.seekTo(appContext, target);
+        }
+        if (currentSnapshot != null) {
+            currentSnapshot = new AvrcpSnapshot(
+                currentSnapshot.enabled, currentSnapshot.connected, currentSnapshot.deviceName,
+                currentSnapshot.title, currentSnapshot.artist, currentSnapshot.album,
+                currentSnapshot.artwork, currentSnapshot.playing, target, currentSnapshot.durationMs
+            );
+            publish(currentSnapshot);
+        }
+    }
+
+    public void seekByMs(final long deltaMs) {
+        long curPos = currentSnapshot != null ? currentSnapshot.positionMs : 0L;
+        long target = Math.max(0L, curPos + deltaMs);
+        if (currentSnapshot != null && currentSnapshot.durationMs > 0L) {
+            target = Math.min(target, currentSnapshot.durationMs);
+        }
+        boolean handled = false;
+        MediaController mc = getBluetoothMediaController();
+        if (mc != null) {
+            try {
+                mc.getTransportControls().seekTo(target);
+                handled = true;
+            } catch (Throwable t) {
+                Log.w("AvrcpMetadataTracker", "seekByMs failed on Bluetooth MediaController: " + t.getMessage());
+            }
+        }
+        if (!handled) {
+            handled = CockpitMediaListenerService.seekBy(appContext, deltaMs);
+        }
+        BluetoothDevice dev = activeDevice != null ? activeDevice : firstConnectedDevice(avrcpController);
+        if (dev != null && avrcpController != null) {
+            int code = (deltaMs > 0) ? KEY_FAST_FORWARD : KEY_REWIND;
+            sendPassThrough(dev, code, KEY_STATE_PRESSED, 550L);
+        }
+        if (currentSnapshot != null) {
+            currentSnapshot = new AvrcpSnapshot(
+                currentSnapshot.enabled, currentSnapshot.connected, currentSnapshot.deviceName,
+                currentSnapshot.title, currentSnapshot.artist, currentSnapshot.album,
+                currentSnapshot.artwork, currentSnapshot.playing, target, currentSnapshot.durationMs
+            );
+            publish(currentSnapshot);
+        }
+    }
+
     public void endSeekHold() {
         int key = heldSeekKey;
         if (key == 0) return;

@@ -83,9 +83,9 @@ public class MainActivity extends Activity implements CockpitMediaListenerServic
     private int mPressedSwcKey = 0;
     private boolean mIsLongPressSeeking = false;
     private long mSwcKeyDownTime = 0;
-    private static final long SWC_LONG_PRESS_DELAY_MS = 1500L; // 1.5s hold threshold
-    private static final long SWC_SEEK_INTERVAL_MS = 400L;    // continuous seek step every 400ms
-    private static final long SWC_SEEK_STEP_MS = 5000L;       // 5 seconds per seek step
+    private static final long SWC_LONG_PRESS_DELAY_MS = 650L;  // 650ms hold threshold for 10s seek
+    private static final long SWC_SEEK_INTERVAL_MS = 450L;    // continuous seek step every 450ms
+    private static final long SWC_SEEK_STEP_MS = 10000L;      // 10 seconds per seek step
     private static final String TAG = "DongfengCockpit";
         private final android.content.BroadcastReceiver mCar3DFreezeReceiver = new android.content.BroadcastReceiver() {
         @Override
@@ -416,16 +416,22 @@ public class MainActivity extends Activity implements CockpitMediaListenerServic
                                     @Override public void run() { handleQingganKey(keyCode); }
                                 });
                             } else if ("onKeyLongPressStart".equals(name)) {
-                                if (keyCode == QG_LONG_NEXT_KEY || keyCode == QG_LONG_PREVIOUS_KEY) {
-                                    final int dir = (keyCode == QG_LONG_NEXT_KEY) ? 1 : -1;
+                                if (keyCode == QG_LONG_NEXT_KEY || keyCode == QG_KEY_NEXT || keyCode == 13 || keyCode == 3) {
                                     mHandler.post(new Runnable() {
                                         @Override public void run() {
-                                            if (mShineWave != null) mShineWave.startLongSeek(dir);
+                                            if (mShineWave != null) mShineWave.startLongSeek(1);
+                                        }
+                                    });
+                                } else if (keyCode == QG_LONG_PREVIOUS_KEY || keyCode == QG_KEY_PREVIOUS || keyCode == 14 || keyCode == 4) {
+                                    mHandler.post(new Runnable() {
+                                        @Override public void run() {
+                                            if (mShineWave != null) mShineWave.startLongSeek(-1);
                                         }
                                     });
                                 }
                             } else if ("onKeyLongPressStop".equals(name) || "onKeyRelease".equals(name)) {
-                                if (keyCode == QG_LONG_NEXT_KEY || keyCode == QG_LONG_PREVIOUS_KEY) {
+                                if (keyCode == QG_LONG_NEXT_KEY || keyCode == QG_KEY_NEXT || keyCode == 13 || keyCode == 3 ||
+                                    keyCode == QG_LONG_PREVIOUS_KEY || keyCode == QG_KEY_PREVIOUS || keyCode == 14 || keyCode == 4) {
                                     mHandler.post(new Runnable() {
                                         @Override public void run() {
                                             if (mShineWave != null) mShineWave.stopLongSeek();

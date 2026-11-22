@@ -101,8 +101,8 @@ public final class ShineWaveEngine {
         @Override
         public void run() {
             if (longSeekDir == 0) return;
-            seekBySec(longSeekDir * 5L);
-            mainHandler.postDelayed(this, 320L);
+            seekBySec(longSeekDir * 10L);
+            mainHandler.postDelayed(this, 400L);
         }
     };
 
@@ -516,6 +516,8 @@ public final class ShineWaveEngine {
                             case "pause": ok = qingganBt.pause(); break;
                             case "next": ok = qingganBt.next(); break;
                             case "previous": ok = qingganBt.previous(); break;
+                            case "seek_forward": avrcpTracker.seekByMs(10_000L); break;
+                            case "seek_back": avrcpTracker.seekByMs(-10_000L); break;
                         }
                         // Always send through AVRCP / Bluetooth MediaSession to ensure the phone
                         // resumes even if local vendor state reported unhandled
@@ -562,6 +564,8 @@ public final class ShineWaveEngine {
             mainHandler.postDelayed(new Runnable() {
                 @Override public void run() { syncExternalSession(true); }
             }, 120L);
+        } else if (src == AudioSourceType.BLUETOOTH) {
+            avrcpTracker.seekToMs(sec * 1000L);
         }
     }
 
@@ -574,17 +578,19 @@ public final class ShineWaveEngine {
             mainHandler.postDelayed(new Runnable() {
                 @Override public void run() { syncExternalSession(true); }
             }, 120L);
+        } else if (src == AudioSourceType.BLUETOOTH) {
+            avrcpTracker.seekByMs(deltaSec * 1000L);
         }
     }
 
     public void startLongSeek(int direction) {
+        longSeekDir = direction;
+        seekBySec(direction * 10L);
         if (stateModel.getSource() == AudioSourceType.BLUETOOTH) {
             avrcpTracker.beginSeekHold(direction > 0);
-            return;
         }
-        longSeekDir = direction;
         mainHandler.removeCallbacks(longSeekRunnable);
-        mainHandler.post(longSeekRunnable);
+        mainHandler.postDelayed(longSeekRunnable, 450L);
     }
 
     public void stopLongSeek() {

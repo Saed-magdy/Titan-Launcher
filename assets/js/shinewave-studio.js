@@ -233,11 +233,97 @@
       if (!inside) window.closeShineWaveStudio();
     });
 
-    document.getElementById('swst-btn-prev').addEventListener('click', function () {
-      var b = bridge();
-      if (b) b.sendShineWaveCommand('previous');
-      else if (window.simStepShineWaveTrack) window.simStepShineWaveTrack(-1);
-    });
+    var studioToastTimer = null;
+    function showStudioToast(text) {
+      var toast = document.getElementById('swst-seek-toast');
+      if (!toast) {
+        toast = document.createElement('div');
+        toast.id = 'swst-seek-toast';
+        toast.style.cssText = 'position:absolute;top:20px;left:50%;transform:translateX(-50%);background:rgba(12,29,40,0.95);color:#7dd3fc;padding:6px 18px;border-radius:18px;font-size:16px;font-weight:800;border:1px solid rgba(125,211,252,0.45);box-shadow:0 0 22px rgba(125,211,252,0.4);pointer-events:none;z-index:999;opacity:0;transition:opacity 0.18s,transform 0.18s;';
+        var panel = document.getElementById('swst-panel');
+        if (panel) panel.appendChild(toast);
+      }
+      toast.textContent = text;
+      toast.style.opacity = '1';
+      toast.style.transform = 'translateX(-50%) translateY(4px)';
+      if (studioToastTimer) clearTimeout(studioToastTimer);
+      studioToastTimer = setTimeout(function () {
+        toast.style.opacity = '0';
+        toast.style.transform = 'translateX(-50%) translateY(0)';
+      }, 700);
+    }
+
+    function bindStudioTrackBtnLongPress(btn, isNext) {
+      if (!btn) return;
+      var timer = null;
+      var repeatTimer = null;
+      var isLong = false;
+      var deltaSec = isNext ? 10 : -10;
+
+      function doSeek() {
+        var m = window.ShineWaveCardState || {};
+        var b = bridge();
+        if (b && typeof b.seekMediaBy === 'function') {
+          b.seekMediaBy(deltaSec);
+        } else if (b && typeof b.sendShineWaveCommand === 'function') {
+          b.sendShineWaveCommand(isNext ? 'seek_forward' : 'seek_back');
+        } else {
+          var effDur = m.dur > 0 ? m.dur : 225;
+          m.pos = Math.max(0, Math.min(effDur, (m.pos || 0) + deltaSec));
+          window.syncShineWaveStudioTime(m.pos, effDur);
+        }
+        showStudioToast(deltaSec > 0 ? '+10s ▶▶' : '◀◀ -10s');
+      }
+
+      function start(e) {
+        isLong = false;
+        if (timer) clearTimeout(timer);
+        if (repeatTimer) clearInterval(repeatTimer);
+        timer = setTimeout(function () {
+          isLong = true;
+          doSeek();
+          repeatTimer = setInterval(doSeek, 450);
+        }, 500);
+      }
+
+      function cancel() {
+        if (timer) { clearTimeout(timer); timer = null; }
+        if (repeatTimer) { clearInterval(repeatTimer); repeatTimer = null; }
+      }
+
+      btn.addEventListener('touchstart', function (e) { start(e); }, { passive: true });
+      btn.addEventListener('touchend', function (e) {
+        cancel();
+        if (isLong) {
+          if (e.cancelable) e.preventDefault();
+          e.stopPropagation();
+        }
+      });
+      btn.addEventListener('mousedown', function (e) { if (e.button === 0) start(e); });
+      btn.addEventListener('mouseup', function (e) {
+        cancel();
+        if (isLong) {
+          if (e.cancelable) e.preventDefault();
+          e.stopPropagation();
+        }
+      });
+      btn.addEventListener('mouseleave', cancel);
+
+      btn.addEventListener('click', function (e) {
+        e.stopPropagation();
+        if (isLong) {
+          isLong = false;
+          return;
+        }
+        var b = bridge();
+        if (b) b.sendShineWaveCommand(isNext ? 'next' : 'previous');
+        else if (window.simStepShineWaveTrack) window.simStepShineWaveTrack(isNext ? 1 : -1);
+      });
+    }
+
+    bindStudioTrackBtnLongPress(document.getElementById('swst-btn-prev'), false);
+    bindStudioTrackBtnLongPress(document.getElementById('swst-btn-next'), true);
+
     document.getElementById('swst-btn-play').addEventListener('click', function () {
       var m = window.ShineWaveCardState || {};
       var b = bridge();
@@ -247,11 +333,6 @@
         if (window.refreshShineWaveCardUI) window.refreshShineWaveCardUI();
         renderPlayerHeader();
       }
-    });
-    document.getElementById('swst-btn-next').addEventListener('click', function () {
-      var b = bridge();
-      if (b) b.sendShineWaveCommand('next');
-      else if (window.simStepShineWaveTrack) window.simStepShineWaveTrack(1);
     });
     document.getElementById('swst-btn-shuffle').addEventListener('click', function () {
       var m = window.ShineWaveCardState || {};
@@ -500,7 +581,8 @@
     }
   }
 
-  /* ---------- Interactive Animated Musical Mascot (دمية الموسيقى) ---------- */
+  /* ---------- Interactive Animated Musical Clown Mascot (دمية المهرج الباستيلي) ---------- */
+  var clownBubbles = [];
   function drawStudioMascot() {
     var c = document.getElementById('swst-mascot-canvas');
     var wrap = document.getElementById('swst-mascot-wrap');
@@ -524,300 +606,346 @@
     var energyVal = spec.energy || 0;
 
     var cx = w / 2;
-    var cy = h / 2 + 6;
+    var cy = h / 2 + 10;
 
     var bounce = 0;
+    var swayX = 0;
     var tilt = 0;
-    var headBob = 0;
-    var handBob = 0;
-    var earPulse = 0;
+    var armWave = 0;
 
     if (isPlaying) {
-      mascotPhase += 0.085 + beatVal * 0.09;
-      // Groovy bounce with the beat
-      bounce = Math.abs(Math.sin(mascotPhase * 1.8)) * (7 + beatVal * 9 + energyVal * 4);
-      tilt = Math.sin(mascotPhase * 0.9) * 0.14;
-      headBob = Math.sin(mascotPhase * 1.8) * 3;
-      handBob = Math.cos(mascotPhase * 1.8) * 7;
-      earPulse = Math.sin(mascotPhase * 3.6) * 2 + beatVal * 4;
+      mascotPhase += 0.08 + beatVal * 0.08;
+      // Sways left and right smoothly
+      swayX = Math.sin(mascotPhase * 1.4) * 8.5;
+      tilt = Math.sin(mascotPhase * 1.4) * 0.18;
+      // Bouncy jump with the beat and energy
+      bounce = Math.abs(Math.sin(mascotPhase * 2.2)) * (8 + beatVal * 11 + energyVal * 4);
+      armWave = Math.sin(mascotPhase * 2.2) * 6;
       mascotBlinkTimer++;
+
+      // Bubble generation on rhythmic pulses
+      if ((beatVal > 0.35 || mascotBlinkTimer % 14 === 0) && clownBubbles.length < 18) {
+        clownBubbles.push({
+          x: cx + swayX + (Math.random() - 0.5) * 12,
+          y: cy - bounce - 24,
+          vx: (Math.random() - 0.5) * 1.4,
+          vy: -1.3 - Math.random() * 1.5 - beatVal * 0.8,
+          rad: 3.5 + Math.random() * 5.5,
+          colorIdx: Math.floor(Math.random() * 4),
+          wobble: Math.random() * Math.PI * 2,
+          life: 0,
+          maxLife: 40 + Math.random() * 25
+        });
+      }
     } else {
       // Gentle calm breathing stance when music is paused
-      mascotPhase += 0.035;
-      bounce = Math.sin(mascotPhase) * 1.8;
-      tilt = Math.sin(mascotPhase * 0.5) * 0.02;
-      headBob = 0;
-      handBob = 0;
-      earPulse = 0;
+      mascotPhase += 0.032;
+      swayX = Math.sin(mascotPhase * 0.8) * 1.8;
+      tilt = Math.sin(mascotPhase * 0.8) * 0.03;
+      bounce = Math.sin(mascotPhase) * 1.5;
+      armWave = 0;
       mascotBlinkTimer = 0;
     }
 
-    // 1. Soft Dynamic Ground Shadow
+    // 1. Draw & Update Floating Magical Pastel Bubbles
+    var bubbleColors = [
+      'rgba(186, 230, 253, ',  // Pastel Sky
+      'rgba(216, 180, 254, ',  // Pastel Lilac
+      'rgba(251, 207, 232, ',  // Pastel Pink
+      'rgba(167, 243, 208, '   // Pastel Mint
+    ];
+    for (var bi = clownBubbles.length - 1; bi >= 0; bi--) {
+      var b = clownBubbles[bi];
+      b.life++;
+      b.x += b.vx + Math.sin(b.wobble) * 0.45;
+      b.y += b.vy;
+      b.wobble += 0.09;
+      var frac = b.life / b.maxLife;
+      if (frac >= 1 || b.y < 4) {
+        clownBubbles.splice(bi, 1);
+        continue;
+      }
+      var bAlpha = (frac < 0.2) ? (frac / 0.2) : (1 - (frac - 0.2) / 0.8);
+      var bColorPrefix = bubbleColors[b.colorIdx % bubbleColors.length];
+
+      ctx.save();
+      // Translucent bubble body
+      ctx.fillStyle = bColorPrefix + (bAlpha * 0.35).toFixed(2) + ')';
+      ctx.beginPath();
+      ctx.arc(b.x, b.y, b.rad, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Iridescent shimmering bubble rim
+      ctx.strokeStyle = bColorPrefix + (bAlpha * 0.85).toFixed(2) + ')';
+      ctx.lineWidth = 1.2;
+      ctx.stroke();
+
+      // Little curved white glare reflection at top-left
+      ctx.fillStyle = 'rgba(255, 255, 255, ' + (bAlpha * 0.80).toFixed(2) + ')';
+      ctx.beginPath();
+      ctx.arc(b.x - b.rad * 0.35, b.y - b.rad * 0.35, Math.max(1, b.rad * 0.28), 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+    }
+
+    // 2. Soft Dynamic Ground Shadow
     ctx.save();
-    var shadowW = 22 - bounce * 0.35;
-    var shadowH = Math.max(2, 5.5 - bounce * 0.12);
-    var shadowAlpha = Math.max(0.12, 0.45 - bounce * 0.02);
+    var shadowW = 24 - bounce * 0.38;
+    var shadowH = Math.max(2, 5.8 - bounce * 0.12);
+    var shadowAlpha = Math.max(0.12, 0.42 - bounce * 0.02);
     ctx.fillStyle = 'rgba(0, 0, 0, ' + shadowAlpha.toFixed(2) + ')';
     ctx.beginPath();
-    ctx.ellipse(cx, h - 10, Math.max(10, shadowW), Math.max(2, shadowH), 0, 0, Math.PI * 2);
+    ctx.ellipse(cx + swayX * 0.4, h - 8, Math.max(10, shadowW), Math.max(2, shadowH), 0, 0, Math.PI * 2);
     ctx.fill();
     ctx.restore();
 
-    var bodyY = cy - bounce;
+    var clownY = cy - bounce;
+    var clownX = cx + swayX;
 
-    // 2. Floating Hands / Mittens
+    // 3. Floating Cute Gloved Hands
     ctx.save();
-    var leftHandY = bodyY + 3 + handBob;
-    var rightHandY = bodyY + 3 - handBob;
-    var handGrad = ctx.createLinearGradient(0, bodyY - 10, 0, bodyY + 10);
-    handGrad.addColorStop(0, '#bae6fd');
-    handGrad.addColorStop(1, '#38bdf8');
+    var handY1 = clownY + 2 + armWave;
+    var handY2 = clownY + 2 - armWave;
+    var handGrad = ctx.createLinearGradient(0, clownY - 8, 0, clownY + 8);
+    handGrad.addColorStop(0, '#ffffff');
+    handGrad.addColorStop(1, '#fed7aa');
 
     ctx.fillStyle = handGrad;
-    ctx.shadowColor = 'rgba(56, 189, 248, 0.45)';
+    ctx.shadowColor = 'rgba(254, 215, 170, 0.5)';
     ctx.shadowBlur = 6;
 
     // Left hand
     ctx.beginPath();
-    ctx.arc(cx - 24, leftHandY, 5.5, 0, Math.PI * 2);
+    ctx.arc(clownX - 22, handY1, 5.2, 0, Math.PI * 2);
     ctx.fill();
+    // Left wrist ruffle
+    ctx.fillStyle = '#a7f3d0';
+    ctx.fillRect(clownX - 24, handY1 - 1, 4, 2.5);
 
     // Right hand
+    ctx.fillStyle = handGrad;
     ctx.beginPath();
-    ctx.arc(cx + 24, rightHandY, 5.5, 0, Math.PI * 2);
+    ctx.arc(clownX + 22, handY2, 5.2, 0, Math.PI * 2);
     ctx.fill();
+    // Right wrist ruffle
+    ctx.fillStyle = '#fbcfe8';
+    ctx.fillRect(clownX + 20, handY2 - 1, 4, 2.5);
     ctx.restore();
 
-    // 3. Body / Torso
+    // 4. Clown Body / Onesie Costume (Split Pastel Colors: Lavender & Sky Blue)
     ctx.save();
-    var bodyGrad = ctx.createLinearGradient(0, bodyY - 14, 0, bodyY + 12);
-    bodyGrad.addColorStop(0, '#e0f2fe');
-    bodyGrad.addColorStop(0.5, '#7dd3fc');
-    bodyGrad.addColorStop(1, '#0284c7');
-    ctx.fillStyle = bodyGrad;
-    ctx.shadowColor = 'rgba(14, 165, 233, 0.55)';
-    ctx.shadowBlur = 10;
+    ctx.translate(clownX, clownY);
+    ctx.rotate(tilt * 0.6);
 
+    // Left half (Pastel Lilac)
+    ctx.fillStyle = '#c4b5fd';
     ctx.beginPath();
-    if (ctx.roundRect) ctx.roundRect(cx - 16, bodyY - 12, 32, 22, 11);
-    else ctx.rect(cx - 16, bodyY - 12, 32, 22);
+    ctx.moveTo(0, -12);
+    ctx.bezierCurveTo(-14, -10, -18, 2, -14, 12);
+    ctx.lineTo(0, 12);
+    ctx.closePath();
     ctx.fill();
 
-    // Chest mini-equalizer / core heart
+    // Right half (Pastel Sky Blue)
+    ctx.fillStyle = '#7dd3fc';
+    ctx.beginPath();
+    ctx.moveTo(0, -12);
+    ctx.bezierCurveTo(14, -10, 18, 2, 14, 12);
+    ctx.lineTo(0, 12);
+    ctx.closePath();
+    ctx.fill();
+
+    // Cute Pastel Pom-Pom Buttons down costume
+    var btnColors = ['#f472b6', '#a7f3d0', '#fde68a'];
+    for (var bi2 = 0; bi2 < 3; bi2++) {
+      ctx.fillStyle = btnColors[bi2];
+      ctx.shadowColor = btnColors[bi2];
+      ctx.shadowBlur = 4;
+      ctx.beginPath();
+      ctx.arc(0, -6 + bi2 * 6, 2.6, 0, Math.PI * 2);
+      ctx.fill();
+    }
     ctx.shadowBlur = 0;
-    var coreBg = 'rgba(6, 15, 22, 0.7)';
-    ctx.fillStyle = coreBg;
-    ctx.beginPath();
-    if (ctx.roundRect) ctx.roundRect(cx - 9, bodyY - 7, 18, 12, 4);
-    else ctx.rect(cx - 9, bodyY - 7, 18, 12);
-    ctx.fill();
 
-    // Tiny pulsing chest bars
-    var barColors = ['#7dd3fc', '#a7f3d0', '#fde68a'];
-    for (var bi = 0; bi < 3; bi++) {
-      var barH = isPlaying ? (3 + Math.abs(Math.sin(mascotPhase * 2.5 + bi * 1.2)) * 6) : 3;
-      ctx.fillStyle = isPlaying ? barColors[bi] : 'rgba(148, 163, 184, 0.6)';
-      ctx.fillRect(cx - 6 + bi * 4.5, bodyY + 3 - barH, 3, barH);
+    // 5. Multi-Layered Pastel Frilled Collar / Ruff
+    var collarY = -12;
+    var ruffColors = ['#a7f3d0', '#fbcfe8', '#fef08a', '#bae6fd', '#fed7aa'];
+    for (var ri = 0; ri < 5; ri++) {
+      var ruffX = -14 + ri * 7;
+      ctx.fillStyle = ruffColors[ri];
+      ctx.beginPath();
+      ctx.ellipse(ruffX, collarY + 2, 4.2, 5.5, 0, 0, Math.PI * 2);
+      ctx.fill();
     }
     ctx.restore();
 
-    // 4. Mascot Head & Helmet (Tilts and Bobs)
+    // 6. Clown Head, Makeup, and Jester Hat
     ctx.save();
-    ctx.translate(cx, bodyY - 18 - headBob);
+    ctx.translate(clownX, clownY - 20);
     ctx.rotate(tilt);
 
-    // Top Antenna Stalk & Glowing Orb
-    ctx.strokeStyle = '#bae6fd';
-    ctx.lineWidth = 2.5;
-    ctx.lineCap = 'round';
-    ctx.beginPath();
-    ctx.moveTo(0, -18);
-    ctx.lineTo(0, -25);
-    ctx.stroke();
-
-    var orbGrad = ctx.createRadialGradient(0, -26, 1, 0, -26, 6);
-    if (isPlaying) {
-      orbGrad.addColorStop(0, '#ffffff');
-      orbGrad.addColorStop(0.4, '#6ee7b7');
-      orbGrad.addColorStop(1, '#059669');
-      ctx.shadowColor = '#6ee7b7';
-      ctx.shadowBlur = 12 + beatVal * 8;
-    } else {
-      orbGrad.addColorStop(0, '#ffffff');
-      orbGrad.addColorStop(0.5, '#93c5fd');
-      orbGrad.addColorStop(1, '#2563eb');
-      ctx.shadowColor = '#93c5fd';
-      ctx.shadowBlur = 6;
-    }
-    ctx.fillStyle = orbGrad;
-    ctx.beginPath();
-    ctx.arc(0, -26, 4.5 + (isPlaying ? beatVal * 1.5 : 0), 0, Math.PI * 2);
-    ctx.fill();
-    ctx.shadowBlur = 0;
-
-    // Glowing DJ Headphones (Left & Right)
-    var hpGrad = ctx.createLinearGradient(-26, 0, -18, 0);
-    hpGrad.addColorStop(0, '#0284c7');
-    hpGrad.addColorStop(1, '#38bdf8');
-
-    // Headphone band over head
-    ctx.strokeStyle = 'rgba(224, 242, 254, 0.8)';
-    ctx.lineWidth = 3.5;
-    ctx.beginPath();
-    ctx.arc(0, -4, 21, Math.PI * 1.1, Math.PI * 1.9);
-    ctx.stroke();
-
-    // Left earcup
-    ctx.fillStyle = hpGrad;
-    ctx.beginPath();
-    if (ctx.roundRect) ctx.roundRect(-25 - earPulse * 0.4, -9, 7 + earPulse * 0.4, 18, 3.5);
-    else ctx.rect(-25, -9, 7, 18);
-    ctx.fill();
-
-    // Right earcup
-    ctx.beginPath();
-    if (ctx.roundRect) ctx.roundRect(18, -9, 7 + earPulse * 0.4, 18, 3.5);
-    else ctx.rect(18, -9, 7, 18);
-    ctx.fill();
-
-    // Earcup neon pulse aura when playing
-    if (isPlaying && earPulse > 0.5) {
-      ctx.strokeStyle = 'rgba(110, 231, 183, 0.6)';
-      ctx.lineWidth = 1.5;
-      ctx.beginPath();
-      ctx.arc(-22, 0, 9 + earPulse * 0.8, Math.PI * 0.6, Math.PI * 1.4);
-      ctx.stroke();
-      ctx.beginPath();
-      ctx.arc(22, 0, 9 + earPulse * 0.8, -Math.PI * 0.4, Math.PI * 0.4);
-      ctx.stroke();
-    }
-
-    // Outer Helmet Shell
-    var headGrad = ctx.createLinearGradient(0, -20, 0, 16);
+    // Porcelain Head Base
+    var headGrad = ctx.createLinearGradient(0, -16, 0, 14);
     headGrad.addColorStop(0, '#ffffff');
-    headGrad.addColorStop(0.65, '#e0f2fe');
-    headGrad.addColorStop(1, '#bae6fd');
+    headGrad.addColorStop(1, '#fff1f2');
     ctx.fillStyle = headGrad;
-    ctx.shadowColor = 'rgba(14, 165, 233, 0.35)';
-    ctx.shadowBlur = 10;
+    ctx.shadowColor = 'rgba(244, 114, 182, 0.25)';
+    ctx.shadowBlur = 8;
     ctx.beginPath();
-    if (ctx.roundRect) ctx.roundRect(-20, -18, 40, 32, 16);
-    else ctx.rect(-20, -18, 40, 32);
+    ctx.arc(0, 0, 15, 0, Math.PI * 2);
     ctx.fill();
-
-    // Dark Cyber Visor Face Screen
     ctx.shadowBlur = 0;
-    ctx.fillStyle = '#061622';
+
+    // Rosy Pink Pastel Cheeks
+    ctx.fillStyle = 'rgba(251, 113, 133, 0.45)';
     ctx.beginPath();
-    if (ctx.roundRect) ctx.roundRect(-16, -14, 32, 24, 12);
-    else ctx.rect(-16, -14, 32, 24);
+    ctx.arc(-8, 3, 3.5, 0, Math.PI * 2);
+    ctx.arc(8, 3, 3.5, 0, Math.PI * 2);
     ctx.fill();
 
-    // Visor glass subtle top reflection arc
-    ctx.strokeStyle = 'rgba(255, 255, 255, 0.35)';
-    ctx.lineWidth = 1.8;
+    // Shiny Round Clown Nose (Pastel Coral Red)
+    var noseGrad = ctx.createRadialGradient(-0.8, 0.2, 0.5, 0, 1, 4.5);
+    noseGrad.addColorStop(0, '#ffffff');
+    noseGrad.addColorStop(0.35, '#fb7185');
+    noseGrad.addColorStop(1, '#e11d48');
+    ctx.fillStyle = noseGrad;
+    ctx.shadowColor = '#fb7185';
+    ctx.shadowBlur = 6;
     ctx.beginPath();
-    ctx.arc(0, -11, 11, Math.PI * 1.15, Math.PI * 1.85);
-    ctx.stroke();
+    ctx.arc(0, 1.2, 4.2, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.shadowBlur = 0;
 
-    // Digital Eyes & Expression
+    // Jester Teardrop / Star Marks on Eyes
+    ctx.fillStyle = '#a855f7';
+    // Left eye marks (top & bottom)
+    ctx.beginPath();
+    ctx.arc(-7, -9, 1.3, 0, Math.PI * 2);
+    ctx.arc(-7, 7.5, 1.3, 0, Math.PI * 2);
+    // Right eye marks (top & bottom)
+    ctx.arc(7, -9, 1.3, 0, Math.PI * 2);
+    ctx.arc(7, 7.5, 1.3, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Digital / Cute Eyes & Smile
     var isBlinking = isPlaying && (mascotBlinkTimer % 140 > 132);
 
     if (isPlaying && !isBlinking) {
-      // Happy dynamic digital eyes
-      ctx.fillStyle = '#67e8f9';
-      ctx.shadowColor = '#67e8f9';
-      ctx.shadowBlur = 8;
-
-      var eyeW = 4.2;
-      var eyeH = 6.5 + (beatVal * 2.5);
-
-      // Left eye
-      ctx.beginPath();
-      if (ctx.roundRect) ctx.roundRect(-10, -5 - (eyeH - 6.5) / 2, eyeW, eyeH, 2.2);
-      else ctx.rect(-10, -5, eyeW, eyeH);
-      ctx.fill();
-
-      // Right eye
-      ctx.beginPath();
-      if (ctx.roundRect) ctx.roundRect(10 - eyeW, -5 - (eyeH - 6.5) / 2, eyeW, eyeH, 2.2);
-      else ctx.rect(10 - eyeW, -5, eyeW, eyeH);
-      ctx.fill();
-
-      // Specular eye sparkles
-      ctx.fillStyle = '#ffffff';
-      ctx.beginPath();
-      ctx.arc(-8, -4, 1.2, 0, Math.PI * 2);
-      ctx.arc(8, -4, 1.2, 0, Math.PI * 2);
-      ctx.fill();
-
-      // Cute rosy blush cheeks
-      ctx.shadowBlur = 0;
-      ctx.fillStyle = 'rgba(244, 114, 182, 0.45)';
-      ctx.beginPath();
-      ctx.arc(-10, 4.5, 2.5, 0, Math.PI * 2);
-      ctx.arc(10, 4.5, 2.5, 0, Math.PI * 2);
-      ctx.fill();
-
-      // Happy smile
-      ctx.strokeStyle = '#a7f3d0';
-      ctx.lineWidth = 1.8;
+      // Cheerful crescent smiling eyes (^ ^)
+      ctx.strokeStyle = '#0f172a';
+      ctx.lineWidth = 2.2;
       ctx.lineCap = 'round';
       ctx.beginPath();
-      ctx.arc(0, 2.5, 3.8, 0.15 * Math.PI, 0.85 * Math.PI);
+      ctx.arc(-7, -3, 3.5, Math.PI * 1.15, Math.PI * 1.85);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.arc(7, -3, 3.5, Math.PI * 1.15, Math.PI * 1.85);
+      ctx.stroke();
+
+      // Cheerful smiling clown mouth
+      ctx.strokeStyle = '#f43f5e';
+      ctx.lineWidth = 2.2;
+      ctx.lineCap = 'round';
+      ctx.beginPath();
+      ctx.arc(0, 6, 4.8, 0.15 * Math.PI, 0.85 * Math.PI);
       ctx.stroke();
 
     } else if (isPlaying && isBlinking) {
-      // Blinking eyes
-      ctx.strokeStyle = '#67e8f9';
+      // Closed blinking eyes
+      ctx.strokeStyle = '#0f172a';
       ctx.lineWidth = 2;
       ctx.lineCap = 'round';
-      ctx.shadowColor = '#67e8f9';
-      ctx.shadowBlur = 6;
       ctx.beginPath();
-      ctx.moveTo(-11, -2);
-      ctx.lineTo(-6, -2);
-      ctx.moveTo(6, -2);
-      ctx.lineTo(11, -2);
+      ctx.moveTo(-9, -3);
+      ctx.lineTo(-5, -3);
+      ctx.moveTo(5, -3);
+      ctx.lineTo(9, -3);
+      ctx.stroke();
+
+      ctx.strokeStyle = '#f43f5e';
+      ctx.lineWidth = 1.8;
+      ctx.beginPath();
+      ctx.arc(0, 6, 4, 0.2 * Math.PI, 0.8 * Math.PI);
       ctx.stroke();
     } else {
-      // Calm sleeping / resting stance when paused
-      ctx.strokeStyle = '#93c5fd';
-      ctx.lineWidth = 2;
+      // Peaceful sleeping / resting stance (˘ ˘)
+      ctx.strokeStyle = '#64748b';
+      ctx.lineWidth = 2.0;
       ctx.lineCap = 'round';
-      ctx.shadowColor = '#93c5fd';
-      ctx.shadowBlur = 5;
-
-      // Cute sleepy curved lines: (˘ ˘)
       ctx.beginPath();
-      ctx.arc(-8, -2, 3.2, Math.PI * 1.1, Math.PI * 1.9);
+      ctx.arc(-7, -2, 3.2, Math.PI * 1.15, Math.PI * 1.85);
       ctx.stroke();
       ctx.beginPath();
-      ctx.arc(8, -2, 3.2, Math.PI * 1.1, Math.PI * 1.9);
+      ctx.arc(7, -2, 3.2, Math.PI * 1.15, Math.PI * 1.85);
       ctx.stroke();
 
-      // Calm sleeping mouth
-      ctx.strokeStyle = 'rgba(186, 230, 253, 0.6)';
-      ctx.lineWidth = 1.4;
+      // Gentle sleeping resting smile
+      ctx.strokeStyle = '#fda4af';
+      ctx.lineWidth = 1.6;
       ctx.beginPath();
-      ctx.moveTo(-2, 3);
-      ctx.lineTo(2, 3);
+      ctx.arc(0, 6, 3.2, 0.25 * Math.PI, 0.75 * Math.PI);
       ctx.stroke();
+    }
+
+    // 7. Jester Hat (قبعة المهرج ذات القرنين المائلين والأجراس الذهبية)
+    // Hat Band / Rim
+    ctx.fillStyle = '#fde68a';
+    ctx.beginPath();
+    if (ctx.roundRect) ctx.roundRect(-14, -13, 28, 5, 2.5);
+    else ctx.rect(-14, -13, 28, 5);
+    ctx.fill();
+
+    // Left Hat Horn (Curved Lilac)
+    ctx.fillStyle = '#c084fc';
+    ctx.beginPath();
+    ctx.moveTo(-13, -13);
+    ctx.bezierCurveTo(-18, -26, -26, -24, -25, -16);
+    ctx.bezierCurveTo(-20, -18, -14, -15, -7, -13);
+    ctx.closePath();
+    ctx.fill();
+
+    // Right Hat Horn (Curved Pastel Cyan)
+    ctx.fillStyle = '#38bdf8';
+    ctx.beginPath();
+    ctx.moveTo(13, -13);
+    ctx.bezierCurveTo(18, -26, 26, -24, 25, -16);
+    ctx.bezierCurveTo(20, -18, 14, -15, 7, -13);
+    ctx.closePath();
+    ctx.fill();
+
+    // Middle Hat Peak (Pastel Peach)
+    ctx.fillStyle = '#fb923c';
+    ctx.beginPath();
+    ctx.moveTo(-6, -13);
+    ctx.quadraticCurveTo(0, -26, 0, -25);
+    ctx.quadraticCurveTo(0, -26, 6, -13);
+    ctx.closePath();
+    ctx.fill();
+
+    // Jingle Bells / Pom-Poms at horn tips (Pastel Gold with Glint)
+    var bellBob = Math.sin(mascotPhase * 3.2) * 1.5;
+    var bells = [
+      { x: -26, y: -16 + bellBob },
+      { x: 26, y: -16 - bellBob },
+      { x: 0, y: -26 + bellBob * 0.5 }
+    ];
+    for (var bi3 = 0; bi3 < bells.length; bi3++) {
+      var bell = bells[bi3];
+      ctx.fillStyle = '#fde047';
+      ctx.shadowColor = '#fde047';
+      ctx.shadowBlur = 6;
+      ctx.beginPath();
+      ctx.arc(bell.x, bell.y, 3.8, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Little glint shine
+      ctx.fillStyle = '#ffffff';
+      ctx.beginPath();
+      ctx.arc(bell.x - 1, bell.y - 1, 1.2, 0, Math.PI * 2);
+      ctx.fill();
     }
 
     ctx.restore();
-
-    // 5. Floating Musical Sparkles when energetic
-    if (isPlaying && (beatVal > 0.4 || energyVal > 0.45)) {
-      ctx.save();
-      var noteY = (bodyY - 26 - ((mascotPhase * 24) % 36));
-      var noteX = cx + Math.sin(mascotPhase * 2) * 16;
-      var noteAlpha = Math.max(0, 1 - (bodyY - 26 - noteY) / 36);
-      ctx.fillStyle = 'rgba(253, 230, 138, ' + noteAlpha.toFixed(2) + ')';
-      ctx.font = 'bold 12px sans-serif';
-      ctx.fillText('♪', noteX, noteY);
-      ctx.restore();
-    }
   }
 
   /* ---------- Public Lifecycle ---------- */
@@ -996,10 +1124,10 @@
     }
     if (mascotBtn) {
       mascotBtn.classList.toggle('mascot-active', mascotEnabled);
-      var mSvg = '<svg viewBox="0 0 24 24"><path d="M12 2a2 2 0 0 1 2 2c0 .74-.4 1.39-1 1.73V7h1a7 7 0 0 1 7 7h1a1 1 0 0 1 1 1v3a1 1 0 0 1-1 1h-1v1a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-1H2a1 1 0 0 1-1-1v-3a1 1 0 0 1 1-1h1a7 7 0 0 1 7-7h1V5.73c-.6-.34-1-.99-1-1.73a2 2 0 0 1 2-2M7.5 13A2.5 2.5 0 0 0 5 15.5 2.5 2.5 0 0 0 7.5 18a2.5 2.5 0 0 0 2.5-2.5A2.5 2.5 0 0 0 7.5 13m9 0a2.5 2.5 0 0 0-2.5 2.5 2.5 2.5 0 0 0 2.5 2.5 2.5 2.5 0 0 0 2.5-2.5 2.5 2.5 0 0 0-2.5-2.5"/></svg>';
+      var mSvg = '<svg viewBox="0 0 24 24"><path d="M12 2a2.5 2.5 0 0 0-2.5 2.5c0 .35.08.68.21.98L4.2 8.65A2 2 0 0 0 3 10.5v1.2a2 2 0 0 0 1.1 1.77L5 20a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2l.9-6.53A2 2 0 0 0 21 11.7v-1.2a2 2 0 0 0-1.2-1.85l-5.51-3.17c.13-.3.21-.63.21-.98A2.5 2.5 0 0 0 12 2zm0 4.2 4.5 2.6-2.5 4.7h-4L7.5 8.8 12 6.2zM7 16h10l-.6 4H7.6L7 16z"/></svg>';
       var mLbl = mascotEnabled
-        ? (ar ? 'الدمية: تشغيل' : (isRu() ? 'Маскот: Вкл' : 'Mascot: On'))
-        : (ar ? 'الدمية: إيقاف' : (isRu() ? 'Маскот: Выкл' : 'Mascot: Off'));
+        ? (ar ? 'المهرج: تشغيل' : (isRu() ? 'Клоун: Вкл' : 'Clown: On'))
+        : (ar ? 'المهرج: إيقاف' : (isRu() ? 'Клоун: Выкл' : 'Clown: Off'));
       mascotBtn.innerHTML = mSvg + '<span>' + mLbl + '</span>';
     }
 
