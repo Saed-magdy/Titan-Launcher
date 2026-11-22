@@ -286,22 +286,43 @@ public final class AvrcpMetadataTracker {
     }
 
     public void sendPassThroughFallback(String cmd) {
-        BluetoothDevice dev = activeDevice != null ? activeDevice : firstConnectedDevice(avrcpController);
-        if (dev == null || avrcpController == null) return;
-        int code;
-        switch (cmd) {
-            case "next": code = KEY_FORWARD; break;
-            case "previous": code = KEY_BACKWARD; break;
-            case "play": code = KEY_PLAY; break;
-            case "pause": code = KEY_PAUSE; break;
-            case "toggle":
-                code = currentSnapshot.playing ? KEY_PAUSE : KEY_PLAY;
-                break;
-            case "seek_forward": code = KEY_FAST_FORWARD; break;
-            case "seek_back": code = KEY_REWIND; break;
-            default: return;
+        // 1. Try dispatching directly to the Bluetooth MediaSession first
+        MediaController mc = getBluetoothMediaController();
+        if (mc != null) {
+            try {
+                MediaController.TransportControls tc = mc.getTransportControls();
+                switch (cmd) {
+                    case "play": tc.play(); break;
+                    case "pause": tc.pause(); break;
+                    case "toggle":
+                        if (currentSnapshot.playing) tc.pause(); else tc.play();
+                        break;
+                    case "next": tc.skipToNext(); break;
+                    case "previous": tc.skipToPrevious(); break;
+                }
+            } catch (Throwable t) {
+                Log.w("AvrcpMetadataTracker", "Bluetooth MediaController transport error: " + t.getMessage());
+            }
         }
-        sendPassThrough(dev, code, KEY_STATE_PRESSED, (code == KEY_FAST_FORWARD || code == KEY_REWIND) ? 650L : 45L);
+
+        // 2. Also send AVRCP Pass-Through command (0x44 PLAY / 0x46 PAUSE / etc.)
+        BluetoothDevice dev = activeDevice != null ? activeDevice : firstConnectedDevice(avrcpController);
+        if (dev != null && avrcpController != null) {
+            int code;
+            switch (cmd) {
+                case "next": code = KEY_FORWARD; break;
+                case "previous": code = KEY_BACKWARD; break;
+                case "play": code = KEY_PLAY; break;
+                case "pause": code = KEY_PAUSE; break;
+                case "toggle":
+                    code = currentSnapshot.playing ? KEY_PAUSE : KEY_PLAY;
+                    break;
+                case "seek_forward": code = KEY_FAST_FORWARD; break;
+                case "seek_back": code = KEY_REWIND; break;
+                default: return;
+            }
+            sendPassThrough(dev, code, KEY_STATE_PRESSED, (code == KEY_FAST_FORWARD || code == KEY_REWIND) ? 650L : 45L);
+        }
     }
 
     public void beginSeekHold(boolean forward) {

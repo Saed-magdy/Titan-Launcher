@@ -517,11 +517,9 @@ public final class ShineWaveEngine {
                             case "next": ok = qingganBt.next(); break;
                             case "previous": ok = qingganBt.previous(); break;
                         }
-                        if (!ok) {
-                            mainHandler.post(new Runnable() {
-                                @Override public void run() { avrcpTracker.sendPassThroughFallback(cmd); }
-                            });
-                        }
+                        // Always send through AVRCP / Bluetooth MediaSession to ensure the phone
+                        // resumes even if local vendor state reported unhandled
+                        avrcpTracker.sendPassThroughFallback(cmd);
                         mainHandler.postDelayed(new Runnable() {
                             @Override public void run() { avrcpTracker.refresh(); }
                         }, 180L);

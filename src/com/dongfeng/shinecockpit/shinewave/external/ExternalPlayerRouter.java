@@ -229,13 +229,26 @@ public final class ExternalPlayerRouter {
             try {
                 MediaController.TransportControls tc = controller.getTransportControls();
                 switch (cmd) {
-                    case "play": tc.play(); return true;
-                    case "pause": tc.pause(); return true;
+                    case "play":
+                        tc.play();
+                        // Also dispatch targeted media key for players that ignore onPlay() when paused
+                        dispatchTargetedMediaKey(pkg, KeyEvent.KEYCODE_MEDIA_PLAY);
+                        return true;
+                    case "pause":
+                        tc.pause();
+                        dispatchTargetedMediaKey(pkg, KeyEvent.KEYCODE_MEDIA_PAUSE);
+                        return true;
                     case "toggle": {
                         PlaybackState st = controller.getPlaybackState();
                         boolean isPlaying = st != null && (st.getState() == PlaybackState.STATE_PLAYING
                                 || st.getState() == PlaybackState.STATE_BUFFERING);
-                        if (isPlaying) tc.pause(); else tc.play();
+                        if (isPlaying) {
+                            tc.pause();
+                            dispatchTargetedMediaKey(pkg, KeyEvent.KEYCODE_MEDIA_PAUSE);
+                        } else {
+                            tc.play();
+                            dispatchTargetedMediaKey(pkg, KeyEvent.KEYCODE_MEDIA_PLAY);
+                        }
                         return true;
                     }
                     case "next": tc.skipToNext(); return true;
@@ -252,6 +265,22 @@ public final class ExternalPlayerRouter {
             }
         }
         return dispatchMediaKey(cmd);
+    }
+
+    private void dispatchTargetedMediaKey(String pkg, int keyCode) {
+        if (pkg == null || pkg.isEmpty()) return;
+        try {
+            long now = SystemClock.uptimeMillis();
+            Intent down = new Intent(Intent.ACTION_MEDIA_BUTTON);
+            down.setPackage(pkg);
+            down.putExtra(Intent.EXTRA_KEY_EVENT, new KeyEvent(now, now, KeyEvent.ACTION_DOWN, keyCode, 0));
+            appContext.sendOrderedBroadcast(down, null);
+
+            Intent up = new Intent(Intent.ACTION_MEDIA_BUTTON);
+            up.setPackage(pkg);
+            up.putExtra(Intent.EXTRA_KEY_EVENT, new KeyEvent(now, now, KeyEvent.ACTION_UP, keyCode, 0));
+            appContext.sendOrderedBroadcast(up, null);
+        } catch (Throwable ignored) {}
     }
 
     public boolean seekToSec(long sec) {
