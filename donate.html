@@ -11,7 +11,7 @@
     :root {
       --primary: #38bdf8;
       --bg: #0b1120;
-      --card-bg: rgba(30, 41, 59, 0.7);
+      --card-bg: rgba(30, 41, 59, 0.72);
       --border: rgba(255, 255, 255, 0.12);
     }
     * {
@@ -23,7 +23,7 @@
     body {
       background: radial-gradient(circle at top, #1e293b 0%, #0b1120 100%);
       color: #f8fafc;
-      font-family: 'Cairo', -apple-system, sans-serif;
+      font-family: 'Cairo', 'Plus Jakarta Sans', -apple-system, sans-serif;
       min-height: 100vh;
       display: flex;
       flex-direction: column;
@@ -33,33 +33,64 @@
     }
     .container {
       width: 100%;
-      max-width: 480px;
+      max-width: 490px;
       background: var(--card-bg);
       backdrop-filter: blur(16px);
       -webkit-backdrop-filter: blur(16px);
       border: 1px solid var(--border);
       border-radius: 28px;
-      padding: 32px 24px;
-      box-shadow: 0 20px 40px rgba(0, 0, 0, 0.45);
+      padding: 28px 24px 32px 24px;
+      box-shadow: 0 20px 45px rgba(0, 0, 0, 0.45);
       text-align: center;
+      position: relative;
+    }
+    /* Lang Switcher Bar */
+    .lang-switcher-wrap {
+      display: flex;
+      justify-content: center;
+      gap: 8px;
+      margin-bottom: 20px;
+      background: rgba(15, 23, 42, 0.6);
+      padding: 5px;
+      border-radius: 16px;
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      direction: ltr !important;
+    }
+    .lang-btn {
+      flex: 1;
+      padding: 8px 12px;
+      border: none;
+      background: transparent;
+      color: #94a3b8;
+      font-size: 13px;
+      font-weight: 700;
+      border-radius: 12px;
+      cursor: pointer;
+      transition: all 0.2s ease;
+      font-family: inherit;
+    }
+    .lang-btn.active {
+      background: #0284c7;
+      color: #ffffff;
+      box-shadow: 0 4px 12px rgba(2, 132, 199, 0.35);
     }
     .logo-badge {
-      width: 72px;
-      height: 72px;
-      border-radius: 22px;
+      width: 68px;
+      height: 68px;
+      border-radius: 20px;
       background: linear-gradient(135deg, #0284c7 0%, #38bdf8 100%);
       display: inline-flex;
       align-items: center;
       justify-content: center;
-      font-size: 36px;
+      font-size: 34px;
       box-shadow: 0 10px 24px rgba(56, 189, 248, 0.35);
-      margin-bottom: 16px;
+      margin-bottom: 14px;
     }
     h1 {
-      font-size: 24px;
+      font-size: 23px;
       font-weight: 800;
       color: #f8fafc;
-      margin-bottom: 6px;
+      margin-bottom: 8px;
     }
     .subtitle {
       font-size: 14px;
@@ -74,14 +105,14 @@
       margin-bottom: 24px;
     }
     .method-card {
-      background: rgba(15, 23, 42, 0.65);
+      background: rgba(15, 23, 42, 0.68);
       border: 1px solid rgba(255, 255, 255, 0.08);
       border-radius: 20px;
       padding: 18px;
       display: flex;
       flex-direction: column;
       gap: 12px;
-      text-align: right;
+      text-align: inherit;
       transition: all 0.2s ease;
     }
     .method-card:hover {
@@ -118,14 +149,14 @@
       border: 1px solid rgba(56, 189, 248, 0.3);
     }
     .instapay-box {
-      background: rgba(0, 0, 0, 0.3);
+      background: rgba(0, 0, 0, 0.35);
       padding: 12px 14px;
       border-radius: 12px;
       display: flex;
       align-items: center;
       justify-content: space-between;
-      direction: ltr;
-      border: 1px dashed rgba(255, 255, 255, 0.15);
+      direction: ltr !important;
+      border: 1px dashed rgba(255, 255, 255, 0.16);
     }
     .instapay-val {
       font-family: 'Plus Jakarta Sans', monospace;
@@ -139,7 +170,7 @@
       border: none;
       padding: 6px 14px;
       border-radius: 8px;
-      font-family: 'Cairo', sans-serif;
+      font-family: inherit;
       font-size: 13px;
       font-weight: 700;
       cursor: pointer;
@@ -200,6 +231,7 @@
       transform: translateY(20px);
       transition: all 0.3s ease;
       pointer-events: none;
+      z-index: 99;
     }
     .toast.show {
       opacity: 1;
@@ -210,9 +242,16 @@
 <body>
 
   <div class="container">
+    <!-- Language Selection Buttons -->
+    <div class="lang-switcher-wrap">
+      <button class="lang-btn" id="lbtn-ar" onclick="selectLang('ar')">العربية</button>
+      <button class="lang-btn" id="lbtn-en" onclick="selectLang('en')">English</button>
+      <button class="lang-btn" id="lbtn-ru" onclick="selectLang('ru')">Русский</button>
+    </div>
+
     <div class="logo-badge">🚗</div>
-    <h1>دعم مشروع Titan Launcher</h1>
-    <p class="subtitle">
+    <h1 id="page-title">دعم مشروع Titan Launcher</h1>
+    <p class="subtitle" id="page-subtitle">
       شكراً لتقديرك لمجهود التطوير! دعمك يساهم في إضافة تحديثات وميزات حصرية مستمرة للانشر السيارات.
     </p>
 
@@ -224,15 +263,15 @@
           <div class="card-title">
             <span>⚡ انستاباي (InstaPay)</span>
           </div>
-          <span class="card-tag tag-eg">داخل مصر</span>
+          <span class="card-tag tag-eg" id="tag-eg-txt">داخل مصر</span>
         </div>
-        <div style="font-size: 13px; color: #cbd5e1;">معرف التحويل المباشر:</div>
+        <div style="font-size: 13px; color: #cbd5e1;" id="lbl-ipa-direct">معرف التحويل المباشر:</div>
         <div class="instapay-box">
-          <button class="copy-btn" onclick="copyIpa()">نسخ المعرف</button>
+          <button class="copy-btn" id="btn-copy-ipa" onclick="copyIpa()">نسخ المعرف</button>
           <span class="instapay-val" id="ipa-val">saed.magdy@instapay</span>
         </div>
         <a href="instapay://" class="action-btn btn-instapay-app">
-          <span>📲 فتح تطبيق إنستاباي</span>
+          <span id="btn-open-ipa">📲 فتح تطبيق إنستاباي</span>
         </a>
       </div>
 
@@ -242,13 +281,13 @@
           <div class="card-title">
             <span>🅿️ باي بال (PayPal)</span>
           </div>
-          <span class="card-tag tag-intl">دولي وبطاقات فيزا / ماستركارد</span>
+          <span class="card-tag tag-intl" id="tag-intl-txt">دولي وبطاقات فيزا / ماستركارد</span>
         </div>
-        <p style="font-size: 13px; color: #cbd5e1; line-height: 1.5;">
+        <p style="font-size: 13px; color: #cbd5e1; line-height: 1.5;" id="desc-paypal">
           الدعم السريع والمباشر من خارج مصر أو باستخدام بطاقات الائتمان عبر PayPal.
         </p>
         <a href="https://paypal.me/SaedMagdy" target="_blank" rel="noopener noreferrer" class="action-btn btn-paypal">
-          <span>🅿️ الدفع عبر PayPal.me</span>
+          <span id="btn-open-paypal">🅿️ الدفع عبر PayPal.me</span>
         </a>
       </div>
 
@@ -262,6 +301,83 @@
   <div class="toast" id="toast">✓ تم نسخ المعرّف بنجاح!</div>
 
   <script>
+    const I18N = {
+      ar: {
+        dir: 'rtl',
+        lang: 'ar',
+        title: 'دعم مشروع Titan Launcher',
+        subtitle: 'شكراً لتقديرك لمجهود التطوير! دعمك يساهم في إضافة تحديثات وميزات حصرية مستمرة للانشر السيارات.',
+        tagEg: 'داخل مصر',
+        ipaDirect: 'معرف التحويل المباشر:',
+        copyBtn: 'نسخ المعرف',
+        openIpa: '📲 فتح تطبيق إنستاباي',
+        tagIntl: 'دولي وبطاقات فيزا / ماستركارد',
+        descPaypal: 'الدعم السريع والمباشر من خارج مصر أو باستخدام بطاقات الائتمان عبر PayPal.',
+        btnPaypal: '🅿️ الدفع عبر PayPal.me',
+        copiedToast: '✓ تم نسخ المعرّف بنجاح!'
+      },
+      en: {
+        dir: 'ltr',
+        lang: 'en',
+        title: 'Support Titan Launcher Development',
+        subtitle: 'Thank you for appreciating the effort! Your support helps sustain continuous updates and exclusive automotive cockpit features.',
+        tagEg: 'Within Egypt',
+        ipaDirect: 'Direct InstaPay IPA Address:',
+        copyBtn: 'Copy IPA',
+        openIpa: '📲 Open InstaPay App',
+        tagIntl: 'International • Cards & PayPal',
+        descPaypal: 'Direct instant support from outside Egypt or using international credit cards via PayPal.',
+        btnPaypal: '🅿️ Pay via PayPal.me',
+        copiedToast: '✓ IPA address copied to clipboard!'
+      },
+      ru: {
+        dir: 'ltr',
+        lang: 'ru',
+        title: 'Поддержка разработки Titan Launcher',
+        subtitle: 'Спасибо за интерес к проекту! Ваша поддержка помогает выпускать регулярные обновления и новые функции для автомобильного лаунчера.',
+        tagEg: 'Для Египта (InstaPay)',
+        ipaDirect: 'Прямой адрес InstaPay IPA:',
+        copyBtn: 'Копировать',
+        openIpa: '📲 Открыть приложение InstaPay',
+        tagIntl: 'Международные карты и PayPal',
+        descPaypal: 'Быстрая поддержка из любой точки мира с помощью банковских карт или кошелька PayPal.',
+        btnPaypal: '🅿️ Поддержать через PayPal.me',
+        copiedToast: '✓ Адрес скопирован в буфер!'
+      }
+    };
+
+    let curLang = 'ar';
+
+    function selectLang(lang) {
+      if (!I18N[lang]) lang = 'ar';
+      curLang = lang;
+      const dict = I18N[lang];
+
+      document.documentElement.lang = dict.lang;
+      document.documentElement.dir = dict.dir;
+
+      document.getElementById('page-title').innerText = dict.title;
+      document.getElementById('page-subtitle').innerText = dict.subtitle;
+      document.getElementById('tag-eg-txt').innerText = dict.tagEg;
+      document.getElementById('lbl-ipa-direct').innerText = dict.ipaDirect;
+      document.getElementById('btn-copy-ipa').innerText = dict.copyBtn;
+      document.getElementById('btn-open-ipa').innerText = dict.openIpa;
+      document.getElementById('tag-intl-txt').innerText = dict.tagIntl;
+      document.getElementById('desc-paypal').innerText = dict.descPaypal;
+      document.getElementById('btn-open-paypal').innerText = dict.btnPaypal;
+      document.getElementById('toast').innerText = dict.copiedToast;
+
+      // Update button active state
+      ['ar', 'en', 'ru'].forEach(l => {
+        const btn = document.getElementById('lbtn-' + l);
+        if (btn) btn.classList.toggle('active', l === lang);
+      });
+
+      try {
+        localStorage.setItem('titan_donate_lang', lang);
+      } catch (e) {}
+    }
+
     function copyIpa() {
       const text = document.getElementById('ipa-val').innerText;
       navigator.clipboard.writeText(text).then(() => {
@@ -282,6 +398,20 @@
       t.classList.add('show');
       setTimeout(() => t.classList.remove('show'), 2200);
     }
+
+    // Auto-detect browser/saved language on launch
+    (function init() {
+      let saved = null;
+      try { saved = localStorage.getItem('titan_donate_lang'); } catch (e) {}
+      if (saved && I18N[saved]) {
+        selectLang(saved);
+        return;
+      }
+      const navLang = (navigator.language || navigator.userLanguage || '').toLowerCase();
+      if (navLang.startsWith('ru')) selectLang('ru');
+      else if (navLang.startsWith('ar')) selectLang('ar');
+      else selectLang('en');
+    })();
   </script>
 </body>
 </html>
