@@ -312,6 +312,8 @@ const I18N = {
     'm-sec-num-format': 'شكل الأرقام',
     'num-fmt-western': '1, 2, 3',
     'num-fmt-eastern': '١، ٢، ٣',
+    'lbl-donate-title': '☕ لدعم استمرار وتطوير البرنامج',
+    'lbl-donate-desc': 'امسح الرمز بكاميرا الهاتف للدعم عبر InstaPay أو Buy Me a Coffee',
     'm-sec-color': 'لون طلاء السيارة',
     'm-sec-roof': 'لون السقف',
     'roof-btn-black': 'سقف أسود',
@@ -434,7 +436,9 @@ const I18N = {
     'lang-ru': 'Russian',
     'm-sec-num-format': 'Number Format',
     'num-fmt-western': '1, 2, 3',
-    'num-fmt-eastern': '١، ٢، ٣'
+    'num-fmt-eastern': '١، ٢، ٣',
+    'lbl-donate-title': '☕ Buy Me a Coffee / Support Dev',
+    'lbl-donate-desc': 'Scan with your phone camera to support via Buy Me a Coffee or InstaPay'
   },
   ru: {
     'm-title': 'Настройки автомобиля и кокпита',
@@ -448,10 +452,14 @@ const I18N = {
     'm-sec-num-format': 'شكل الأرقام',
     'num-fmt-western': '1, 2, 3',
     'num-fmt-eastern': '١، ٢، ٣',
+    'lbl-donate-title': '☕ لدعم استمرار وتطوير البرنامج',
+    'lbl-donate-desc': 'امسح الرمز بكاميرا الهاتف للدعم عبر InstaPay أو Buy Me a Coffee',
     'lang-ru': 'Русский',
     'm-sec-num-format': 'Формат чисел',
     'num-fmt-western': '1, 2, 3',
     'num-fmt-eastern': '١، ٢، ٣',
+    'lbl-donate-title': '☕ لدعم استمرار وتطوير البرنامج',
+    'lbl-donate-desc': 'امسح الرمز بكاميرا الهاتف للدعم عبر InstaPay أو Buy Me a Coffee',
     'm-sec-color': 'Цвет кузова',
     'm-sec-roof': 'Цвет крыши',
     'roof-btn-black': 'Двухцветный',
@@ -506,7 +514,9 @@ const I18N = {
     'lbl-fuel': 'ТОПЛИВО',
     'lbl-ambient': 'УЛИЦА',
     'lbl-inst-fuel': 'ТЕКУЩИЙ',
-    'lbl-range': 'ЗАПАС ХОДА'
+    'lbl-range': 'ЗАПАС ХОДА',
+    'lbl-donate-title': '☕ Поддержать разработку (Buy Me a Coffee)',
+    'lbl-donate-desc': 'Отсканируйте камерой смартфона для поддержки проекта'
   }
 };
 
@@ -520,6 +530,7 @@ function setLanguage(lang) {
   const bEn = document.getElementById('lang-en');
   const bRu = document.getElementById('lang-ru');
   const dirTargets = [
+    document.querySelector('.credits-modal-box'),
     document.getElementById('modal-box-inner'),
     document.querySelector('#tpms-modal .modal-box'),
     document.querySelector('#tpms-confirm-modal .modal-box'),

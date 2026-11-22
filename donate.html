@@ -1,0 +1,286 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>دعم وتطوير Titan Launcher | Support Developer</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700;800;900&family=Plus+Jakarta+Sans:wght@500;700;800&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --primary: #38bdf8;
+      --bg: #0b1120;
+      --card-bg: rgba(30, 41, 59, 0.7);
+      --border: rgba(255, 255, 255, 0.12);
+    }
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      -webkit-tap-highlight-color: transparent;
+    }
+    body {
+      background: radial-gradient(circle at top, #1e293b 0%, #0b1120 100%);
+      color: #f8fafc;
+      font-family: 'Cairo', -apple-system, sans-serif;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 24px 16px;
+    }
+    .container {
+      width: 100%;
+      max-width: 480px;
+      background: var(--card-bg);
+      backdrop-filter: blur(16px);
+      -webkit-backdrop-filter: blur(16px);
+      border: 1px solid var(--border);
+      border-radius: 28px;
+      padding: 32px 24px;
+      box-shadow: 0 20px 40px rgba(0, 0, 0, 0.45);
+      text-align: center;
+    }
+    .logo-badge {
+      width: 72px;
+      height: 72px;
+      border-radius: 22px;
+      background: linear-gradient(135deg, #0284c7 0%, #38bdf8 100%);
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 36px;
+      box-shadow: 0 10px 24px rgba(56, 189, 248, 0.35);
+      margin-bottom: 16px;
+    }
+    h1 {
+      font-size: 24px;
+      font-weight: 800;
+      color: #f8fafc;
+      margin-bottom: 6px;
+    }
+    .subtitle {
+      font-size: 14px;
+      color: #94a3b8;
+      margin-bottom: 24px;
+      line-height: 1.6;
+    }
+    .methods-grid {
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+      margin-bottom: 24px;
+    }
+    .method-card {
+      background: rgba(15, 23, 42, 0.65);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      border-radius: 20px;
+      padding: 18px;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      text-align: right;
+      transition: all 0.2s ease;
+    }
+    .method-card:hover {
+      border-color: rgba(56, 189, 248, 0.4);
+      transform: translateY(-2px);
+    }
+    .card-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    .card-title {
+      font-size: 17px;
+      font-weight: 700;
+      color: #f1f5f9;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .card-tag {
+      font-size: 11px;
+      font-weight: 700;
+      padding: 4px 10px;
+      border-radius: 20px;
+    }
+    .tag-eg {
+      background: rgba(34, 197, 94, 0.2);
+      color: #4ade80;
+      border: 1px solid rgba(74, 222, 128, 0.3);
+    }
+    .tag-intl {
+      background: rgba(245, 158, 11, 0.2);
+      color: #fbbf24;
+      border: 1px solid rgba(251, 191, 36, 0.3);
+    }
+    .instapay-box {
+      background: rgba(0, 0, 0, 0.3);
+      padding: 12px 14px;
+      border-radius: 12px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      direction: ltr;
+      border: 1px dashed rgba(255, 255, 255, 0.15);
+    }
+    .instapay-val {
+      font-family: 'Plus Jakarta Sans', monospace;
+      font-size: 15px;
+      font-weight: 700;
+      color: #38bdf8;
+    }
+    .copy-btn {
+      background: #0284c7;
+      color: #fff;
+      border: none;
+      padding: 6px 14px;
+      border-radius: 8px;
+      font-family: 'Cairo', sans-serif;
+      font-size: 13px;
+      font-weight: 700;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+    .copy-btn:active {
+      background: #0369a1;
+    }
+    .action-btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 10px;
+      width: 100%;
+      padding: 14px;
+      border-radius: 14px;
+      font-size: 16px;
+      font-weight: 800;
+      text-decoration: none;
+      transition: all 0.2s;
+      cursor: pointer;
+    }
+    .btn-coffee {
+      background: linear-gradient(135deg, #ffdd00 0%, #f59e0b 100%);
+      color: #0f172a;
+      box-shadow: 0 8px 20px rgba(245, 158, 11, 0.3);
+    }
+    .btn-coffee:hover {
+      box-shadow: 0 10px 24px rgba(245, 158, 11, 0.45);
+      transform: translateY(-1px);
+    }
+    .btn-instapay-app {
+      background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+      color: #ffffff;
+      box-shadow: 0 8px 20px rgba(16, 185, 129, 0.3);
+    }
+    .footer {
+      font-size: 13px;
+      color: #64748b;
+      margin-top: 10px;
+    }
+    .footer span {
+      color: #94a3b8;
+      font-weight: 700;
+    }
+    .toast {
+      position: fixed;
+      bottom: 24px;
+      background: #10b981;
+      color: white;
+      padding: 10px 20px;
+      border-radius: 30px;
+      font-weight: 700;
+      font-size: 14px;
+      box-shadow: 0 10px 20px rgba(0,0,0,0.3);
+      opacity: 0;
+      transform: translateY(20px);
+      transition: all 0.3s ease;
+      pointer-events: none;
+    }
+    .toast.show {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  </style>
+</head>
+<body>
+
+  <div class="container">
+    <div class="logo-badge">🚗</div>
+    <h1>دعم مشروع Titan Launcher</h1>
+    <p class="subtitle">
+      شكراً لتقديرك لمجهود التطوير! دعمك يساهم في إضافة تحديثات وميزات حصرية مستمرة للانشر السيارات.
+    </p>
+
+    <div class="methods-grid">
+      
+      <!-- InstaPay (Egypt) -->
+      <div class="method-card">
+        <div class="card-header">
+          <div class="card-title">
+            <span>⚡ انستاباي (InstaPay)</span>
+          </div>
+          <span class="card-tag tag-eg">داخل مصر</span>
+        </div>
+        <div style="font-size: 13px; color: #cbd5e1;">معرف التحويل المباشر:</div>
+        <div class="instapay-box">
+          <button class="copy-btn" onclick="copyIpa()">نسخ المعرف</button>
+          <span class="instapay-val" id="ipa-val">saed.magdy@instapay</span>
+        </div>
+        <a href="instapay://" class="action-btn btn-instapay-app">
+          <span>📲 فتح تطبيق إنستاباي</span>
+        </a>
+      </div>
+
+      <!-- Buy Me A Coffee (International) -->
+      <div class="method-card">
+        <div class="card-header">
+          <div class="card-title">
+            <span>☕ Buy Me a Coffee</span>
+          </div>
+          <span class="card-tag tag-intl">دولي و فيزا / ماستركارد</span>
+        </div>
+        <p style="font-size: 13px; color: #cbd5e1; line-height: 1.5;">
+          ادعم بفنجان قهوة بكل سهولة باستخدام الفيزا، الماستركارد، أو Apple Pay.
+        </p>
+        <a href="https://buymeacoffee.com/saed.magdy" target="_blank" rel="noopener noreferrer" class="action-btn btn-coffee">
+          <span>☕ Buy Me a Coffee</span>
+        </a>
+      </div>
+
+    </div>
+
+    <div class="footer">
+      Titan Cockpit Launcher • Developed by <span>Dr. Saed Magdy</span>
+    </div>
+  </div>
+
+  <div class="toast" id="toast">✓ تم نسخ المعرّف بنجاح!</div>
+
+  <script>
+    function copyIpa() {
+      const text = document.getElementById('ipa-val').innerText;
+      navigator.clipboard.writeText(text).then(() => {
+        showToast();
+      }).catch(() => {
+        const input = document.createElement('input');
+        input.value = text;
+        document.body.appendChild(input);
+        input.select();
+        document.execCommand('copy');
+        document.body.removeChild(input);
+        showToast();
+      });
+    }
+
+    function showToast() {
+      const t = document.getElementById('toast');
+      t.classList.add('show');
+      setTimeout(() => t.classList.remove('show'), 2200);
+    }
+  </script>
+</body>
+</html>
