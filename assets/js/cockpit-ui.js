@@ -1503,7 +1503,7 @@ function toggleDoor(key) {
         window.AndroidBridge.checkForUpdates(false);
       } else {
         setTimeout(() => {
-          showLauncherToast(isAr ? '✓ أنت تستخدم أحدث إصدار v2.1.2' : (isRu ? '✓ У вас установлена актуальная версия v2.1.2' : '✓ You are on the latest version v2.1.2'), 2500);
+          showLauncherToast(isAr ? '✓ أنت تستخدم أحدث إصدار v2.1.3' : (isRu ? '✓ У вас установлена актуальная версия v2.1.3' : '✓ You are on the latest version v2.1.3'), 2500);
         }, 1200);
       }
     }
