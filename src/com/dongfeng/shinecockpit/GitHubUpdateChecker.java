@@ -38,7 +38,7 @@ public class GitHubUpdateChecker {
             @Override
             public void run() {
                 try {
-                    String currentVersion = "2.2.1";
+                    String currentVersion = "2.1.2";
                     try {
                         PackageInfo pInfo = context.getPackageManager().getPackageInfo(context.getPackageName(), 0);
                         currentVersion = pInfo.versionName;
