@@ -858,6 +858,14 @@ public class MainActivity extends Activity implements CockpitMediaListenerServic
                 } catch (Exception ignored) {}
             }
         }, 40000);
+
+        // Check for updates quietly after boot (10 seconds delay so boot stays ultra-fast)
+        mHandler.postDelayed(new Runnable() {
+            @Override
+            public void run() {
+                GitHubUpdateChecker.checkForUpdates(MainActivity.this, true);
+            }
+        }, 10000);
     }
 
     private synchronized void handleFatalCrashAndRecovery(String reason) {
@@ -1965,6 +1973,11 @@ public class MainActivity extends Activity implements CockpitMediaListenerServic
                     launchFallbackFactoryLauncher();
                 }
             });
+        }
+
+        @JavascriptInterface
+        public void checkForUpdates(final boolean silentIfUpToDate) {
+            GitHubUpdateChecker.checkForUpdates(MainActivity.this, silentIfUpToDate);
         }
     }
 
