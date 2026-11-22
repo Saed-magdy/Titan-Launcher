@@ -1,0 +1,587 @@
+<!DOCTYPE html>
+<html lang="en" dir="ltr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>Titan Launcher</title>
+
+  <!-- Modular Cockpit Stylesheets (100% Local Zero-Latency CSS) -->
+  <link rel="stylesheet" href="css/cockpit-theme.css">
+  <link rel="stylesheet" href="css/shinewave-card.css">
+  <link rel="stylesheet" href="css/shinewave-studio.css">
+</head>
+<body>
+  <div id="cockpit-viewport">
+  <!-- Ambient Petroleum Lighting & Audi Ground Reflection -->
+  <div class="bg-ambient-layer"></div>
+  <div class="bottom-seamless-gradient"></div>
+  <div class="petroleum-ambient-glow"></div>
+  <div class="car-ground-shadow"></div>
+
+  <!-- 5. Interactive 360-Degree 3D Car Viewport -->
+  <div id="canvas-container"></div>
+
+  <!-- Top Luxury Status Bar (Date on Left + Connectivity on Right) -->
+  <div class="top-statusbar" id="top-statusbar">
+    <div class="statusbar-date" id="sb-date">
+      <svg class="sb-date-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+        <rect x="3" y="4" width="18" height="18" rx="3" ry="3"/>
+        <line x1="16" y1="2" x2="16" y2="6"/>
+        <line x1="8" y1="2" x2="8" y2="6"/>
+        <line x1="3" y1="10" x2="21" y2="10"/>
+      </svg>
+      <span id="sb-date-text">Tuesday, 10 November 2026</span>
+    </div>
+
+    <div class="statusbar-indicators" id="statusbar-indicators">
+      <!-- Bluetooth Indicator -->
+      <div class="sb-indicator-btn connected" id="sb-indicator-bluetooth" onclick="openConnectivityModal('bluetooth')" title="Bluetooth: Connected">
+        <svg class="sb-icon sb-icon-bluetooth" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+          <path class="sb-shape" d="M 6.5 6.5 L 17.5 17.5 L 12 23 L 12 1 L 17.5 6.5 L 6.5 17.5" />
+          <line class="sb-dash" x1="4" y1="4" x2="20" y2="20" stroke-width="2.2" stroke-linecap="round" />
+        </svg>
+      </div>
+      <!-- Wi-Fi Indicator -->
+      <div class="sb-indicator-btn connected" id="sb-indicator-wifi" onclick="openConnectivityModal('wifi')" title="Wi-Fi: Connected">
+        <svg class="sb-icon sb-icon-wifi" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+          <path class="sb-shape" d="M 1.5 8.5 C 7.5 3 16.5 3 22.5 8.5" />
+          <path class="sb-shape" d="M 5 12.5 C 9 9 15 9 19 12.5" />
+          <path class="sb-shape" d="M 8.5 16.5 C 10.5 14.8 13.5 14.8 15.5 16.5" />
+          <circle class="sb-shape" cx="12" cy="20" r="1.6" fill="currentColor" stroke="none" />
+          <line class="sb-dash" x1="3" y1="3" x2="21" y2="21" stroke-width="2.2" stroke-linecap="round" />
+        </svg>
+      </div>
+      <!-- Cellular / Network Indicator -->
+      <div class="sb-indicator-btn connected" id="sb-indicator-cellular" onclick="openConnectivityModal('cellular')" title="Cellular Network: Connected">
+        <svg class="sb-icon sb-icon-cellular" viewBox="0 0 24 24" fill="currentColor">
+          <rect class="sb-shape" x="2" y="16" width="3.2" height="6" rx="1" />
+          <rect class="sb-shape" x="7.2" y="12" width="3.2" height="10" rx="1" />
+          <rect class="sb-shape" x="12.4" y="7" width="3.2" height="15" rx="1" />
+          <rect class="sb-shape" x="17.6" y="2" width="3.2" height="20" rx="1" />
+          <line class="sb-dash" x1="2" y1="2" x2="22" y2="22" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" />
+        </svg>
+      </div>
+      <!-- Settings Icon Indicator (Unified size & styling matching top status icons) -->
+      <div class="sb-indicator-btn" id="sb-indicator-settings" title="Settings" onclick="openSettings()">
+        <img class="sb-icon sb-icon-settings" src="setting_gear_refined.png" alt="Settings" />
+      </div>
+    </div>
+  </div>
+
+  <!-- 2, 3, 4: HUD CLUSTER ZONE (Mirror Symmetry: [Left Card: Instant + Range] | [Center Clock + [PiP] AM/PM [Settings]] | [Right Card: Fuel + Outside Temp]) -->
+  <div class="hud top-metrics-row">
+    <!-- LEFT CARD: Instant Consumption (Row 1) & Remaining Range (Row 2) - Transparent 3-Col Layout -->
+    <div class="telemetry-card telemetry-card-left" title="Fuel Economy & Range">
+      <!-- Row 1: Instantaneous Fuel Consumption (Icon | Value | Unit) -->
+      <div class="tele-grid-row">
+        <div class="tele-col-icon">
+          <svg class="tele-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M12 14l3-3"/>
+            <path d="M3.34 19a10 10 0 1 1 17.32 0"/>
+          </svg>
+        </div>
+        <div class="tele-col-mid">
+          <span class="tele-val-highlight" id="val-inst-fuel">6.4</span>
+        </div>
+        <div class="tele-col-right">
+          <span class="tele-unit-large" id="unit-inst-fuel">L/100</span>
+        </div>
+      </div>
+      <!-- Row 2: Estimated Remaining Range (Icon | Value | Unit) -->
+      <div class="tele-grid-row">
+        <div class="tele-col-icon">
+          <svg class="tele-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M4 19L9 5"/>
+            <path d="M20 19L15 5"/>
+            <line x1="12" y1="7" x2="12" y2="10"/>
+            <line x1="12" y1="14" x2="12" y2="17"/>
+          </svg>
+        </div>
+        <div class="tele-col-mid">
+          <span class="tele-val-white" id="val-range">267</span>
+        </div>
+        <div class="tele-col-right">
+          <span class="tele-unit-large" id="unit-range">km</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- CENTER CLUSTER: Lowered Clock + [PiP] AM/PM [Settings] Subrow -->
+    <div class="speedometer-center" title="Digital Clock">
+      <div class="clock-digits" id="clock-digits">04:00</div>
+      <div class="clock-subrow">
+        <!-- Center: AM/PM Indicator (Settings moved up to top status bar) -->
+        <div class="clock-ampm" id="clock-ampm" style="margin: 0 auto;">PM</div>
+      </div>
+    </div>
+
+    <!-- RIGHT CARD: Fuel Remaining (Row 1) & Outside Temp (Row 2) - Mirrored Symmetrical Layout -->
+    <div class="telemetry-card telemetry-card-right" title="Fuel Remaining & Temperature">
+      <!-- Row 1: Fuel Remaining (Liters | Percentage | Icon on Right) -->
+      <div class="tele-grid-row">
+        <div class="tele-col-left-mirrored">
+          <span class="tele-val-white" id="val-fuel-liters">41.3</span>
+          <span class="tele-unit-large" id="unit-fuel-liters">L</span>
+        </div>
+        <div class="tele-col-mid">
+          <span class="tele-val-highlight" id="val-fuel-pct">75%</span>
+        </div>
+        <div class="tele-col-icon-mirrored">
+          <svg class="tele-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M3 22L15 22"/>
+            <path d="M4 9L14 9"/>
+            <path d="M14 22L14 4C14 2.9 13.1 2 12 2L6 2C4.9 2 4 2.9 4 4L4 22"/>
+            <path d="M14 13L16 13C17.1 13 18 13.9 18 15L18 18C18 19.1 18.9 20 20 20C21.1 20 22 19.1 22 18L22 9L19 6"/>
+          </svg>
+        </div>
+      </div>
+      <!-- Row 2: Outside Temperature (OUTSIDE | 24Â°C | Icon on Right) -->
+      <div class="tele-grid-row">
+        <div class="tele-col-left-mirrored">
+          <span class="tele-unit-label" id="lbl-ambient">OUTSIDE</span>
+        </div>
+        <div class="tele-col-mid">
+          <span class="tele-val-highlight" id="val-ambient">24</span>
+          <span class="tele-unit-large" id="unit-ambient">&deg;C</span>
+        </div>
+        <div class="tele-col-icon-mirrored">
+          <svg class="tele-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M14 14.76V3.5a2.5 2.5 0 0 0-5 0v11.26a4.5 4.5 0 1 0 5 0z"/>
+          </svg>
+        </div>
+      </div>
+    </div>
+  </div>
+    <div class="hud light-bar-dock-custom interactive" id="lightbar-dock">
+    <button class="light-bar-btn btn-hazard" id="btn-lgt-hazard" onclick="toggleFlasher('hazard')" title="Hazard Warning">
+      <svg viewBox="0 0 48 48" class="light-bar-svg" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M 24 6.5 L 44 41 C 44.5 41.9 43.8 43 42.7 43 L 5.3 43 C 4.2 43 3.5 41.9 4 41 Z" stroke-width="3" />
+        <path d="M 24 16.5 L 36.5 37.5 L 11.5 37.5 Z" stroke-width="2.4" />
+      </svg>
+    </button>
+    <div class="light-bar-divider"></div>
+    <button class="light-bar-btn btn-fog" id="btn-lgt-fog" onclick="toggleLight('fog')" title="Front Fog Lights">
+      <svg viewBox="0 0 48 48" class="light-bar-svg" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M 28 13 L 34 13 C 39.5 13 44 18 44 24 C 44 30 39.5 35 34 35 L 28 35 Z" stroke-width="2.8" />
+        <line x1="25" y1="17" x2="6" y2="24" stroke-width="2.8" />
+        <line x1="25" y1="24" x2="6" y2="31" stroke-width="2.8" />
+        <line x1="25" y1="31" x2="6" y2="38" stroke-width="2.8" />
+        <path d="M 15 9 C 18 14 12 19 15 24 C 18 29 12 34 15 39 C 18 44 12 47 15 49" stroke-width="2.6" />
+      </svg>
+    </button>
+    <div class="light-bar-divider"></div>
+    <button class="light-bar-btn btn-dipped" id="btn-lgt-dipped" onclick="toggleLight('dipped')" title="Low Beam">
+      <svg viewBox="0 0 48 48" class="light-bar-svg" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M 28 13 L 34 13 C 39.5 13 44 18 44 24 C 44 30 39.5 35 34 35 L 28 35 Z" stroke-width="2.8" />
+        <line x1="25" y1="17" x2="6" y2="24" stroke-width="2.8" />
+        <line x1="25" y1="24" x2="6" y2="31" stroke-width="2.8" />
+        <line x1="25" y1="31" x2="6" y2="38" stroke-width="2.8" />
+      </svg>
+    </button>
+    <div class="light-bar-divider"></div>
+    <button class="light-bar-btn btn-pos" id="btn-lgt-pos" onclick="toggleLight('position')" title="Position / Parking Lights">
+      <svg viewBox="0 0 48 48" class="light-bar-svg" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M 15 17 L 18 17 C 20.5 17 22.5 20 22.5 24 C 22.5 28 20.5 31 18 31 L 15 31 Z" stroke-width="2.6" />
+        <line x1="12" y1="18" x2="4" y2="14" stroke-width="2.6" />
+        <line x1="11" y1="24" x2="3" y2="24" stroke-width="2.6" />
+        <line x1="12" y1="30" x2="4" y2="34" stroke-width="2.6" />
+        <path d="M 33 17 L 30 17 C 27.5 17 25.5 20 25.5 24 C 25.5 28 27.5 31 30 31 L 33 31 Z" stroke-width="2.6" />
+        <line x1="36" y1="18" x2="44" y2="14" stroke-width="2.6" />
+        <line x1="37" y1="24" x2="45" y2="24" stroke-width="2.6" />
+        <line x1="36" y1="30" x2="44" y2="34" stroke-width="2.6" />
+      </svg>
+    </button>
+    <div class="light-bar-divider"></div>
+    <button class="light-bar-btn btn-main" id="btn-lgt-main" onclick="toggleLight('main')" title="High Beam">
+      <svg viewBox="0 0 48 48" class="light-bar-svg" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M 28 13 L 34 13 C 39.5 13 44 18 44 24 C 44 30 39.5 35 34 35 L 28 35 Z" stroke-width="2.8" />
+        <line x1="25" y1="16" x2="6" y2="16" stroke-width="2.8" />
+        <line x1="25" y1="21" x2="6" y2="21" stroke-width="2.8" />
+        <line x1="25" y1="27" x2="6" y2="27" stroke-width="2.8" />
+        <line x1="25" y1="32" x2="6" y2="32" stroke-width="2.8" />
+      </svg>
+    </button>
+  </div>
+  <!-- UNDER-CAR ROW (2x2 Square Control Buttons: Windows, Sunroof, Trunk, Icon-Only TPMS) -->
+  <div class="hud under-car-row interactive" id="under-car-row">
+    <div class="under-car-ctrl-dock" id="under-car-ctrls">
+      <!-- Single Master Windows Toggle: Toggles All 4 Windows Simultaneously -->
+      <button class="under-car-btn" id="btn-win-toggle" onclick="toggleAllWindows()" title="All Windows (Open / Close All)">
+        <svg viewBox="0 0 44 44" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M 8 18 L 17 8 L 33 8 C 34.5 8 35.5 9 35.5 10.5 L 35.5 34 C 35.5 35.5 34.5 36.5 33 36.5 L 11 36.5 C 9.5 36.5 8 35.5 8 34 L 8 18 Z" stroke-width="2.2" />
+          <path d="M 11.5 18.5 L 18 11 L 32 11 L 32 19 L 11.5 19 Z" stroke-width="2" />
+          <line x1="23" y1="31" x2="23" y2="23" stroke-width="2.4" />
+          <polyline points="20.5,25.5 23,23 25.5,25.5" stroke-width="2.4" />
+          <line x1="29" y1="23" x2="29" y2="31" stroke-width="2.4" />
+          <polyline points="26.5,28.5 29,31 31.5,28.5" stroke-width="2.4" />
+        </svg>
+      </button>
+      <!-- Sunroof Control Modal Trigger -->
+      <button class="under-car-btn" id="btn-side-sunroof" onclick="openSunroofModal()" title="Sunroof Control">
+        <svg viewBox="0 0 46 44" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round">
+          <line x1="4" y1="29" x2="42" y2="29" stroke-width="2.4" />
+          <path d="M 4 29 L 13 17.5 C 14.5 16 17 15.5 19.5 15.5 L 38 15.5 C 40 15.5 41.5 17 42 19.5 L 42 29" stroke-width="2.4" />
+          <line x1="26.5" y1="16" x2="26.5" y2="29" stroke-width="2.6" />
+          <path d="M 9 27 L 15 18 L 24.5 18 L 24.5 27 Z" stroke-width="2" />
+          <path d="M 28.5 18 L 38 18 L 40 27 L 28.5 27 Z" stroke-width="2" />
+          <line x1="20" y1="14.5" x2="33" y2="8" stroke-width="2.8" />
+          <line x1="32.5" y1="8.5" x2="32.5" y2="14.5" stroke-width="2.4" />
+        </svg>
+      </button>
+      <!-- Trunk Toggle -->
+      <button class="under-car-btn" id="btn-side-trunk" onclick="toggleTrunk()" title="Trunk">
+        <svg viewBox="0 0 46 44" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M 4 17 L 13 17 L 22 22 L 29 25 L 34 26 C 36 26.5 36.5 28 36.5 30 L 36.5 33 C 36.5 35 35 36.5 33 36.5 L 29 36.5 C 29 32.5 22 32.5 22 36.5 L 4 36.5" stroke-width="2.4" />
+          <circle cx="25.5" cy="36.5" r="4.2" stroke-width="2.4" />
+          <path d="M 6 18.5 L 13 18.5 L 20 22.5 L 6 22.5 Z" stroke-width="2" />
+          <path d="M 28 24.5 L 35 15.5 C 35.5 15 37 15.5 36.5 17 L 34 21" stroke-width="2.6" />
+          <path d="M 37.5 27 C 39 24 38.5 20.5 36.8 18" stroke-width="2.2" />
+          <polyline points="35,20 36.8,17.8 38.8,19.5" stroke-width="2.2" />
+        </svg>
+      </button>
+      <!-- TPMS Icon-Only Button (Equal size in 2x2 square grid, no text) -->
+      <button class="under-car-btn tpms-grid-btn interactive" id="tpms-badge" onclick="openTpmsModal()" title="TPMS">
+        <svg class="tpms-icon-svg" viewBox="0 0 24 24">
+          <path d="M6 4.5C3.8 6.5 2.5 9.4 2.5 12.6C2.5 16.2 4.2 19.3 6.8 21H17.2C19.8 19.3 21.5 16.2 21.5 12.6C21.5 9.4 20.2 6.5 18 4.5" stroke-linecap="round" stroke-linejoin="round"/>
+          <line x1="12" y1="8" x2="12" y2="13.5" stroke-linecap="round"/>
+          <circle cx="12" cy="17" r="1" fill="currentColor"/>
+        </svg>
+      </button>
+    </div>
+  </div>
+
+  <!-- 6b. SMART NAV & RADAR COMPANION WIDGET (Compact Square Pod on Right - 100% Borderless & Seamless) -->
+  <div class="hud nav-radar-widget interactive" id="nav-radar-widget" onclick="cycleNavRadarDemo()" title="Smart Nav & Speedcam Assistant (Tap to switch mode / Long tap to open app)">
+    <!-- Top: Dynamic Visual Badge (Speed Sign / Nav Arrow) -->
+    <div class="nr-badge-container">
+      <!-- Radarbot Speed Limit Sign (Active Alert Mode) -->
+      <div class="nr-speed-sign" id="nr-speed-sign">
+        <span class="nr-speed-val" id="nr-speed-val">90</span>
+        <span class="nr-speed-unit">KM/H</span>
+      </div>
+      <!-- Google Maps Directional Arrow -->
+      <div class="nr-nav-arrow-sign" id="nr-nav-arrow-sign">
+        <svg viewBox="0 0 24 24">
+          <path d="M9 4h6a3 3 0 0 1 3 3v13M14 9l4-5 4 5"/>
+        </svg>
+      </div>
+    </div>
+
+    <!-- Center: Instruction Metadata -->
+    <div class="nr-meta-col">
+      <div class="nr-header-line">
+        <span class="nr-live-dot" id="nr-live-dot"></span>
+        <span class="nr-brand-label" id="nr-brand-label">RADARBOT</span>
+      </div>
+      <div class="nr-title" id="nr-title">&#1585;&#1575;&#1583;&#1575;&#1585; &#1605;&#1578;&#1582;&#1585;&#1603; 90</div>
+    </div>
+
+    <!-- Bottom: Countdown Distance Pill -->
+    <div class="nr-gauge-row" id="nr-gauge-row">
+      <span class="nr-dist-val" id="nr-dist-val">100m</span>
+      <span class="nr-tag-end" id="nr-tag-end">&#1578;&#1607;&#1583;&#1610;&#1574;&#1577;</span>
+    </div>
+  </div>
+
+  <!-- TPMS DEFOCUS GLASS MODAL (Opens when TPMS Badge is tapped) -->
+  <div class="modal-overlay interactive" id="tpms-modal" onclick="closeTpmsModal(event)">
+    <div class="modal-box ltr-mode" onclick="event.stopPropagation()">
+
+      <div class="tpms-modal-body">
+        <div class="tpms-card-graphic-wrap">
+          <div class="tpms-card-header-row" id="tpms-card-header-row">
+            <span class="tpms-card-title" id="tpms-card-title">TPMS</span>
+            <span class="tpms-status-wrap" id="tpms-status-wrap">
+              <span class="tpms-status-dot" id="tpms-status-dot"></span>
+              <span class="tpms-card-status-text" id="tpms-card-status-text">NORMAL</span>
+            </span>
+          </div>
+          <img src="tpms_graphic_transparent.png" class="tpms-custom-img" alt="TPMS Normal Status" style="background: transparent !important;" />
+          <div id="tpms-card-overlay-msg" style="position:absolute; bottom:10px; left:50%; transform:translateX(-50%); background:rgba(134, 239, 172, 0.22); color:#86efac; padding:6px 16px; border-radius:14px; font-family: 'Plus Jakarta Sans', 'Noto Sans Arabic', sans-serif; font-size:13px; font-weight:800; white-space:nowrap; box-shadow:0 0 16px rgba(134,239,172,0.4); display:none;">&#10003; TPMS RESET COMPLETED</div>
+        </div>
+        <div class="tpms-modal-footer">
+          <button class="tpms-reset-btn" onclick="openTpmsResetConfirm()" id="btn-reset-tpms">RESET</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- TPMS RESET WARNING CONFIRMATION MODAL -->
+  <div class="modal-overlay interactive" id="tpms-confirm-modal" style="z-index: 120;" onclick="closeTpmsResetConfirm(event)">
+    <div class="modal-box ltr-mode tpms-confirm-box" onclick="event.stopPropagation()">
+      <div class="tpms-confirm-msg" id="tpms-confirm-msg">
+        Please ensure the selected tire is inflated to normal first
+      </div>
+      <div class="tpms-confirm-actions">
+        <button class="tpms-confirm-btn cancel" id="btn-tpms-cancel" onclick="closeTpmsResetConfirm()">Cancel</button>
+        <button class="tpms-confirm-btn sure" onclick="confirmTpmsReset()" id="btn-tpms-sure">Sure</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- SUNROOF FLOATING CARD OVER 3D CAR (Ultra-minimalist, borderless text commands, no title, no close button, no icons, centered directly above TPMS) -->
+  <div class="sunroof-bar-overlay" id="sunroof-modal" onclick="closeSunroofModal(event)">
+    <div class="sunroof-floating-card" id="sunroof-bar-inner" onclick="event.stopPropagation()">
+      <div class="sunroof-card-actions">
+        <button class="sr-card-btn" id="btn-sr-open" onclick="selectSunroofAction('open')">Open</button>
+        <button class="sr-card-btn" id="btn-sr-close" onclick="selectSunroofAction('close')">Close</button>
+        <button class="sr-card-btn" id="btn-sr-tilt" onclick="selectSunroofAction('tilt')">Tilt</button>
+        <button class="sr-card-btn stop" id="btn-sr-stop" onclick="selectSunroofAction('stop')">Stop</button>
+      </div>
+    </div>
+  </div>
+
+    
+  <!-- 7. QUICK APPS DECK (5 Customizable Slots with Native Official Logos) -->
+  <div class="hud quick-apps-deck interactive" id="quick-apps-deck">
+    <!-- Populated dynamically by cockpit-engine.js -->
+  </div>
+
+  <!-- QUICK APP SELECTION MODAL (Opened on Long-Press on any slot) -->
+  <div class="modal-overlay interactive" id="quick-app-select-modal" onclick="closeQuickAppModal(event)">
+    <div class="modal-box ltr-mode" onclick="event.stopPropagation()">
+      <div class="modal-header">
+        <div class="modal-title" id="quick-app-modal-title">Choose Application</div>
+        <button class="modal-close" onclick="closeQuickAppModal()">&times;</button>
+      </div>
+      <div class="quick-app-picker-grid" id="quick-app-picker-grid">
+      </div>
+    </div>
+  </div>
+
+<!-- FULL-SCREEN COCKPIT BLURRED APP DRAWER (Opens when Apps Grid Icon is tapped) -->
+  <div class="app-drawer-overlay interactive" id="app-drawer-overlay" onclick="closeAppDrawer(event)">
+    <div class="app-drawer-header" onclick="event.stopPropagation()">
+      <div class="app-drawer-title-wrap">
+        <span class="app-drawer-title-dot"></span>
+        <span class="app-drawer-title" id="app-drawer-title">Installed Applications</span>
+        <span class="app-drawer-count" id="app-drawer-count">0</span>
+      </div>
+      <button class="app-drawer-close-btn" onclick="closeAppDrawer()" title="Close">&times;</button>
+    </div>
+    <div class="app-drawer-scroll-container" id="app-drawer-scroll" onclick="event.stopPropagation()">
+      <div class="app-drawer-grid" id="app-drawer-grid">
+      </div>
+    </div>
+  </div>
+
+</div>
+
+    <!-- Global Launcher Feedback Toast -->
+  <div class="launcher-toast" id="launcher-toast"></div>
+  <!-- SETTINGS MODAL (Categorized 3-Tab Structure + Multilingual + Borderless Luxury Dark Glass) -->
+  <div class="modal-overlay interactive" id="settings-modal" onclick="closeSettings(event)">
+    <div class="modal-box ltr-mode" id="modal-box-inner" onclick="event.stopPropagation()">
+      <div class="modal-header">
+        <div class="modal-title" id="m-title">Vehicle & Cockpit Settings</div>
+        <div class="settings-header-actions">
+          <button type="button" class="settings-info-i-btn" id="btn-launcher-credits" onclick="openCreditsModal(event)" title="About &amp; Copyright" aria-label="About &amp; Copyright">i</button>
+          <button type="button" class="modal-close" onclick="closeSettings()">&times;</button>
+        </div>
+      </div>
+
+      <!-- 2 LUXURY TABS (Locks completely removed per user request) -->
+      <div class="settings-tabs-header">
+        <button class="settings-tab-btn active" id="tab-btn-vehicle" onclick="switchSettingsTab('vehicle')">
+          <svg class="tab-icon-svg" viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2.2">
+            <path d="M5 17h14v4H5z"></path>
+            <path d="M19 17l-2-6H7l-2 6"></path>
+          </svg>
+          <span id="tab-lbl-vehicle">Vehicle 3D Personalization</span>
+        </button>
+        <button class="settings-tab-btn" id="tab-btn-launcher" onclick="switchSettingsTab('launcher')">
+          <svg class="tab-icon-svg" viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2.2">
+            <circle cx="12" cy="12" r="3"></circle>
+            <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
+          </svg>
+          <span id="tab-lbl-launcher">Launcher & System</span>
+        </button>
+      </div>
+
+      <!-- TAB 1: VEHICLE 3D SETTINGS (Default Active) -->
+      <div class="settings-tab-pane active" id="tab-pane-vehicle">
+        <!-- Car Body Color -->
+        <div>
+          <div class="modal-sec-title" id="m-sec-color">Vehicle Paint Color</div>
+          <div class="swatches-row">
+            <div class="color-dot active" style="background: #ffffff;" title="White" onclick="setCarColor('#ffffff', this)"></div>
+            <div class="color-dot" style="background: #9ca3af;" title="Light Grey" onclick="setCarColor('#9ca3af', this)"></div>
+            <div class="color-dot" style="background: #4b5563;" title="Dark Grey" onclick="setCarColor('#4b5563', this)"></div>
+            <div class="color-dot" style="background: #0a0a0a;" title="Pure Glossy Black" onclick="setCarColor('#0a0a0a', this)"></div>
+          </div>
+        </div>
+
+        <!-- Roof Color (Two Tone vs One Tone) -->
+        <div style="margin-top: 18px;">
+          <div class="modal-sec-title" id="m-sec-roof">Roof Color</div>
+          <div style="display: flex; gap: 14px;">
+            <button class="settings-btn active" id="roof-btn-black" style="flex: 1;" onclick="setRoofOption('black')">Two Tone</button>
+            <button class="settings-btn" id="roof-btn-body" style="flex: 1;" onclick="setRoofOption('body')">One Tone</button>
+          </div>
+        </div>
+
+        <!-- Seat Upholstery Color / ??? ????? -->
+        <div style="margin-top: 18px;">
+          <div class="modal-sec-title" id="m-sec-seat">Seat Upholstery Color</div>
+          <div style="display: flex; gap: 10px;">
+            <button class="settings-btn active" id="seat-btn-sport" style="flex: 1; font-weight: 700;" onclick="setSeatOption('sport')">Sport Multi</button>
+            <button class="settings-btn" id="seat-btn-black" style="flex: 1; font-weight: 700;" onclick="setSeatOption('black')">All Black</button>
+            <button class="settings-btn" id="seat-btn-yellow" style="flex: 1; font-weight: 700; color: #fde68a;" onclick="setSeatOption('yellow')">Sport Yellow</button>
+          </div>
+        </div>
+
+        <!-- Front Bumper Lip Accent (Advance vs Sport) -->
+        <div style="margin-top: 18px;">
+          <div class="modal-sec-title" id="m-sec-lip">Front Bumper Lip Accent</div>
+          <div style="display: flex; gap: 14px;">
+            <button class="settings-btn active" id="lip-btn-orange" style="flex: 1; color: #fdba74; font-weight: 800;" onclick="setLipOption('orange')">Advance</button>
+            <button class="settings-btn" id="lip-btn-yellow" style="flex: 1; color: #fde68a; font-weight: 800;" onclick="setLipOption('yellow')">Sport</button>
+          </div>
+        </div>
+
+        <!-- Custom License Plate -->
+        <div style="margin-top: 18px;">
+          <div class="modal-sec-title" id="m-sec-plate">License Plate Text</div>
+          <input type="text" class="text-input-field" id="plate-input" value="EGY | 123" oninput="updateLicensePlateText(this.value)">
+        </div>
+      </div>
+
+      <!-- TAB 2: LAUNCHER SETTINGS -->
+      <div class="settings-tab-pane" id="tab-pane-launcher">
+        <!-- Language Selector -->
+        <div>
+          <div class="modal-sec-title" id="m-sec-lang">Language</div>
+          <div style="display: flex; gap: 14px;">
+            <button class="settings-btn active" id="lang-en" style="flex: 1;" onclick="setLanguage('en')">English</button>
+            <button class="settings-btn" id="lang-ar" style="flex: 1;" onclick="setLanguage('ar')">Arabic</button>
+          </div>
+        </div>
+
+        <!-- Launcher System Integration -->
+        <div style="margin-top: 20px;">
+          <div class="modal-sec-title" id="m-sec-launcher">Launcher System Integration</div>
+          <div class="lock-control-card" style="margin-bottom: 12px;">
+            <div class="lock-info-col">
+              <span class="toggle-label" id="lbl-default-launcher">Default Home Launcher</span>
+              <span class="lock-can-stat" id="desc-default-launcher">Set Titan Launcher as Default Home</span>
+            </div>
+            <div class="lock-action-wrap">
+              <button class="settings-btn" id="btn-set-default-launcher" onclick="setDefaultLauncher()">Set Default</button>
+            </div>
+          </div>
+          <div class="lock-control-card">
+            <div class="lock-info-col">
+              <span class="toggle-label" id="lbl-auto-boot">Auto-Start on Boot / Screen</span>
+              <span class="lock-can-stat" id="desc-auto-boot">Launch automatically when screen turns on</span>
+            </div>
+            <div class="lock-action-wrap">
+              <label class="switch"><input type="checkbox" id="chk-auto-boot" checked onchange="onAutoBootChanged(this.checked)"><span class="slider-toggle"></span></label>
+            </div>
+          </div>
+          <div class="lock-control-card" style="margin-top: 12px;">
+            <div class="lock-info-col">
+              <span class="toggle-label" id="lbl-watchdog">Auto-Restart &amp; Crash Loop Breaker</span>
+              <span class="lock-can-stat" id="desc-watchdog">Restart max 2 times on crash, then fallback to factory car launcher</span>
+            </div>
+            <div class="lock-action-wrap">
+              <label class="switch"><input type="checkbox" id="chk-watchdog" checked onchange="onWatchdogChanged(this.checked)"><span class="slider-toggle"></span></label>
+            </div>
+          </div>
+        </div>
+      </div>
+      
+      <!-- Save Settings Button & Feedback -->
+      <div style="margin-top: 14px; display: flex; flex-direction: column; gap: 6px;">
+        <button class="settings-save-btn" id="btn-save-settings" onclick="saveAllSettings()" title="Save Settings">
+          <svg class="save-icon-svg" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"></path>
+            <polyline points="17 21 17 13 7 13 7 21"></polyline>
+            <polyline points="7 3 7 8 15 8"></polyline>
+          </svg>
+          <span id="lbl-save-settings">Save Settings</span>
+        </button>
+        <div id="save-toast-msg" class="save-toast-msg"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- CREDITS / COPYRIGHT MODAL (Opened from Yellow 'i' icon in Settings) -->
+  <div class="modal-overlay interactive" id="credits-modal" onclick="closeCreditsModal(event)">
+    <div class="modal-box ltr-mode credits-modal-box" onclick="event.stopPropagation()">
+      <div class="credits-header">
+        <div class="credits-header-left">
+          <span class="credits-badge-i">i</span>
+          <span class="credits-heading">Titan Cockpit Launcher</span>
+        </div>
+        <button type="button" class="modal-close credits-close-btn" onclick="closeCreditsModal()" aria-label="Close">&times;</button>
+      </div>
+      <div class="credits-body">
+        <div class="credits-author">created by Dr. Saed</div>
+        <div class="credits-contact">for more info contact me at <span class="credits-email">saedmagdysms@gmail.com</span></div>
+      </div>
+    </div>
+  </div>
+
+
+  <!-- CONNECTIVITY FLOATING MODAL (Ultra-minimalist, 3 pure floating icons, no text, no X button) -->
+  <div class="connectivity-modal-overlay interactive" id="connectivity-modal" onclick="closeConnectivityModal(event)">
+    <div class="connectivity-modal-box" id="connectivity-modal-box" onclick="event.stopPropagation()">
+      <div class="connectivity-pure-icons-row">
+        <!-- 1. Cellular Network -->
+        <button class="conn-pure-icon-btn connected" id="conn-btn-cellular"
+          onpointerdown="handleConnTilePointerDown('cellular', event)"
+          onpointerup="handleConnTilePointerUp('cellular', event)"
+          onpointerleave="handleConnTilePointerCancel('cellular', event)"
+          title="Cellular Network">
+          <div class="conn-charge-aura"></div>
+          <svg class="conn-icon-svg conn-icon-cellular" viewBox="0 0 24 24" fill="currentColor">
+            <rect class="conn-shape" x="2" y="16" width="3.2" height="6" rx="1" />
+            <rect class="conn-shape" x="7.2" y="12" width="3.2" height="10" rx="1" />
+            <rect class="conn-shape" x="12.4" y="7" width="3.2" height="15" rx="1" />
+            <rect class="conn-shape" x="17.6" y="2" width="3.2" height="20" rx="1" />
+            <line class="conn-dash" x1="2" y1="2" x2="22" y2="22" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" />
+          </svg>
+        </button>
+
+        <!-- 2. Bluetooth -->
+        <button class="conn-pure-icon-btn connected" id="conn-btn-bluetooth"
+          onpointerdown="handleConnTilePointerDown('bluetooth', event)"
+          onpointerup="handleConnTilePointerUp('bluetooth', event)"
+          onpointerleave="handleConnTilePointerCancel('bluetooth', event)"
+          title="Bluetooth">
+          <div class="conn-charge-aura"></div>
+          <svg class="conn-icon-svg conn-icon-bluetooth" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+            <path class="conn-shape" d="M 6.5 6.5 L 17.5 17.5 L 12 23 L 12 1 L 17.5 6.5 L 6.5 17.5" />
+            <line class="conn-dash" x1="4" y1="4" x2="20" y2="20" stroke-width="2.4" stroke-linecap="round" />
+          </svg>
+        </button>
+
+        <!-- 3. Wi-Fi -->
+        <button class="conn-pure-icon-btn connected" id="conn-btn-wifi"
+          onpointerdown="handleConnTilePointerDown('wifi', event)"
+          onpointerup="handleConnTilePointerUp('wifi', event)"
+          onpointerleave="handleConnTilePointerCancel('wifi', event)"
+          title="Wi-Fi">
+          <div class="conn-charge-aura"></div>
+          <svg class="conn-icon-svg conn-icon-wifi" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+            <path class="conn-shape" d="M 1.5 8.5 C 7.5 3 16.5 3 22.5 8.5" />
+            <path class="conn-shape" d="M 5 12.5 C 9 9 15 9 19 12.5" />
+            <path class="conn-shape" d="M 8.5 16.5 C 10.5 14.8 13.5 14.8 15.5 16.5" />
+            <circle class="conn-shape" cx="12" cy="20" r="1.8" fill="currentColor" stroke="none" />
+            <line class="conn-dash" x1="3" y1="3" x2="21" y2="21" stroke-width="2.4" stroke-linecap="round" />
+          </svg>
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Phase 1: Instant HUD, Localization, Controls & Audio Card (< 80ms First Paint) -->
+  <script src="js/cockpit-core.js"></script>
+  <script src="js/cockpit-ui.js"></script>
+  <script src="js/shinewave-card.js"></script>
+  <script src="js/shinewave-studio.js"></script>
+
+  <!-- Phase 2: Deferred Non-Blocking 3D WebGL Engine & Model Loader -->
+  <script src="js/cockpit-boot.js"></script>
+</body>
+</html>

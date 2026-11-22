@@ -1,0 +1,689 @@
+/* ShineWave Integrated Glass Studio - Titan Launcher Ergonomic Driver-Reach Layout
+   Top-Left "Shine Wave Player" Brand Header + Lowered Reach Panel, Larger Driving Targets,
+   Borderless Smoked-Glass Surfaces, Pastel-Only Palette, Live Waveform Visualizer.
+*/
+#sw-studio-overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  width: 100%;
+  height: 100%;
+  z-index: 155;
+  display: none;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-start;
+  padding: 68px 32px 28px 32px;
+  background: rgba(3, 9, 15, 0.80);
+  backdrop-filter: blur(22px);
+  -webkit-backdrop-filter: blur(22px);
+  opacity: 0;
+  transition: opacity 0.24s ease;
+  font-family: 'Plus Jakarta Sans', 'Noto Sans Arabic', sans-serif;
+  user-select: none;
+  -webkit-user-select: none;
+  pointer-events: auto;
+}
+#sw-studio-overlay.active {
+  display: flex;
+  opacity: 1;
+}
+#sw-studio-overlay * {
+  box-sizing: border-box;
+  border: none !important;
+  outline: none !important;
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* Top-Left Clear Driver Branding Header with Vertical Comfort Offset Below */
+.swst-top-brand-bar {
+  width: 896px;
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  direction: ltr !important;
+  gap: 14px;
+  padding: 6px 8px;
+  margin-bottom: 54px;
+  flex-shrink: 0;
+  cursor: pointer;
+}
+.swst-brand-emblem {
+  width: 44px;
+  height: 44px;
+  border-radius: 14px;
+  background: linear-gradient(135deg, rgba(186, 230, 253, 0.24), rgba(167, 243, 208, 0.22));
+  box-shadow: 0 0 22px rgba(147, 197, 253, 0.30);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+.swst-brand-emblem svg {
+  width: 24px;
+  height: 24px;
+  fill: #bae6fd;
+}
+.swst-brand-title {
+  font-size: 32px;
+  font-weight: 800;
+  letter-spacing: 0.8px;
+  color: #f8fafc;
+  text-shadow: 0 0 24px rgba(186, 230, 253, 0.45);
+}
+
+.swst-panel {
+  position: relative;
+  width: 896px;
+  height: 822px;
+  border-radius: 32px;
+  background: linear-gradient(158deg, rgba(12, 29, 40, 0.88) 0%, rgba(6, 15, 22, 0.94) 100%);
+  box-shadow:
+    0 32px 90px rgba(0, 0, 0, 0.82),
+    0 0 42px rgba(147, 197, 253, 0.14),
+    inset 0 1px 0 rgba(255, 255, 255, 0.18);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  transform: translateY(14px) scale(0.97);
+  transition: transform 0.26s cubic-bezier(0.22, 1, 0.36, 1);
+}
+#sw-studio-overlay.active .swst-panel {
+  transform: translateY(0) scale(1);
+}
+.swst-panel.rtl-mode { direction: rtl; }
+.swst-panel.ltr-mode { direction: ltr; }
+
+/* Enlarged Header & Pastel Source Pills for Easy Driving Selection */
+.swst-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 16px 22px 12px 22px;
+  background: rgba(255, 255, 255, 0.025);
+  flex-shrink: 0;
+}
+.swst-tabs {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+  overflow-x: auto;
+}
+.swst-tabs::-webkit-scrollbar { display: none; }
+.swst-tab {
+  flex: 1;
+  height: 54px;
+  padding: 0 14px;
+  border-radius: 27px;
+  background: rgba(255, 255, 255, 0.055);
+  color: #94a3b8;
+  font-size: 17px;
+  font-weight: 700;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.2s, color 0.2s, transform 0.14s, box-shadow 0.2s;
+}
+.swst-tab svg {
+  width: 21px;
+  height: 21px;
+  fill: currentColor;
+  flex-shrink: 0;
+}
+.swst-tab:active { transform: scale(0.94); }
+.swst-tab.active[data-tab="LOCAL_MUSIC"] {
+  background: rgba(167, 243, 208, 0.22);
+  color: #a7f3d0;
+  box-shadow: 0 0 18px rgba(167, 243, 208, 0.22);
+}
+.swst-tab.active[data-tab="BLUETOOTH"] {
+  background: rgba(186, 230, 253, 0.22);
+  color: #bae6fd;
+  box-shadow: 0 0 18px rgba(186, 230, 253, 0.22);
+}
+.swst-tab.active[data-tab="CAR_RADIO"] {
+  background: rgba(216, 180, 254, 0.22);
+  color: #e9d5ff;
+  box-shadow: 0 0 18px rgba(216, 180, 254, 0.22);
+}
+.swst-tab.active[data-tab="INTERNET_RADIO"] {
+  background: rgba(253, 230, 138, 0.22);
+  color: #fde68a;
+  box-shadow: 0 0 18px rgba(253, 230, 138, 0.22);
+}
+.swst-tab.active[data-tab="EXTERNAL_APP"] {
+  background: rgba(251, 207, 232, 0.22);
+  color: #fbcfe8;
+  box-shadow: 0 0 18px rgba(251, 207, 232, 0.22);
+}
+
+/* Now-Playing Compact Smoked-Glass Bar with Live Pastel Waveform */
+.swst-player-card {
+  margin: 10px 22px 8px 22px;
+  padding: 16px 20px;
+  border-radius: 26px;
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.06) 0%, rgba(147, 197, 253, 0.06) 100%);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.35), inset 0 1px 0 rgba(255, 255, 255, 0.12);
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  flex-shrink: 0;
+}
+.swst-player-top {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+}
+.swst-cover-wrap {
+  position: relative;
+  width: 106px;
+  height: 106px;
+  border-radius: 22px;
+  overflow: hidden;
+  background: radial-gradient(circle, rgba(147, 197, 253, 0.22), rgba(15, 23, 42, 0.9));
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.55), 0 0 22px rgba(147, 197, 253, 0.20);
+}
+.swst-cover-wrap svg {
+  width: 38px;
+  height: 38px;
+  fill: #bae6fd;
+}
+.swst-cover-img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: none;
+}
+.swst-cover-wrap.has-art .swst-cover-img { display: block; }
+.swst-cover-wrap.has-art svg { display: none; }
+
+.swst-meta {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.swst-track-title {
+  font-size: 22px;
+  font-weight: 800;
+  color: #f8fafc;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.swst-track-artist {
+  font-size: 16px;
+  font-weight: 600;
+  color: #bae6fd;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.swst-wave-wrap {
+  width: 100%;
+  height: 28px;
+  margin-top: 2px;
+  position: relative;
+  cursor: pointer;
+  touch-action: none;
+  display: flex;
+  align-items: center;
+  direction: ltr;
+}
+.swst-wave-canvas {
+  width: 100%;
+  height: 28px;
+  display: block;
+}
+.swst-progress-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 2px;
+  direction: ltr;
+}
+.swst-time-txt {
+  font-size: 15px;
+  font-weight: 700;
+  color: #cbd5e1;
+  min-width: 50px;
+  text-align: center;
+}
+.swst-time-bar-wrap {
+  flex: 1;
+  height: 24px;
+  position: relative;
+  cursor: pointer;
+  touch-action: none;
+  display: flex;
+  align-items: center;
+}
+.swst-time-bar-wrap::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: -10px;
+  bottom: -10px;
+}
+.swst-time-bar-canvas {
+  width: 100%;
+  height: 24px;
+  display: block;
+}
+
+/* Enlarged Driving Transport Controls */
+.swst-controls-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+.swst-ctrls-main {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  direction: ltr;
+}
+.swst-ctrl-btn {
+  height: 58px;
+  min-width: 58px;
+  padding: 0 18px;
+  border-radius: 29px;
+  background: rgba(255, 255, 255, 0.075);
+  color: #e2e8f0;
+  font-size: 17px;
+  font-weight: 700;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  cursor: pointer;
+  transition: transform 0.14s, background 0.2s, box-shadow 0.2s, color 0.2s;
+}
+.swst-ctrl-btn svg {
+  width: 24px;
+  height: 24px;
+  fill: currentColor;
+}
+.swst-ctrl-btn:active { transform: scale(0.93); }
+.swst-ctrl-btn.primary {
+  width: 74px;
+  height: 64px;
+  border-radius: 32px;
+  background: linear-gradient(135deg, #bae6fd 0%, #a7f3d0 100%);
+  color: #06212c;
+  box-shadow: 0 0 24px rgba(167, 243, 208, 0.44);
+}
+.swst-ctrl-btn.primary svg { width: 32px; height: 32px; }
+.swst-ctrl-btn.shuffle-active {
+  background: rgba(216, 180, 254, 0.24);
+  color: #e9d5ff;
+  box-shadow: 0 0 16px rgba(216, 180, 254, 0.30);
+}
+.swst-ctrl-btn.repeat-all {
+  background: rgba(167, 243, 208, 0.24);
+  color: #a7f3d0;
+  box-shadow: 0 0 16px rgba(167, 243, 208, 0.28);
+}
+.swst-ctrl-btn.repeat-one {
+  background: rgba(147, 197, 253, 0.26);
+  color: #bae6fd;
+  box-shadow: 0 0 16px rgba(147, 197, 253, 0.32);
+}
+.swst-ctrl-btn.queue-active {
+  background: rgba(253, 230, 138, 0.24);
+  color: #fde68a;
+}
+
+/* Scrollable Borderless Body */
+.swst-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 8px 22px 22px 22px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.swst-body::-webkit-scrollbar { width: 6px; }
+.swst-body::-webkit-scrollbar-thumb {
+  background: rgba(186, 230, 253, 0.22);
+  border-radius: 4px;
+}
+
+/* Enlarged Search & Action Pills */
+.swst-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 4px;
+}
+.swst-search-input {
+  flex: 1;
+  height: 54px;
+  border-radius: 27px;
+  padding: 0 20px;
+  background: rgba(255, 255, 255, 0.065);
+  color: #f8fafc;
+  font-size: 18px;
+  font-weight: 600;
+}
+.swst-search-input::placeholder { color: #94a3b8; }
+
+.swst-pill-action {
+  height: 54px;
+  padding: 0 22px;
+  border-radius: 27px;
+  background: rgba(147, 197, 253, 0.18);
+  color: #bae6fd;
+  font-size: 18px;
+  font-weight: 700;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: transform 0.14s, background 0.2s;
+}
+.swst-pill-action.mint { background: rgba(167, 243, 208, 0.22); color: #a7f3d0; }
+.swst-pill-action.lavender { background: rgba(216, 180, 254, 0.22); color: #e9d5ff; }
+.swst-pill-action.peach { background: rgba(253, 230, 138, 0.22); color: #fde68a; }
+.swst-pill-action.rose { background: rgba(251, 207, 232, 0.20); color: #fbcfe8; }
+.swst-pill-action:active { transform: scale(0.95); }
+
+/* Enlarged Borderless List Rows */
+.swst-row {
+  min-height: 68px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 14px 20px;
+  border-radius: 22px;
+  background: rgba(255, 255, 255, 0.045);
+  cursor: pointer;
+  transition: background 0.18s, transform 0.12s, box-shadow 0.2s;
+}
+.swst-row:active {
+  transform: scale(0.985);
+  background: rgba(186, 230, 253, 0.16);
+}
+.swst-row.active {
+  background: linear-gradient(135deg, rgba(167, 243, 208, 0.18), rgba(147, 197, 253, 0.16));
+  box-shadow: 0 6px 20px rgba(147, 197, 253, 0.16);
+}
+.swst-row-icon {
+  width: 50px;
+  height: 50px;
+  border-radius: 16px;
+  background: rgba(186, 230, 253, 0.15);
+  color: #bae6fd;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  font-size: 22px;
+}
+.swst-row-icon.folder {
+  background: rgba(253, 230, 138, 0.18);
+  color: #fde68a;
+}
+.swst-row-info {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.swst-row-title {
+  font-size: 20px;
+  font-weight: 700;
+  color: #f8fafc;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.swst-row-sub {
+  font-size: 15.5px;
+  font-weight: 600;
+  color: #94a3b8;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.swst-row-badge {
+  font-size: 15px;
+  font-weight: 700;
+  color: #bae6fd;
+  padding: 6px 14px;
+  border-radius: 14px;
+  background: rgba(186, 230, 253, 0.14);
+  flex-shrink: 0;
+}
+
+.swst-edit-btn {
+  width: 44px;
+  height: 44px;
+  border-radius: 14px;
+  background: rgba(216, 180, 254, 0.18);
+  color: #e9d5ff;
+  font-size: 19px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.swst-star-btn {
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.065);
+  color: #94a3b8;
+  font-size: 22px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+.swst-star-btn.fav {
+  background: rgba(253, 230, 138, 0.22);
+  color: #fde68a;
+}
+
+/* Car Radio Presets Strip + Tuner + Station Naming */
+.swst-presets-strip {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  overflow-x: auto;
+  padding: 2px 2px 6px 2px;
+}
+.swst-presets-strip::-webkit-scrollbar { display: none; }
+.swst-preset-pill {
+  height: 48px;
+  padding: 0 18px;
+  border-radius: 24px;
+  background: rgba(253, 230, 138, 0.14);
+  color: #fde68a;
+  font-size: 16.5px;
+  font-weight: 700;
+  white-space: nowrap;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  cursor: pointer;
+  transition: transform 0.13s, background 0.2s;
+}
+.swst-preset-pill.active {
+  background: rgba(253, 230, 138, 0.28);
+  box-shadow: 0 0 16px rgba(253, 230, 138, 0.28);
+}
+.swst-preset-pill:active { transform: scale(0.94); }
+
+.swst-tuner-hero {
+  padding: 18px 22px;
+  border-radius: 26px;
+  background: linear-gradient(155deg, rgba(216, 180, 254, 0.10), rgba(147, 197, 253, 0.08));
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+}
+.swst-freq-readout {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  direction: ltr;
+}
+.swst-freq-num {
+  font-size: 52px;
+  font-weight: 800;
+  color: #f8fafc;
+  letter-spacing: 2px;
+  text-shadow: 0 0 26px rgba(186, 230, 253, 0.45);
+}
+.swst-freq-unit {
+  font-size: 20px;
+  font-weight: 700;
+  color: #bae6fd;
+}
+.swst-band-pills {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  direction: ltr;
+}
+.swst-subpill {
+  height: 50px;
+  padding: 0 24px;
+  border-radius: 25px;
+  background: rgba(255, 255, 255, 0.07);
+  color: #cbd5e1;
+  font-size: 18px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background 0.2s, color 0.2s, transform 0.12s;
+}
+.swst-subpill.active {
+  background: rgba(216, 180, 254, 0.26);
+  color: #e9d5ff;
+  box-shadow: 0 0 16px rgba(216, 180, 254, 0.28);
+}
+
+.swst-slider {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 100%;
+  height: 10px;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.15);
+  cursor: pointer;
+}
+.swst-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #bae6fd, #a7f3d0);
+  box-shadow: 0 0 14px rgba(186, 230, 253, 0.7);
+}
+
+.swst-name-save-row {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.swst-stations-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+/* External Media Apps Borderless Grid (Enlarged Cards) */
+.swst-apps-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px;
+}
+.swst-app-card {
+  padding: 20px 16px;
+  border-radius: 26px;
+  background: rgba(255, 255, 255, 0.05);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  cursor: pointer;
+  transition: transform 0.14s, background 0.2s, box-shadow 0.2s;
+}
+.swst-app-card:active { transform: scale(0.95); }
+.swst-app-card.selected {
+  background: linear-gradient(155deg, rgba(251, 207, 232, 0.20), rgba(147, 197, 253, 0.18));
+  box-shadow: 0 8px 26px rgba(251, 207, 232, 0.16);
+}
+.swst-app-icon {
+  width: 68px;
+  height: 68px;
+  border-radius: 18px;
+  object-fit: contain;
+}
+.swst-app-name {
+  font-size: 18px;
+  font-weight: 700;
+  color: #f8fafc;
+  text-align: center;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  width: 100%;
+}
+.swst-app-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.swst-mini-btn {
+  padding: 9px 16px;
+  border-radius: 16px;
+  background: rgba(186, 230, 253, 0.18);
+  color: #bae6fd;
+  font-size: 15px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.swst-empty {
+  padding: 40px 20px;
+  text-align: center;
+  color: #94a3b8;
+  font-size: 19px;
+  font-weight: 600;
+}
+
+.swst-section-label {
+  font-size: 16px;
+  font-weight: 700;
+  color: #cbd5e1;
+  padding: 4px 6px;
+}

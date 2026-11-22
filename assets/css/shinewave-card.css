@@ -1,0 +1,444 @@
+/* ShineWave media card - integrated inside Titan Launcher (all classes prefixed swcard-).
+   Strictly Pastel Palette & Borderless Smoked-Glass DNA matching Titan Launcher.
+*/
+#swcard {
+  position: absolute;
+  top: 684px;
+  left: 48px;
+  width: 648px;
+  height: 192px;
+  z-index: 22;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  background: linear-gradient(155deg, rgba(10, 30, 38, 0.84) 0%, rgba(6, 18, 24, 0.90) 100%);
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  border: none !important;
+  outline: none !important;
+  border-radius: 26px;
+  padding: 12px 22px 10px 22px;
+  box-shadow: 0 14px 40px rgba(0, 0, 0, 0.55), inset 0 1px 0 rgba(255, 255, 255, 0.14);
+  direction: ltr;
+  user-select: none;
+  -webkit-user-select: none;
+  pointer-events: auto;
+  font-family: 'Plus Jakarta Sans', 'Noto Sans Arabic', sans-serif;
+  overflow: visible;
+  transition: opacity 0.22s ease, transform 0.22s ease;
+}
+body.sw-studio-open #swcard {
+  opacity: 0 !important;
+  pointer-events: none !important;
+  transform: scale(0.96);
+}
+#swcard * {
+  box-sizing: border-box;
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* 1. Top Section: Source Chip & Track Title */
+.swcard-top-info {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  gap: 4px;
+  cursor: pointer;
+  position: relative;
+  z-index: 3;
+}
+.swcard-meta-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  margin-bottom: 2px;
+}
+.swcard-time-display {
+  font-family: 'Plus Jakarta Sans', 'Noto Sans Arabic', sans-serif;
+  font-size: 18px;
+  font-weight: 800;
+  color: #e2e8f0;
+  letter-spacing: 0.6px;
+  text-shadow: 0 2px 6px rgba(0, 0, 0, 0.85);
+  flex-shrink: 0;
+}
+.swcard-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  padding: 4px 14px;
+  border-radius: 14px;
+  background: rgba(147, 197, 253, 0.16);
+  border: none !important;
+  box-shadow: none !important;
+  min-height: 34px;
+  transition: background .2s, transform .15s;
+}
+.swcard-chip:active {
+  transform: scale(0.95);
+  background: rgba(147, 197, 253, 0.28);
+}
+.swcard-chip svg {
+  width: 19px;
+  height: 19px;
+  fill: #bae6fd;
+  filter: drop-shadow(0 0 5px rgba(186, 230, 253, 0.45));
+}
+.swcard-chip .caret {
+  width: 16px;
+  height: 16px;
+  opacity: .9;
+  transition: transform .25s;
+}
+#swcard.src-open .swcard-chip .caret {
+  transform: rotate(180deg);
+}
+.swcard-brand {
+  font-family: 'Plus Jakarta Sans', 'Noto Sans Arabic', sans-serif;
+  font-size: 18px !important;
+  font-weight: 800 !important;
+  letter-spacing: 1px;
+  color: #bae6fd;
+  text-transform: uppercase;
+  text-shadow: 0 0 10px rgba(186, 230, 253, 0.35);
+}
+
+.swcard-top-title-wrap {
+  flex: 1;
+  min-width: 0;
+  margin-left: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  overflow: hidden;
+  cursor: pointer;
+}
+.swcard-mid-title-wrap {
+  flex: 1;
+  min-width: 0;
+  margin: 0 14px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  overflow: visible;
+}
+.swcard-title {
+  font-size: 21px;
+  font-weight: 800;
+  color: #f8fafc;
+  text-align: right;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  width: 100%;
+  text-shadow: 0 2px 10px rgba(0, 0, 0, .9), 0 0 10px rgba(186, 230, 253, 0.22);
+  line-height: 1.25;
+}
+.swcard-artist,
+.swcard-artist:empty {
+  display: none !important;
+}
+
+/* Pastel Mode Pills (Shuffle & Repeat - Enlarged for Driving Ergonomics) */
+.swcard-mode-row {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+}
+.swcard-mode-btn {
+  position: relative;
+  height: 42px;
+  min-width: 52px;
+  padding: 0 13px;
+  border-radius: 21px;
+  border: none !important;
+  outline: none !important;
+  background: rgba(255, 255, 255, 0.065);
+  color: #94a3b8;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  cursor: pointer;
+  transition: transform .15s, background .2s, color .2s, box-shadow .2s;
+}
+.swcard-mode-btn svg {
+  width: 21px;
+  height: 21px;
+  fill: currentColor;
+  pointer-events: none;
+}
+.swcard-mode-btn:active {
+  transform: scale(0.91);
+}
+.swcard-mode-btn.shuffle-active {
+  background: rgba(216, 180, 254, 0.22);
+  color: #e9d5ff;
+  box-shadow: 0 0 14px rgba(216, 180, 254, 0.35);
+}
+.swcard-mode-btn.repeat-all {
+  background: rgba(167, 243, 208, 0.22);
+  color: #a7f3d0;
+  box-shadow: 0 0 14px rgba(167, 243, 208, 0.35);
+}
+.swcard-mode-btn.repeat-one {
+  background: rgba(147, 197, 253, 0.24);
+  color: #bae6fd;
+  box-shadow: 0 0 14px rgba(147, 197, 253, 0.38);
+}
+.swcard-repeat-badge {
+  font-size: 12px;
+  font-weight: 900;
+  line-height: 1;
+  display: none;
+}
+.swcard-mode-btn.repeat-one .swcard-repeat-badge {
+  display: inline-block;
+}
+
+/* 2. Bottom Row: Album Spinning Disc on Left, Time+Modes in Middle, Controls on Right */
+.swcard-bottom-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  margin-top: 2px;
+  margin-bottom: 2px;
+  position: relative;
+  z-index: 2;
+}
+
+.swcard-disc-wrap {
+  position: relative;
+  width: 78px;
+  height: 78px;
+  flex-shrink: 0;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: transform .2s cubic-bezier(.2, .9, .3, 1.2);
+  overflow: visible;
+}
+.swcard-eq-canvas {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 136px;
+  height: 136px;
+  pointer-events: none;
+  z-index: 0;
+}
+.swcard-linear-eq-wrap,
+.swcard-linear-eq-canvas,
+.swcard-aura {
+  display: none !important;
+}
+.swcard-disc-wrap:active {
+  transform: scale(.92);
+}
+.swcard-disc {
+  position: relative;
+  width: 74px;
+  height: 74px;
+  border-radius: 50%;
+  overflow: hidden;
+  background: radial-gradient(circle, #0e2230 25%, #122b3d 55%, #07141e 90%);
+  border: none !important;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, .75), 0 0 16px rgba(147, 197, 253, 0.32), inset 0 0 12px rgba(186, 230, 253, 0.20);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 2;
+}
+.swcard-disc.playing {
+  animation: swcardSpin 7s linear infinite;
+}
+.swcard-disc-center {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  z-index: 2;
+  background: linear-gradient(135deg, #bae6fd, #93c5fd);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 0 10px rgba(186, 230, 253, 0.55);
+}
+.swcard-disc-center svg {
+  width: 18px;
+  height: 18px;
+  fill: #0f172a;
+}
+.swcard-art {
+  position: absolute;
+  top: 0; left: 0; right: 0; bottom: 0;
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+  object-fit: cover;
+  display: none;
+  z-index: 3;
+}
+.swcard-disc.has-art .swcard-art {
+  display: block;
+}
+.swcard-disc.has-art .swcard-disc-center {
+  display: none;
+}
+
+/* Controls: Borderless Soft Pastel Circular Buttons */
+.swcard-ctrls {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-left: 4px;
+  flex-shrink: 0;
+  position: relative;
+  z-index: 3;
+}
+.swcard-btn {
+  width: 54px;
+  height: 54px;
+  border-radius: 50%;
+  cursor: pointer;
+  outline: none !important;
+  border: none !important;
+  padding: 0;
+  background: rgba(147, 197, 253, 0.14);
+  color: #f1f5f9;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: transform .15s, background .2s, box-shadow .15s;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, .45), inset 0 1px 0 rgba(255, 255, 255, 0.18);
+}
+.swcard-btn svg {
+  width: 23px;
+  height: 23px;
+  fill: currentColor;
+  pointer-events: none;
+}
+.swcard-btn:active {
+  transform: scale(.91);
+  background: rgba(186, 230, 253, 0.28);
+  box-shadow: 0 0 16px rgba(186, 230, 253, 0.42);
+}
+.swcard-btn.main {
+  width: 66px;
+  height: 66px;
+  color: #06212c;
+  border: none !important;
+  background: linear-gradient(135deg, #bae6fd 0%, #a7f3d0 100%);
+  box-shadow: 0 0 22px rgba(167, 243, 208, 0.42), 0 6px 18px rgba(0, 0, 0, .45);
+}
+.swcard-btn.main svg {
+  width: 28px;
+  height: 28px;
+}
+
+/* Wavy Progress: Soft Pastel Squiggle */
+.swcard-wave {
+  position: relative;
+  width: 100%;
+  height: 20px;
+  touch-action: none;
+  cursor: pointer;
+}
+.swcard-wave::before {
+  content: '';
+  position: absolute;
+  left: 0; right: 0;
+  top: -12px; bottom: -12px;
+}
+.swcard-wave canvas {
+  display: block;
+}
+
+@keyframes swcardSpin { to { transform: rotate(360deg); } }
+
+/* Floating Borderless Source Picker Pill Bar */
+.swcard-top-info, .swcard-wave {
+  transition: opacity .25s ease, filter .25s ease;
+}
+#swcard.src-open .swcard-top-info {
+  opacity: 0;
+  pointer-events: none;
+  filter: blur(6px);
+}
+#swcard.src-open .swcard-wave {
+  opacity: .2;
+  pointer-events: none;
+}
+
+.swcard-sources {
+  position: absolute;
+  top: 0;
+  left: 50%;
+  z-index: 25;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-wrap: nowrap;
+  gap: 8px;
+  width: max-content;
+  height: 78px;
+  padding: 8px 16px;
+  background: linear-gradient(160deg, rgba(10, 28, 36, 0.94) 0%, rgba(5, 14, 20, 0.96) 100%) !important;
+  border: none !important;
+  border-radius: 26px;
+  box-shadow: 0 22px 58px rgba(0, 0, 0, 0.78), 0 0 28px rgba(147, 197, 253, 0.16), inset 0 1px 0 rgba(255, 255, 255, 0.24) !important;
+  overflow: hidden;
+  opacity: 0;
+  pointer-events: none;
+  transform: translate(-50%, 10px) scale(.96);
+  transition: opacity .25s ease, transform .3s cubic-bezier(.2, .9, .3, 1.1);
+}
+#swcard.src-open .swcard-sources {
+  opacity: 1;
+  pointer-events: auto;
+  transform: translateX(-50%);
+}
+.swcard-src {
+  background: transparent;
+  border: none !important;
+  outline: none !important;
+  border-radius: 20px;
+  color: #94a3b8;
+  font-family: 'Plus Jakarta Sans', 'Noto Sans Arabic', sans-serif;
+  font-size: 22px;
+  font-weight: 700;
+  line-height: 1.2;
+  height: 60px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 18px;
+  cursor: pointer;
+  white-space: nowrap;
+  flex: 0 0 auto;
+  transition: all 0.2s cubic-bezier(0.22, 1, 0.36, 1);
+  -webkit-tap-highlight-color: transparent;
+}
+.swcard-src:hover {
+  color: #bae6fd;
+  background: rgba(147, 197, 253, 0.12);
+}
+.swcard-src:active {
+  transform: scale(0.94);
+}
+.swcard-src.active {
+  color: #bae6fd !important;
+  background: rgba(147, 197, 253, 0.22) !important;
+  text-shadow: 0 0 10px rgba(147, 197, 253, 0.55) !important;
+  box-shadow: 0 0 14px rgba(147, 197, 253, 0.28) !important;
+}
+
+#nav-radar-widget, #wxcard { display: none !important; }

@@ -1,0 +1,22 @@
+# Compiled Android build artifacts & binaries
+bin/
+*.apk
+*.ap_
+*.dex
+*.class
+*.idsig
+src/com/dongfeng/shinecockpit/R.java
+
+# Signing keys & certificates (never commit private keys)
+*.pk8
+*.pem
+*.jks
+*.keystore
+
+# OS / Editor files
+.DS_Store
+Thumbs.db
+desktop.ini
+*.log
+.vscode/
+.idea/
