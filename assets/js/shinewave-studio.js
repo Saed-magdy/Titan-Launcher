@@ -21,6 +21,14 @@
   var waveRafId = 0;
   var wavePhase = 0;
   var timeWaveAmp = 0;
+  var mascotEnabled = true;
+  var mascotPhase = 0;
+  var mascotBlinkTimer = 0;
+
+  try {
+    var storedMascot = localStorage.getItem('shinewave_mascot_enabled');
+    if (storedMascot !== null) mascotEnabled = (storedMascot === '1');
+  } catch (e) {}
 
   var TABS = [
     { key: 'LOCAL_MUSIC',    en: 'USB & Files',    ar: 'فلاشة / ملفات',  ru: 'USB и файлы',       icon: 'M15 7v4h1v2h-3V5h2l-3-4-3 4h2v8H8v-2.07c.7-.37 1.2-1.08 1.2-1.93 0-1.21-.99-2.2-2.2-2.2-1.21 0-2.2.99-2.2 2.2 0 .85.5 1.56 1.2 1.93V13c0 1.11.89 2 2 2h3v3.05c-.71.37-1.2 1.1-1.2 1.95 0 1.22.99 2.2 2.2 2.2 1.21 0 2.2-.98 2.2-2.2 0-.85-.49-1.58-1.2-1.95V15h3c1.11 0 2-.89 2-2v-2h1V7h-4z' },
@@ -188,6 +196,9 @@
                 '<span class="swst-time-txt" id="swst-dur">00:00</span>' +
               '</div>' +
             '</div>' +
+            '<div class="swst-mascot-wrap" id="swst-mascot-wrap">' +
+              '<canvas class="swst-mascot-canvas" id="swst-mascot-canvas"></canvas>' +
+            '</div>' +
           '</div>' +
           '<div class="swst-controls-row">' +
             '<button type="button" class="swst-ctrl-btn" id="swst-btn-shuffle"></button>' +
@@ -199,6 +210,7 @@
             '<div style="display:flex;align-items:center;gap:8px;">' +
               '<button type="button" class="swst-ctrl-btn" id="swst-btn-repeat"></button>' +
               '<button type="button" class="swst-ctrl-btn" id="swst-btn-queue"></button>' +
+              '<button type="button" class="swst-ctrl-btn" id="swst-btn-mascot"></button>' +
             '</div>' +
           '</div>' +
         '</div>' +
@@ -270,6 +282,11 @@
       renderPlayerHeader();
       renderBody();
     });
+    document.getElementById('swst-btn-mascot').addEventListener('click', function () {
+      mascotEnabled = !mascotEnabled;
+      try { localStorage.setItem('shinewave_mascot_enabled', mascotEnabled ? '1' : '0'); } catch (e) {}
+      renderPlayerHeader();
+    });
 
     bindWaveScrub();
   }
@@ -332,6 +349,7 @@
       if (!overlay || !overlay.classList.contains('active')) return;
       drawStudioWaveform();
       drawStudioTimeBar();
+      drawStudioMascot();
       waveRafId = requestAnimationFrame(tick);
     }
     waveRafId = requestAnimationFrame(tick);
@@ -405,7 +423,7 @@
     var wrap = document.getElementById('swst-wave-wrap');
     if (!c || !wrap) return;
     var w = wrap.clientWidth || 480;
-    var h = wrap.clientHeight || 28;
+    var h = wrap.clientHeight || 32;
     var dpr = window.devicePixelRatio || 1;
     if (c.width !== Math.round(w * dpr) || c.height !== Math.round(h * dpr)) {
       c.width = Math.round(w * dpr);
@@ -416,42 +434,389 @@
     ctx.clearRect(0, 0, w, h);
 
     var m = window.ShineWaveCardState || {};
-    var spec = (window.getShineWaveAudioSpectrum) ? window.getShineWaveAudioSpectrum() : { bands: [] };
+    var spec = (window.getShineWaveAudioSpectrum) ? window.getShineWaveAudioSpectrum() : { beat: 0, energy: 0, bands: [] };
     var effDur = m.dur > 0 ? m.dur : 225;
     var frac = Math.max(0, Math.min(1, (m.pos || 0) / effDur));
-    if (m.playing) wavePhase += 0.085;
+    if (m.playing) wavePhase += 0.075;
 
-    var barCount = 38;
-    var gap = 4;
-    var barW = Math.max(3, (w - (barCount - 1) * gap) / barCount);
+    var barCount = 28;
+    var gap = 5;
+    var barW = Math.max(4, (w - (barCount - 1) * gap) / barCount);
     var midY = h / 2;
 
     for (var i = 0; i < barCount; i++) {
       var pct = i / (barCount - 1);
       var played = pct <= frac;
-      var bVal = 0.16;
-      if (m.playing && spec.bands && spec.bands.length) {
-        var bIdx = Math.floor(pct * (spec.bands.length - 1));
-        bVal = Math.max(0.18, spec.bands[bIdx] || 0.35);
-      } else if (m.playing) {
-        bVal = 0.25 + 0.55 * Math.abs(Math.sin(i * 0.45 + wavePhase));
+
+      // Realistic audio spectrum: mirror from center or logarithmic distribution across bands
+      var bVal = 0.15;
+      if (m.playing) {
+        if (spec.bands && spec.bands.length) {
+          // Map to spectrum bands smoothly across the whole width
+          var bIdx = Math.floor(Math.abs(pct - 0.5) * 2 * (spec.bands.length - 1));
+          var rawBand = spec.bands[bIdx] || (spec.energy * 0.8) || 0.35;
+          // Harmonic wave motion across all bars so none remain frozen
+          var waveMod = 0.45 * Math.sin(i * 0.52 + wavePhase) + 0.25 * Math.cos(i * 0.88 - wavePhase * 1.3);
+          bVal = Math.max(0.18, Math.min(1.0, rawBand * 0.75 + waveMod * 0.35 + (spec.beat * 0.25)));
+        } else {
+          var pulse = Math.sin(i * 0.48 + wavePhase) * 0.45 + Math.cos(i * 0.92 - wavePhase * 1.4) * 0.35 + 0.45;
+          bVal = Math.max(0.18, Math.min(0.95, pulse));
+        }
       } else {
-        bVal = 0.20 + 0.15 * Math.abs(Math.sin(i * 0.7));
+        // Elegant resting baseline
+        bVal = 0.14 + 0.08 * Math.sin(i * 0.6);
       }
-      var barH = Math.max(4, bVal * (h - 4));
+
+      var barH = Math.max(4, bVal * (h - 2));
       var x = i * (barW + gap);
       var y = midY - barH / 2;
 
+      // Premium glowing gradient styling
+      var grad = ctx.createLinearGradient(0, y, 0, y + barH);
       if (played) {
-        ctx.fillStyle = (pct < frac * 0.5) ? '#93c5fd' : '#a7f3d0';
+        grad.addColorStop(0, '#7dd3fc');
+        grad.addColorStop(0.5, '#93c5fd');
+        grad.addColorStop(1, '#a7f3d0');
       } else {
-        ctx.fillStyle = 'rgba(255, 255, 255, 0.20)';
+        grad.addColorStop(0, 'rgba(255, 255, 255, 0.45)');
+        grad.addColorStop(1, 'rgba(186, 230, 253, 0.15)');
       }
+
+      ctx.fillStyle = grad;
       ctx.beginPath();
-      var rad = barW / 2;
+      var rad = Math.min(barW / 2, barH / 2);
       if (ctx.roundRect) ctx.roundRect(x, y, barW, barH, rad);
       else ctx.rect(x, y, barW, barH);
       ctx.fill();
+
+      // Subtle top/bottom neon glow cap on energetic peaks
+      if (m.playing && bVal > 0.65) {
+        ctx.fillStyle = '#ffffff';
+        ctx.beginPath();
+        ctx.arc(x + barW / 2, y + 1.5, 1.2, 0, Math.PI * 2);
+        ctx.arc(x + barW / 2, y + barH - 1.5, 1.2, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
+  }
+
+  /* ---------- Interactive Animated Musical Mascot (دمية الموسيقى) ---------- */
+  function drawStudioMascot() {
+    var c = document.getElementById('swst-mascot-canvas');
+    var wrap = document.getElementById('swst-mascot-wrap');
+    if (!c || !wrap || !mascotEnabled) return;
+
+    var w = wrap.clientWidth || 104;
+    var h = wrap.clientHeight || 104;
+    var dpr = window.devicePixelRatio || 1;
+    if (c.width !== Math.round(w * dpr) || c.height !== Math.round(h * dpr)) {
+      c.width = Math.round(w * dpr);
+      c.height = Math.round(h * dpr);
+    }
+    var ctx = c.getContext('2d');
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.clearRect(0, 0, w, h);
+
+    var m = window.ShineWaveCardState || {};
+    var isPlaying = !!m.playing;
+    var spec = (window.getShineWaveAudioSpectrum) ? window.getShineWaveAudioSpectrum() : { beat: 0, energy: 0, bands: [] };
+    var beatVal = spec.beat || 0;
+    var energyVal = spec.energy || 0;
+
+    var cx = w / 2;
+    var cy = h / 2 + 6;
+
+    var bounce = 0;
+    var tilt = 0;
+    var headBob = 0;
+    var handBob = 0;
+    var earPulse = 0;
+
+    if (isPlaying) {
+      mascotPhase += 0.085 + beatVal * 0.09;
+      // Groovy bounce with the beat
+      bounce = Math.abs(Math.sin(mascotPhase * 1.8)) * (7 + beatVal * 9 + energyVal * 4);
+      tilt = Math.sin(mascotPhase * 0.9) * 0.14;
+      headBob = Math.sin(mascotPhase * 1.8) * 3;
+      handBob = Math.cos(mascotPhase * 1.8) * 7;
+      earPulse = Math.sin(mascotPhase * 3.6) * 2 + beatVal * 4;
+      mascotBlinkTimer++;
+    } else {
+      // Gentle calm breathing stance when music is paused
+      mascotPhase += 0.035;
+      bounce = Math.sin(mascotPhase) * 1.8;
+      tilt = Math.sin(mascotPhase * 0.5) * 0.02;
+      headBob = 0;
+      handBob = 0;
+      earPulse = 0;
+      mascotBlinkTimer = 0;
+    }
+
+    // 1. Soft Dynamic Ground Shadow
+    ctx.save();
+    var shadowW = 22 - bounce * 0.35;
+    var shadowH = Math.max(2, 5.5 - bounce * 0.12);
+    var shadowAlpha = Math.max(0.12, 0.45 - bounce * 0.02);
+    ctx.fillStyle = 'rgba(0, 0, 0, ' + shadowAlpha.toFixed(2) + ')';
+    ctx.beginPath();
+    ctx.ellipse(cx, h - 10, Math.max(10, shadowW), Math.max(2, shadowH), 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+
+    var bodyY = cy - bounce;
+
+    // 2. Floating Hands / Mittens
+    ctx.save();
+    var leftHandY = bodyY + 3 + handBob;
+    var rightHandY = bodyY + 3 - handBob;
+    var handGrad = ctx.createLinearGradient(0, bodyY - 10, 0, bodyY + 10);
+    handGrad.addColorStop(0, '#bae6fd');
+    handGrad.addColorStop(1, '#38bdf8');
+
+    ctx.fillStyle = handGrad;
+    ctx.shadowColor = 'rgba(56, 189, 248, 0.45)';
+    ctx.shadowBlur = 6;
+
+    // Left hand
+    ctx.beginPath();
+    ctx.arc(cx - 24, leftHandY, 5.5, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Right hand
+    ctx.beginPath();
+    ctx.arc(cx + 24, rightHandY, 5.5, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+
+    // 3. Body / Torso
+    ctx.save();
+    var bodyGrad = ctx.createLinearGradient(0, bodyY - 14, 0, bodyY + 12);
+    bodyGrad.addColorStop(0, '#e0f2fe');
+    bodyGrad.addColorStop(0.5, '#7dd3fc');
+    bodyGrad.addColorStop(1, '#0284c7');
+    ctx.fillStyle = bodyGrad;
+    ctx.shadowColor = 'rgba(14, 165, 233, 0.55)';
+    ctx.shadowBlur = 10;
+
+    ctx.beginPath();
+    if (ctx.roundRect) ctx.roundRect(cx - 16, bodyY - 12, 32, 22, 11);
+    else ctx.rect(cx - 16, bodyY - 12, 32, 22);
+    ctx.fill();
+
+    // Chest mini-equalizer / core heart
+    ctx.shadowBlur = 0;
+    var coreBg = 'rgba(6, 15, 22, 0.7)';
+    ctx.fillStyle = coreBg;
+    ctx.beginPath();
+    if (ctx.roundRect) ctx.roundRect(cx - 9, bodyY - 7, 18, 12, 4);
+    else ctx.rect(cx - 9, bodyY - 7, 18, 12);
+    ctx.fill();
+
+    // Tiny pulsing chest bars
+    var barColors = ['#7dd3fc', '#a7f3d0', '#fde68a'];
+    for (var bi = 0; bi < 3; bi++) {
+      var barH = isPlaying ? (3 + Math.abs(Math.sin(mascotPhase * 2.5 + bi * 1.2)) * 6) : 3;
+      ctx.fillStyle = isPlaying ? barColors[bi] : 'rgba(148, 163, 184, 0.6)';
+      ctx.fillRect(cx - 6 + bi * 4.5, bodyY + 3 - barH, 3, barH);
+    }
+    ctx.restore();
+
+    // 4. Mascot Head & Helmet (Tilts and Bobs)
+    ctx.save();
+    ctx.translate(cx, bodyY - 18 - headBob);
+    ctx.rotate(tilt);
+
+    // Top Antenna Stalk & Glowing Orb
+    ctx.strokeStyle = '#bae6fd';
+    ctx.lineWidth = 2.5;
+    ctx.lineCap = 'round';
+    ctx.beginPath();
+    ctx.moveTo(0, -18);
+    ctx.lineTo(0, -25);
+    ctx.stroke();
+
+    var orbGrad = ctx.createRadialGradient(0, -26, 1, 0, -26, 6);
+    if (isPlaying) {
+      orbGrad.addColorStop(0, '#ffffff');
+      orbGrad.addColorStop(0.4, '#6ee7b7');
+      orbGrad.addColorStop(1, '#059669');
+      ctx.shadowColor = '#6ee7b7';
+      ctx.shadowBlur = 12 + beatVal * 8;
+    } else {
+      orbGrad.addColorStop(0, '#ffffff');
+      orbGrad.addColorStop(0.5, '#93c5fd');
+      orbGrad.addColorStop(1, '#2563eb');
+      ctx.shadowColor = '#93c5fd';
+      ctx.shadowBlur = 6;
+    }
+    ctx.fillStyle = orbGrad;
+    ctx.beginPath();
+    ctx.arc(0, -26, 4.5 + (isPlaying ? beatVal * 1.5 : 0), 0, Math.PI * 2);
+    ctx.fill();
+    ctx.shadowBlur = 0;
+
+    // Glowing DJ Headphones (Left & Right)
+    var hpGrad = ctx.createLinearGradient(-26, 0, -18, 0);
+    hpGrad.addColorStop(0, '#0284c7');
+    hpGrad.addColorStop(1, '#38bdf8');
+
+    // Headphone band over head
+    ctx.strokeStyle = 'rgba(224, 242, 254, 0.8)';
+    ctx.lineWidth = 3.5;
+    ctx.beginPath();
+    ctx.arc(0, -4, 21, Math.PI * 1.1, Math.PI * 1.9);
+    ctx.stroke();
+
+    // Left earcup
+    ctx.fillStyle = hpGrad;
+    ctx.beginPath();
+    if (ctx.roundRect) ctx.roundRect(-25 - earPulse * 0.4, -9, 7 + earPulse * 0.4, 18, 3.5);
+    else ctx.rect(-25, -9, 7, 18);
+    ctx.fill();
+
+    // Right earcup
+    ctx.beginPath();
+    if (ctx.roundRect) ctx.roundRect(18, -9, 7 + earPulse * 0.4, 18, 3.5);
+    else ctx.rect(18, -9, 7, 18);
+    ctx.fill();
+
+    // Earcup neon pulse aura when playing
+    if (isPlaying && earPulse > 0.5) {
+      ctx.strokeStyle = 'rgba(110, 231, 183, 0.6)';
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.arc(-22, 0, 9 + earPulse * 0.8, Math.PI * 0.6, Math.PI * 1.4);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.arc(22, 0, 9 + earPulse * 0.8, -Math.PI * 0.4, Math.PI * 0.4);
+      ctx.stroke();
+    }
+
+    // Outer Helmet Shell
+    var headGrad = ctx.createLinearGradient(0, -20, 0, 16);
+    headGrad.addColorStop(0, '#ffffff');
+    headGrad.addColorStop(0.65, '#e0f2fe');
+    headGrad.addColorStop(1, '#bae6fd');
+    ctx.fillStyle = headGrad;
+    ctx.shadowColor = 'rgba(14, 165, 233, 0.35)';
+    ctx.shadowBlur = 10;
+    ctx.beginPath();
+    if (ctx.roundRect) ctx.roundRect(-20, -18, 40, 32, 16);
+    else ctx.rect(-20, -18, 40, 32);
+    ctx.fill();
+
+    // Dark Cyber Visor Face Screen
+    ctx.shadowBlur = 0;
+    ctx.fillStyle = '#061622';
+    ctx.beginPath();
+    if (ctx.roundRect) ctx.roundRect(-16, -14, 32, 24, 12);
+    else ctx.rect(-16, -14, 32, 24);
+    ctx.fill();
+
+    // Visor glass subtle top reflection arc
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.35)';
+    ctx.lineWidth = 1.8;
+    ctx.beginPath();
+    ctx.arc(0, -11, 11, Math.PI * 1.15, Math.PI * 1.85);
+    ctx.stroke();
+
+    // Digital Eyes & Expression
+    var isBlinking = isPlaying && (mascotBlinkTimer % 140 > 132);
+
+    if (isPlaying && !isBlinking) {
+      // Happy dynamic digital eyes
+      ctx.fillStyle = '#67e8f9';
+      ctx.shadowColor = '#67e8f9';
+      ctx.shadowBlur = 8;
+
+      var eyeW = 4.2;
+      var eyeH = 6.5 + (beatVal * 2.5);
+
+      // Left eye
+      ctx.beginPath();
+      if (ctx.roundRect) ctx.roundRect(-10, -5 - (eyeH - 6.5) / 2, eyeW, eyeH, 2.2);
+      else ctx.rect(-10, -5, eyeW, eyeH);
+      ctx.fill();
+
+      // Right eye
+      ctx.beginPath();
+      if (ctx.roundRect) ctx.roundRect(10 - eyeW, -5 - (eyeH - 6.5) / 2, eyeW, eyeH, 2.2);
+      else ctx.rect(10 - eyeW, -5, eyeW, eyeH);
+      ctx.fill();
+
+      // Specular eye sparkles
+      ctx.fillStyle = '#ffffff';
+      ctx.beginPath();
+      ctx.arc(-8, -4, 1.2, 0, Math.PI * 2);
+      ctx.arc(8, -4, 1.2, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Cute rosy blush cheeks
+      ctx.shadowBlur = 0;
+      ctx.fillStyle = 'rgba(244, 114, 182, 0.45)';
+      ctx.beginPath();
+      ctx.arc(-10, 4.5, 2.5, 0, Math.PI * 2);
+      ctx.arc(10, 4.5, 2.5, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Happy smile
+      ctx.strokeStyle = '#a7f3d0';
+      ctx.lineWidth = 1.8;
+      ctx.lineCap = 'round';
+      ctx.beginPath();
+      ctx.arc(0, 2.5, 3.8, 0.15 * Math.PI, 0.85 * Math.PI);
+      ctx.stroke();
+
+    } else if (isPlaying && isBlinking) {
+      // Blinking eyes
+      ctx.strokeStyle = '#67e8f9';
+      ctx.lineWidth = 2;
+      ctx.lineCap = 'round';
+      ctx.shadowColor = '#67e8f9';
+      ctx.shadowBlur = 6;
+      ctx.beginPath();
+      ctx.moveTo(-11, -2);
+      ctx.lineTo(-6, -2);
+      ctx.moveTo(6, -2);
+      ctx.lineTo(11, -2);
+      ctx.stroke();
+    } else {
+      // Calm sleeping / resting stance when paused
+      ctx.strokeStyle = '#93c5fd';
+      ctx.lineWidth = 2;
+      ctx.lineCap = 'round';
+      ctx.shadowColor = '#93c5fd';
+      ctx.shadowBlur = 5;
+
+      // Cute sleepy curved lines: (˘ ˘)
+      ctx.beginPath();
+      ctx.arc(-8, -2, 3.2, Math.PI * 1.1, Math.PI * 1.9);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.arc(8, -2, 3.2, Math.PI * 1.1, Math.PI * 1.9);
+      ctx.stroke();
+
+      // Calm sleeping mouth
+      ctx.strokeStyle = 'rgba(186, 230, 253, 0.6)';
+      ctx.lineWidth = 1.4;
+      ctx.beginPath();
+      ctx.moveTo(-2, 3);
+      ctx.lineTo(2, 3);
+      ctx.stroke();
+    }
+
+    ctx.restore();
+
+    // 5. Floating Musical Sparkles when energetic
+    if (isPlaying && (beatVal > 0.4 || energyVal > 0.45)) {
+      ctx.save();
+      var noteY = (bodyY - 26 - ((mascotPhase * 24) % 36));
+      var noteX = cx + Math.sin(mascotPhase * 2) * 16;
+      var noteAlpha = Math.max(0, 1 - (bodyY - 26 - noteY) / 36);
+      ctx.fillStyle = 'rgba(253, 230, 138, ' + noteAlpha.toFixed(2) + ')';
+      ctx.font = 'bold 12px sans-serif';
+      ctx.fillText('♪', noteX, noteY);
+      ctx.restore();
     }
   }
 
@@ -622,6 +987,20 @@
       qBtn.classList.toggle('queue-active', queueViewOpen);
       qBtn.innerHTML = '<svg viewBox="0 0 24 24"><path d="M15 6H3v2h12V6zm0 4H3v2h12v-2zM3 16h8v-2H3v2zM17 6v8.18c-.31-.11-.65-.18-1-.18-1.66 0-3 1.34-3 3s1.34 3 3 3 3-1.34 3-3V8h3V6h-5z"/></svg>' +
         '<span>' + (ar ? 'القائمة' : 'Queue') + '</span>';
+    }
+
+    var mascotBtn = document.getElementById('swst-btn-mascot');
+    var mascotWrap = document.getElementById('swst-mascot-wrap');
+    if (mascotWrap) {
+      mascotWrap.style.display = mascotEnabled ? 'flex' : 'none';
+    }
+    if (mascotBtn) {
+      mascotBtn.classList.toggle('mascot-active', mascotEnabled);
+      var mSvg = '<svg viewBox="0 0 24 24"><path d="M12 2a2 2 0 0 1 2 2c0 .74-.4 1.39-1 1.73V7h1a7 7 0 0 1 7 7h1a1 1 0 0 1 1 1v3a1 1 0 0 1-1 1h-1v1a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-1H2a1 1 0 0 1-1-1v-3a1 1 0 0 1 1-1h1a7 7 0 0 1 7-7h1V5.73c-.6-.34-1-.99-1-1.73a2 2 0 0 1 2-2M7.5 13A2.5 2.5 0 0 0 5 15.5 2.5 2.5 0 0 0 7.5 18a2.5 2.5 0 0 0 2.5-2.5A2.5 2.5 0 0 0 7.5 13m9 0a2.5 2.5 0 0 0-2.5 2.5 2.5 2.5 0 0 0 2.5 2.5 2.5 2.5 0 0 0 2.5-2.5 2.5 2.5 0 0 0-2.5-2.5"/></svg>';
+      var mLbl = mascotEnabled
+        ? (ar ? 'الدمية: تشغيل' : (isRu() ? 'Маскот: Вкл' : 'Mascot: On'))
+        : (ar ? 'الدمية: إيقاف' : (isRu() ? 'Маскот: Выкл' : 'Mascot: Off'));
+      mascotBtn.innerHTML = mSvg + '<span>' + mLbl + '</span>';
     }
 
     window.syncShineWaveStudioTime(card.pos || 0, card.dur || 0);

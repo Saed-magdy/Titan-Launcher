@@ -210,6 +210,25 @@
 .swst-cover-wrap.has-art .swst-cover-img { display: block; }
 .swst-cover-wrap.has-art svg { display: none; }
 
+.swst-mascot-wrap {
+  position: relative;
+  width: 104px;
+  height: 104px;
+  border-radius: 22px;
+  background: radial-gradient(circle, rgba(147, 197, 253, 0.16) 0%, rgba(15, 23, 42, 0.7) 100%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.55), inset 0 1px 0 rgba(255, 255, 255, 0.14);
+  overflow: hidden;
+}
+.swst-mascot-canvas {
+  width: 104px;
+  height: 104px;
+  display: block;
+}
+
 .swst-meta {
   flex: 1;
   min-width: 0;
@@ -348,6 +367,11 @@
 .swst-ctrl-btn.queue-active {
   background: rgba(253, 230, 138, 0.24);
   color: #fde68a;
+}
+.swst-ctrl-btn.mascot-active {
+  background: rgba(125, 211, 252, 0.24);
+  color: #7dd3fc;
+  box-shadow: 0 0 16px rgba(125, 211, 252, 0.32);
 }
 
 /* Scrollable Borderless Body */

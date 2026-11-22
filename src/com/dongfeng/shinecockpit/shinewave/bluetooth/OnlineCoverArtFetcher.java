@@ -38,14 +38,15 @@ public final class OnlineCoverArtFetcher {
     }
 
     public void fetchAsync(final String signature, final String title, final String artist, final Callback callback) {
-        final String cleanTitle = title != null ? title.trim() : "";
+        final String cleanTitle = sanitizeTitle(title);
+        final String cleanArtist = sanitizeArtist(artist);
         if (cleanTitle.isEmpty()) return;
         final String cached = artworkCache.getCachedDataUrl(signature);
         if (cached != null) {
             callback.onCoverArtFetched(signature, cached);
             return;
         }
-        final String queryKey = (artist != null ? artist.trim().toLowerCase(Locale.ROOT) : "") + "|" + cleanTitle.toLowerCase(Locale.ROOT);
+        final String queryKey = cleanArtist.toLowerCase(Locale.ROOT) + "|" + cleanTitle.toLowerCase(Locale.ROOT);
         if (queryKey.equals(inFlightKey)) return;
         inFlightKey = queryKey;
 
@@ -53,8 +54,16 @@ public final class OnlineCoverArtFetcher {
             @Override
             public void run() {
                 try {
-                    String artUrl = findFromItunes(cleanTitle, artist);
-                    if (artUrl == null) artUrl = findFromDeezer(cleanTitle, artist);
+                    // Try 1: Combined Artist + Clean Title
+                    String artUrl = findFromItunes(cleanTitle, cleanArtist);
+                    if (artUrl == null) artUrl = findFromDeezer(cleanTitle, cleanArtist);
+
+                    // Try 2: Clean Title alone (crucial for Arabic songs where artist is inside title or missing)
+                    if (artUrl == null && !cleanArtist.isEmpty()) {
+                        artUrl = findFromItunes(cleanTitle, null);
+                        if (artUrl == null) artUrl = findFromDeezer(cleanTitle, null);
+                    }
+
                     if (artUrl == null) return;
 
                     Bitmap bmp = downloadBitmap(artUrl);
@@ -73,6 +82,30 @@ public final class OnlineCoverArtFetcher {
                 }
             }
         });
+    }
+
+    private static String sanitizeTitle(String title) {
+        if (title == null) return "";
+        String s = title.trim();
+        // Remove file extensions (.mp3, .m4a, etc.)
+        s = s.replaceAll("(?i)\\.(mp3|m4a|flac|wav|aac|ogg|wma|opus)$", "");
+        // Remove text in parentheses/brackets e.g. (حصرياً), [Official Video], (Remix 2021)
+        s = s.replaceAll("(?i)\\([\\s\\S]*?\\)", " ");
+        s = s.replaceAll("(?i)\\[[\\s\\S]*?\\]", " ");
+        // Remove common promotional / video tags
+        s = s.replaceAll("(?i)(official\\s*video|official\\s*audio|remix|clip|video|audio|lyrics|حصريا|حصرياً|فيديو\\s*كليب|كليب|جلسة|مسرع|نسخة\\s*أصلية)", " ");
+        // Collapse multiple spaces
+        s = s.replaceAll("\\s+", " ").trim();
+        return s;
+    }
+
+    private static String sanitizeArtist(String artist) {
+        if (artist == null) return "";
+        String s = artist.trim();
+        s = s.replaceAll("(?i)\\.(mp3|m4a|flac)$", "");
+        s = s.replaceAll("(?i)\\([\\s\\S]*?\\)", " ");
+        s = s.replaceAll("\\s+", " ").trim();
+        return s;
     }
 
     private String findFromItunes(String title, String artist) {
