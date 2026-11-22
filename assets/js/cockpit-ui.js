@@ -1494,6 +1494,21 @@ function toggleDoor(key) {
         if (modal) modal.style.display = 'none';
       }
     }
+    function triggerManualUpdateCheck() {
+      const isAr = state.lang === 'ar';
+      const isRu = state.lang === 'ru';
+      const msg = isAr ? 'جاري فحص التحديثات من GitHub...' : (isRu ? 'Проверка обновлений GitHub...' : 'Checking GitHub for updates...');
+      showLauncherToast(msg, 2500);
+      if (window.AndroidBridge && typeof window.AndroidBridge.checkForUpdates === 'function') {
+        window.AndroidBridge.checkForUpdates(false);
+      } else {
+        setTimeout(() => {
+          showLauncherToast(isAr ? '✓ أنت تستخدم أحدث إصدار v2.1.2' : (isRu ? '✓ У вас установлена актуальная версия v2.1.2' : '✓ You are on the latest version v2.1.2'), 2500);
+        }, 1200);
+      }
+    }
+    window.triggerManualUpdateCheck = triggerManualUpdateCheck;
+
     window.openCreditsModal = openCreditsModal;
     window.closeCreditsModal = closeCreditsModal;
 

@@ -23,6 +23,8 @@ import android.util.Base64;
 import android.util.Log;
 import android.view.KeyEvent;
 
+import java.lang.reflect.Method;
+
 import com.dongfeng.shinecockpit.CockpitMediaListenerService;
 import com.dongfeng.shinecockpit.shinewave.local.ArtworkCacheManager;
 
@@ -144,6 +146,79 @@ public final class ExternalPlayerRouter {
         String pkg = getSelectedPackage();
         if (!pkg.isEmpty()) {
             pausePackage(pkg);
+        }
+    }
+
+    public static final int REPEAT_MODE_INVALID = -1;
+    public static final int REPEAT_MODE_NONE = 0;
+    public static final int REPEAT_MODE_ONE = 1;
+    public static final int REPEAT_MODE_ALL = 2;
+    public static final int REPEAT_MODE_GROUP = 3;
+
+    public static final int SHUFFLE_MODE_INVALID = -1;
+    public static final int SHUFFLE_MODE_NONE = 0;
+    public static final int SHUFFLE_MODE_ALL = 1;
+    public static final int SHUFFLE_MODE_GROUP = 2;
+
+    public boolean cycleRepeatMode() {
+        MediaController controller = findSession(getSelectedPackage());
+        if (controller == null) return false;
+        try {
+            int current = getRepeatMode();
+            int next;
+            // 0: NONE/OFF -> 2: ALL -> 1: ONE -> 0: OFF
+            if (current == REPEAT_MODE_NONE) {
+                next = REPEAT_MODE_ALL;
+            } else if (current == REPEAT_MODE_ALL) {
+                next = REPEAT_MODE_ONE;
+            } else {
+                next = REPEAT_MODE_NONE;
+            }
+            Method m = controller.getTransportControls().getClass().getMethod("setRepeatMode", int.class);
+            m.invoke(controller.getTransportControls(), next);
+            return true;
+        } catch (Throwable t) {
+            Log.w(TAG, "cycleRepeatMode failed: " + t.getMessage());
+            return false;
+        }
+    }
+
+    public boolean toggleShuffleMode() {
+        MediaController controller = findSession(getSelectedPackage());
+        if (controller == null) return false;
+        try {
+            int current = getShuffleMode();
+            int next = (current == SHUFFLE_MODE_NONE) ? SHUFFLE_MODE_ALL : SHUFFLE_MODE_NONE;
+            Method m = controller.getTransportControls().getClass().getMethod("setShuffleMode", int.class);
+            m.invoke(controller.getTransportControls(), next);
+            return true;
+        } catch (Throwable t) {
+            Log.w(TAG, "toggleShuffleMode failed: " + t.getMessage());
+            return false;
+        }
+    }
+
+    public int getRepeatMode() {
+        MediaController controller = findSession(getSelectedPackage());
+        if (controller == null) return REPEAT_MODE_NONE;
+        try {
+            Method m = controller.getClass().getMethod("getRepeatMode");
+            Object res = m.invoke(controller);
+            return (res instanceof Number) ? ((Number) res).intValue() : REPEAT_MODE_NONE;
+        } catch (Throwable ignored) {
+            return REPEAT_MODE_NONE;
+        }
+    }
+
+    public int getShuffleMode() {
+        MediaController controller = findSession(getSelectedPackage());
+        if (controller == null) return SHUFFLE_MODE_NONE;
+        try {
+            Method m = controller.getClass().getMethod("getShuffleMode");
+            Object res = m.invoke(controller);
+            return (res instanceof Number) ? ((Number) res).intValue() : SHUFFLE_MODE_NONE;
+        } catch (Throwable ignored) {
+            return SHUFFLE_MODE_NONE;
         }
     }
 

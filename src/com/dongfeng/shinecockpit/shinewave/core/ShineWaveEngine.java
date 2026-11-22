@@ -315,12 +315,32 @@ public final class ShineWaveEngine {
             case "seek_forward":
                 handleTransport(normalizeTransport(cmd));
                 break;
-            case "repeat_cycle":
-                streamPlayer.cycleRepeatMode();
+            case "repeat_cycle": {
+                AudioSourceType src = stateModel.getSource();
+                if (src == AudioSourceType.LOCAL_MUSIC || src == AudioSourceType.INTERNET_RADIO) {
+                    streamPlayer.cycleRepeatMode();
+                } else if (src == AudioSourceType.BLUETOOTH) {
+                    avrcpTracker.cycleRepeatMode();
+                    updateRepeatShuffleFromBluetooth();
+                } else if (src == AudioSourceType.EXTERNAL_APP) {
+                    externalRouter.cycleRepeatMode();
+                    updateRepeatShuffleFromExternal();
+                }
                 break;
-            case "shuffle_toggle":
-                streamPlayer.toggleShuffle();
+            }
+            case "shuffle_toggle": {
+                AudioSourceType src = stateModel.getSource();
+                if (src == AudioSourceType.LOCAL_MUSIC || src == AudioSourceType.INTERNET_RADIO) {
+                    streamPlayer.toggleShuffle();
+                } else if (src == AudioSourceType.BLUETOOTH) {
+                    avrcpTracker.toggleShuffleMode();
+                    updateRepeatShuffleFromBluetooth();
+                } else if (src == AudioSourceType.EXTERNAL_APP) {
+                    externalRouter.toggleShuffleMode();
+                    updateRepeatShuffleFromExternal();
+                }
                 break;
+            }
         }
     }
 
@@ -396,6 +416,9 @@ public final class ShineWaveEngine {
                 bgExecutor.execute(new Runnable() {
                     @Override
                     public void run() {
+                        // Crucial: Route car hardware audio DSP policy to Bluetooth (streamType 4)
+                        QingganAudioPolicyBridge.getInstance(appContext).routeToBluetooth();
+
                         QingganBtController.BtState bt = qingganBt.refresh();
                         if (autoActivate && bt.connected && !callManager.isCallInProgress()) {
                             qingganBt.play();
@@ -405,6 +428,7 @@ public final class ShineWaveEngine {
                             public void run() {
                                 avrcpTracker.refresh();
                                 handleBluetoothSnapshot(avrcpTracker.getSnapshot());
+                                updateRepeatShuffleFromBluetooth();
                             }
                         });
                     }
@@ -642,6 +666,33 @@ public final class ShineWaveEngine {
         } else {
             stateModel.clearArtwork();
         }
+        updateRepeatShuffleFromExternal();
+        emitState();
+    }
+
+    private void updateRepeatShuffleFromBluetooth() {
+        int rMode = avrcpTracker.getRepeatMode();
+        RepeatMode rm = RepeatMode.OFF;
+        if (rMode == AvrcpMetadataTracker.REPEAT_MODE_ALL) rm = RepeatMode.ALL;
+        else if (rMode == AvrcpMetadataTracker.REPEAT_MODE_ONE) rm = RepeatMode.ONE;
+        stateModel.setRepeatMode(rm);
+
+        int sMode = avrcpTracker.getShuffleMode();
+        boolean shuffle = (sMode != AvrcpMetadataTracker.SHUFFLE_MODE_NONE);
+        stateModel.setShuffleEnabled(shuffle);
+        emitState();
+    }
+
+    private void updateRepeatShuffleFromExternal() {
+        int rMode = externalRouter.getRepeatMode();
+        RepeatMode rm = RepeatMode.OFF;
+        if (rMode == ExternalPlayerRouter.REPEAT_MODE_ALL) rm = RepeatMode.ALL;
+        else if (rMode == ExternalPlayerRouter.REPEAT_MODE_ONE) rm = RepeatMode.ONE;
+        stateModel.setRepeatMode(rm);
+
+        int sMode = externalRouter.getShuffleMode();
+        boolean shuffle = (sMode != ExternalPlayerRouter.SHUFFLE_MODE_NONE);
+        stateModel.setShuffleEnabled(shuffle);
         emitState();
     }
 

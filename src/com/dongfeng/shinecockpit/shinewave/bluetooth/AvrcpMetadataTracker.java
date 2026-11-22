@@ -4,14 +4,20 @@ import android.bluetooth.BluetoothAdapter;
 import android.bluetooth.BluetoothDevice;
 import android.bluetooth.BluetoothProfile;
 import android.content.BroadcastReceiver;
+import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
 import android.graphics.Bitmap;
 import android.media.MediaMetadata;
+import android.media.session.MediaController;
+import android.media.session.MediaSessionManager;
 import android.media.session.PlaybackState;
 import android.os.Handler;
 import android.os.Looper;
+import android.util.Log;
+
+import com.dongfeng.shinecockpit.CockpitMediaListenerService;
 
 import java.lang.reflect.Method;
 import java.util.List;
@@ -191,6 +197,92 @@ public final class AvrcpMetadataTracker {
 
     public AvrcpSnapshot getSnapshot() {
         return currentSnapshot;
+    }
+
+    public static final int REPEAT_MODE_NONE = 0;
+    public static final int REPEAT_MODE_ONE = 1;
+    public static final int REPEAT_MODE_ALL = 2;
+
+    public static final int SHUFFLE_MODE_NONE = 0;
+    public static final int SHUFFLE_MODE_ALL = 1;
+
+    public MediaController getBluetoothMediaController() {
+        try {
+            MediaSessionManager mgr = (MediaSessionManager) appContext.getSystemService(Context.MEDIA_SESSION_SERVICE);
+            if (mgr == null) return null;
+            List<MediaController> list = mgr.getActiveSessions(new ComponentName(appContext, CockpitMediaListenerService.class));
+            if (list != null) {
+                for (MediaController c : list) {
+                    if ("com.android.bluetooth".equals(c.getPackageName())) {
+                        return c;
+                    }
+                }
+            }
+        } catch (Throwable ignored) {}
+        return null;
+    }
+
+    public boolean cycleRepeatMode() {
+        MediaController mc = getBluetoothMediaController();
+        if (mc != null) {
+            try {
+                int current = getRepeatMode();
+                int next;
+                if (current == REPEAT_MODE_NONE) {
+                    next = REPEAT_MODE_ALL;
+                } else if (current == REPEAT_MODE_ALL) {
+                    next = REPEAT_MODE_ONE;
+                } else {
+                    next = REPEAT_MODE_NONE;
+                }
+                Method m = mc.getTransportControls().getClass().getMethod("setRepeatMode", int.class);
+                m.invoke(mc.getTransportControls(), next);
+                return true;
+            } catch (Throwable t) {
+                Log.w("AvrcpMetadataTracker", "cycleRepeatMode failed: " + t.getMessage());
+            }
+        }
+        return false;
+    }
+
+    public boolean toggleShuffleMode() {
+        MediaController mc = getBluetoothMediaController();
+        if (mc != null) {
+            try {
+                int current = getShuffleMode();
+                int next = (current == SHUFFLE_MODE_NONE) ? SHUFFLE_MODE_ALL : SHUFFLE_MODE_NONE;
+                Method m = mc.getTransportControls().getClass().getMethod("setShuffleMode", int.class);
+                m.invoke(mc.getTransportControls(), next);
+                return true;
+            } catch (Throwable t) {
+                Log.w("AvrcpMetadataTracker", "toggleShuffleMode failed: " + t.getMessage());
+            }
+        }
+        return false;
+    }
+
+    public int getRepeatMode() {
+        MediaController mc = getBluetoothMediaController();
+        if (mc != null) {
+            try {
+                Method m = mc.getClass().getMethod("getRepeatMode");
+                Object res = m.invoke(mc);
+                return (res instanceof Number) ? ((Number) res).intValue() : REPEAT_MODE_NONE;
+            } catch (Throwable ignored) {}
+        }
+        return REPEAT_MODE_NONE;
+    }
+
+    public int getShuffleMode() {
+        MediaController mc = getBluetoothMediaController();
+        if (mc != null) {
+            try {
+                Method m = mc.getClass().getMethod("getShuffleMode");
+                Object res = m.invoke(mc);
+                return (res instanceof Number) ? ((Number) res).intValue() : SHUFFLE_MODE_NONE;
+            } catch (Throwable ignored) {}
+        }
+        return SHUFFLE_MODE_NONE;
     }
 
     public void sendPassThroughFallback(String cmd) {
