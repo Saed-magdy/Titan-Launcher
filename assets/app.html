@@ -451,9 +451,19 @@
         <!-- Language Selector -->
         <div>
           <div class="modal-sec-title" id="m-sec-lang">Language</div>
-          <div style="display: flex; gap: 14px;">
+          <div style="display: flex; gap: 10px;">
             <button class="settings-btn active" id="lang-en" style="flex: 1;" onclick="setLanguage('en')">English</button>
-            <button class="settings-btn" id="lang-ar" style="flex: 1;" onclick="setLanguage('ar')">Arabic</button>
+            <button class="settings-btn" id="lang-ar" style="flex: 1;" onclick="setLanguage('ar')">العربية</button>
+            <button class="settings-btn" id="lang-ru" style="flex: 1;" onclick="setLanguage('ru')">Русский</button>
+          </div>
+        </div>
+
+        <!-- Number Format Selector -->
+        <div style="margin-top: 18px;">
+          <div class="modal-sec-title" id="m-sec-num-format">Number Format (الأرقام)</div>
+          <div style="display: flex; gap: 10px;">
+            <button class="settings-btn active" id="num-fmt-western" style="flex: 1;" onclick="setNumberFormat('western')">1, 2, 3</button>
+            <button class="settings-btn" id="num-fmt-eastern" style="flex: 1;" onclick="setNumberFormat('eastern')">١، ٢، ٣</button>
           </div>
         </div>
 

@@ -1,4 +1,4 @@
-/**
+﻿/**
  * ============================================================================
  * COCKPIT CORE — Shared State, Viewport Scaling & Localization (Phase 1)
  * ============================================================================
@@ -130,6 +130,9 @@ document.addEventListener('scroll', function() {
    CENTRAL APPLICATION STATE & FALLBACK MEDIA PRESETS
    ============================================================================ */
 const state = {
+  numFormat: (function() {
+    try { return localStorage.getItem('shine_cockpit_num_format') || 'western'; } catch(e) { return 'western'; }
+  })(),
   doors: { fl: 0, fr: 0, rl: 0, rr: 0, trunk: 0 },
   targetDoors: { fl: 0, fr: 0, rl: 0, rr: 0, trunk: 0 },
   lights: { dipped: false, main: false, fog: false, position: false },
@@ -216,9 +219,43 @@ const AR_DIGITS = ['\u0660', '\u0661', '\u0662', '\u0663', '\u0664', '\u0665', '
 
 window.toLangDigits = function(val) {
   const str = String(val === undefined || val === null ? '' : val);
-  const isAr = (typeof state !== 'undefined' && state.lang === 'ar') || (document.documentElement.lang === 'ar');
-  if (!isAr) return str;
+  let useEastern = false;
+  if (typeof state !== 'undefined' && state.numFormat) {
+    useEastern = (state.numFormat === 'eastern');
+  } else {
+    try {
+      useEastern = (localStorage.getItem('shine_cockpit_num_format') === 'eastern');
+    } catch (e) {
+      useEastern = false;
+    }
+  }
+  if (!useEastern) return str;
   return str.replace(/[0-9]/g, function(d) { return AR_DIGITS[Number(d)]; });
+};
+
+window.setNumberFormat = function(fmt) {
+  if (fmt !== 'eastern' && fmt !== 'western') fmt = 'western';
+  if (typeof state !== 'undefined') state.numFormat = fmt;
+  try { localStorage.setItem('shine_cockpit_num_format', fmt); } catch (e) {}
+
+  const bWest = document.getElementById('num-fmt-western');
+  const bEast = document.getElementById('num-fmt-eastern');
+  if (fmt === 'eastern') {
+    if (bEast) bEast.classList.add('active');
+    if (bWest) bWest.classList.remove('active');
+  } else {
+    if (bWest) bWest.classList.add('active');
+    if (bEast) bEast.classList.remove('active');
+  }
+
+  if (typeof updateClock === 'function') updateClock();
+  if (typeof updateFuelDisplays === 'function') updateFuelDisplays();
+  if (typeof updateTpmsOverallBadge === 'function') updateTpmsOverallBadge();
+  if (typeof renderQuickAppsDeck === 'function') renderQuickAppsDeck();
+  if (typeof window.refreshShineWaveLanguage === 'function') {
+    window.refreshShineWaveLanguage();
+  }
+  if (typeof requestRender === 'function') requestRender();
 };
 
 window.localizeAppName = function(pkg, rawName, isAr) {
@@ -270,7 +307,11 @@ const I18N = {
     'tab-lbl-vehicle': 'تخصيص السيارة',
     'm-sec-lang': 'اللغة',
     'lang-en': 'الإنجليزية',
-    'lang-ar': 'العربية',
+        'lang-ar': 'العربية',
+    'lang-ru': 'الروسية',
+    'm-sec-num-format': 'شكل الأرقام',
+    'num-fmt-western': '1, 2, 3',
+    'num-fmt-eastern': '١، ٢، ٣',
     'm-sec-color': 'لون طلاء السيارة',
     'm-sec-roof': 'لون السقف',
     'roof-btn-black': 'سقف أسود',
@@ -389,18 +430,95 @@ const I18N = {
     'lbl-fuel': 'FUEL',
     'lbl-ambient': 'OUTSIDE',
     'lbl-inst-fuel': 'INSTANT',
-    'lbl-range': 'RANGE'
+    'lbl-range': 'RANGE',
+    'lang-ru': 'Russian',
+    'm-sec-num-format': 'Number Format',
+    'num-fmt-western': '1, 2, 3',
+    'num-fmt-eastern': '١، ٢، ٣'
+  },
+  ru: {
+    'm-title': 'Настройки автомобиля и кокпита',
+    'tab-lbl-locks': 'Настройки замков',
+    'tab-lbl-launcher': 'Лаунчер и система',
+    'tab-lbl-vehicle': '3D персонализация авто',
+    'm-sec-lang': 'Язык интерфейса',
+    'lang-en': 'English',
+        'lang-ar': 'العربية',
+    'lang-ru': 'الروسية',
+    'm-sec-num-format': 'شكل الأرقام',
+    'num-fmt-western': '1, 2, 3',
+    'num-fmt-eastern': '١، ٢، ٣',
+    'lang-ru': 'Русский',
+    'm-sec-num-format': 'Формат чисел',
+    'num-fmt-western': '1, 2, 3',
+    'num-fmt-eastern': '١، ٢، ٣',
+    'm-sec-color': 'Цвет кузова',
+    'm-sec-roof': 'Цвет крыши',
+    'roof-btn-black': 'Двухцветный',
+    'roof-btn-body': 'В цвет кузова',
+    'm-sec-seat': 'Цвет обивки салона',
+    'seat-btn-sport': 'Спорт мульти',
+    'seat-btn-black': 'Полностью черный',
+    'seat-btn-yellow': 'Спорт желтый',
+    'm-sec-lip': 'Акцент переднего бампера',
+    'lip-btn-orange': 'Advance (Оранжевый)',
+    'lip-btn-yellow': 'Sport (Желтый)',
+    'm-sec-plate': 'Текст номерного знака',
+    'm-sec-security': 'Безопасность и замки',
+    'lbl-lock-speed': 'Автозапирание при 10 км/ч',
+    'lbl-lock-walk': 'Запирание при удалении',
+    'lbl-lock-off': 'Отпирание при выключении двигателя',
+    'm-sec-launcher': 'Системная интеграция лаунчера',
+    'lbl-default-launcher': 'Лаунчер по умолчанию',
+    'desc-default-launcher': 'Сделать Titan Launcher главным экраном',
+    'btn-set-default-launcher': 'Назначить',
+    'lbl-auto-boot': 'Автозапуск при старте / экране',
+    'desc-auto-boot': 'Автоматический запуск при включении экрана',
+    'lbl-watchdog': 'Защита от сбоев (Watchdog)',
+    'desc-watchdog': 'Перезапуск до 2 раз, затем возврат к заводскому лаунчеру',
+    'sunroof-modal-title': 'Управление люком',
+    'app-drawer-title': 'Установленные приложения',
+    'quick-app-modal-title': 'Выберите приложение',
+    'btn-sr-open': 'Открыть',
+    'btn-sr-close': 'Закрыть',
+    'btn-sr-tilt': 'Наклон',
+    'btn-sr-stop': 'Стоп',
+    'lbl-save-settings': 'Сохранить настройки',
+    'save-success-btn': '✓ Успешно сохранено',
+    'save-toast-txt': '✓ Настройки успешно сохранены',
+    'tpms-card-title': 'TPMS Давление в шинах',
+    'tpms-card-overlay-msg': '✓ СБРОС TPMS ВЫПОЛНЕН',
+    'btn-reset-tpms': 'СБРОС',
+    'tpms-confirm-msg': 'Пожалуйста, убедитесь, что давление во всех шинах в норме',
+    'btn-tpms-cancel': 'Отмена',
+    'btn-tpms-sure': 'Подтвердить',
+    'tag-inst-fuel': 'ТЕКУЩИЙ',
+    'tag-tripa': 'ПОЕЗДКА A',
+    'unit-inst-fuel': 'л/100',
+    'unit-avg-fuel': 'л/100',
+    'unit-range': 'км',
+    'unit-fuel-liters': 'л',
+    'unit-ambient': '°C',
+    'lbl-coolant': 'ОХЛАЖД. ЖИДКОСТЬ',
+    'tag-coolant': 'ОХЛАЖД. ЖИДКОСТЬ',
+    'tag-range': 'ЗАПАС ХОДА',
+    'speed-unit-lbl': 'км/ч',
+    'lbl-fuel': 'ТОПЛИВО',
+    'lbl-ambient': 'УЛИЦА',
+    'lbl-inst-fuel': 'ТЕКУЩИЙ',
+    'lbl-range': 'ЗАПАС ХОДА'
   }
 };
 
 function setLanguage(lang) {
-  if (lang !== 'ar' && lang !== 'en') lang = 'en';
+  if (lang !== 'ar' && lang !== 'en' && lang !== 'ru') lang = 'en';
   state.lang = lang;
   document.documentElement.lang = lang;
   try { localStorage.setItem('shine_cockpit_lang', lang); } catch (e) {}
 
   const bAr = document.getElementById('lang-ar');
   const bEn = document.getElementById('lang-en');
+  const bRu = document.getElementById('lang-ru');
   const dirTargets = [
     document.getElementById('modal-box-inner'),
     document.querySelector('#tpms-modal .modal-box'),
@@ -408,23 +526,30 @@ function setLanguage(lang) {
     document.querySelector('#quick-app-select-modal .modal-box')
   ];
 
+  if (bAr) bAr.classList.toggle('active', lang === 'ar');
+  if (bEn) bEn.classList.toggle('active', lang === 'en');
+  if (bRu) bRu.classList.toggle('active', lang === 'ru');
+
   if (lang === 'ar') {
-    if (bAr) bAr.classList.add('active');
-    if (bEn) bEn.classList.remove('active');
     dirTargets.forEach(box => {
       if (box) { box.classList.remove('ltr-mode'); box.classList.add('rtl-mode'); }
     });
     const drawerOverlay = document.getElementById('app-drawer-overlay');
     if (drawerOverlay) drawerOverlay.setAttribute('dir', 'rtl');
   } else {
-    if (bEn) bEn.classList.add('active');
-    if (bAr) bAr.classList.remove('active');
     dirTargets.forEach(box => {
       if (box) { box.classList.remove('rtl-mode'); box.classList.add('ltr-mode'); }
     });
     const drawerOverlay = document.getElementById('app-drawer-overlay');
     if (drawerOverlay) drawerOverlay.setAttribute('dir', 'ltr');
   }
+
+  // Sync number format button active states
+  const curFmt = state.numFormat || 'western';
+  const bWest = document.getElementById('num-fmt-western');
+  const bEast = document.getElementById('num-fmt-eastern');
+  if (bWest) bWest.classList.toggle('active', curFmt === 'western');
+  if (bEast) bEast.classList.toggle('active', curFmt === 'eastern');
 
   const dict = I18N[lang];
   for (let id in dict) {

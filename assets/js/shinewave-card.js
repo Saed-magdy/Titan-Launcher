@@ -1,4 +1,4 @@
-/* ShineWave Media Card - Integrated Zero-Latency Controller inside Titan Launcher.
+﻿/* ShineWave Media Card - Integrated Zero-Latency Controller inside Titan Launcher.
    Pastel-Only Palette, Zero-Duplicate Dispatch, Shuffle & Repeat Support, Direct Studio Opening.
 */
 (function () {
@@ -461,7 +461,7 @@
     var ar = isAr(), s = srcByKey(m.source);
     var rawTitle = m.title && m.title !== 'Audio Player' && m.title !== 'ShineWave Audio'
       ? stripMediaExtension(m.title)
-      : (ar ? 'مشغل الصوتيات' : 'ShineWave Audio');
+      : (ar ? 'مشغل الصوتيات' : ((typeof state !== 'undefined' && state.lang === 'ru') ? 'Аудио плеер' : 'ShineWave Audio'));
     el.title.textContent = (ar && typeof window.toLangDigits === 'function') ? window.toLangDigits(rawTitle) : rawTitle;
     el.title.setAttribute('dir', ar ? 'rtl' : 'auto');
     el.play.setAttribute('d', m.playing ? PAUSE : PLAY);

@@ -1,4 +1,4 @@
-/**
+﻿/**
  * ============================================================================
  * COCKPIT UI — Instant 0ms HUD, Controls, Modals, Apps & CAN Telemetry (Phase 1)
  * ============================================================================
@@ -1545,6 +1545,7 @@ function toggleDoor(key) {
 
       const settings = {
         lang: state.lang,
+        numFormat: state.numFormat || 'western',
         defaultPage: state.defaultPage || 'main',
         carColor: state.carColor,
         roofOption: state.roofOption,
@@ -1653,6 +1654,14 @@ function toggleDoor(key) {
       try {
         const s = typeof jsonStr === 'string' ? JSON.parse(jsonStr) : jsonStr;
         if (s.lang) setLanguage(s.lang);
+        if (s.numFormat) {
+          if (typeof setNumberFormat === 'function') setNumberFormat(s.numFormat);
+        } else {
+          try {
+            var savedFmt = localStorage.getItem('shine_cockpit_num_format');
+            if (savedFmt && typeof setNumberFormat === 'function') setNumberFormat(savedFmt);
+          } catch(e) {}
+        }
         if (s.defaultPage) setDefaultPageOption(s.defaultPage);
         if (s.carColor) setCarColor(s.carColor === '#ffffff' ? '#e2e8f0' : s.carColor);
         if (s.roofOption) setRoofOption(s.roofOption);
@@ -1819,7 +1828,7 @@ function toggleDoor(key) {
 
     function updateFuelRemainingDisplay() {
       const fpEl = document.getElementById('val-fuel-pct');
-      if (fpEl) fpEl.innerText = (state.lang === 'ar') ? ('%' + window.toLangDigits(cachedFuelPct)) : window.toLangDigits(cachedFuelPct + '%');
+      if (fpEl) fpEl.innerText = (state.lang === 'ar') ? ('%' + window.toLangDigits(cachedFuelPct)) : (window.toLangDigits(cachedFuelPct) + '%');
       const flEl = document.getElementById('val-fuel-liters');
       if (flEl) flEl.innerText = window.toLangDigits(Number(cachedFuelRemain).toFixed(1));
     }
