@@ -313,7 +313,7 @@ const I18N = {
     'num-fmt-western': '1, 2, 3',
     'num-fmt-eastern': '١، ٢، ٣',
     'lbl-donate-title': '☕ لدعم استمرار وتطوير البرنامج',
-    'lbl-donate-desc': 'امسح الرمز بكاميرا الهاتف للدعم عبر InstaPay أو Buy Me a Coffee',
+    'lbl-donate-desc': 'امسح الرمز بكاميرا الهاتف للدعم عبر InstaPay أو PayPal',
     'm-sec-color': 'لون طلاء السيارة',
     'm-sec-roof': 'لون السقف',
     'roof-btn-black': 'سقف أسود',
@@ -437,8 +437,8 @@ const I18N = {
     'm-sec-num-format': 'Number Format',
     'num-fmt-western': '1, 2, 3',
     'num-fmt-eastern': '١، ٢، ٣',
-    'lbl-donate-title': '☕ Buy Me a Coffee / Support Dev',
-    'lbl-donate-desc': 'Scan with your phone camera to support via Buy Me a Coffee or InstaPay'
+    'lbl-donate-title': '☕ PayPal / Support Dev',
+    'lbl-donate-desc': 'Scan with your phone camera to support via PayPal or InstaPay'
   },
   ru: {
     'm-title': 'Настройки автомобиля и кокпита',
@@ -453,13 +453,13 @@ const I18N = {
     'num-fmt-western': '1, 2, 3',
     'num-fmt-eastern': '١، ٢، ٣',
     'lbl-donate-title': '☕ لدعم استمرار وتطوير البرنامج',
-    'lbl-donate-desc': 'امسح الرمز بكاميرا الهاتف للدعم عبر InstaPay أو Buy Me a Coffee',
+    'lbl-donate-desc': 'امسح الرمز بكاميرا الهاتف للدعم عبر InstaPay أو PayPal',
     'lang-ru': 'Русский',
     'm-sec-num-format': 'Формат чисел',
     'num-fmt-western': '1, 2, 3',
     'num-fmt-eastern': '١، ٢، ٣',
     'lbl-donate-title': '☕ لدعم استمرار وتطوير البرنامج',
-    'lbl-donate-desc': 'امسح الرمز بكاميرا الهاتف للدعم عبر InstaPay أو Buy Me a Coffee',
+    'lbl-donate-desc': 'امسح الرمز بكاميرا الهاتف للدعم عبر InstaPay أو PayPal',
     'm-sec-color': 'Цвет кузова',
     'm-sec-roof': 'Цвет крыши',
     'roof-btn-black': 'Двухцветный',
@@ -515,7 +515,7 @@ const I18N = {
     'lbl-ambient': 'УЛИЦА',
     'lbl-inst-fuel': 'ТЕКУЩИЙ',
     'lbl-range': 'ЗАПАС ХОДА',
-    'lbl-donate-title': '☕ Поддержать разработку (Buy Me a Coffee)',
+    'lbl-donate-title': '☕ Поддержать разработку (PayPal)',
     'lbl-donate-desc': 'Отсканируйте камерой смартфона для поддержки проекта'
   }
 };
