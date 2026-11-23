@@ -1,4 +1,6 @@
-# Dongfeng Shine Launcher (`v2.1.0`) — Architecture & Engineering Guide
+# Dongfeng Shine Launcher — Architecture & Engineering Guide
+
+> Current version: see `android:versionName` in `AndroidManifest.xml` (the single source of truth).
 
 ## Overview
 **Titan Cockpit Launcher** (`com.dongfeng.shinecockpit`) is a hybrid Android Head-Unit launcher (Android WebView + Three.js WebGL + native Qinggan CAN-Bus, Tuner, Bluetooth & MediaSession bridges) designed for a `960×1080` portrait dashboard display.
@@ -11,7 +13,7 @@ Starting in `v2.1.0`, **Shine Wave** is compiled directly into the launcher unde
 
 ```text
 DongfengShineApp/
-├── AndroidManifest.xml                  # Launcher intent filters, permissions & services (v2.1.0)
+├── AndroidManifest.xml                  # Launcher intent filters, permissions & services, and the app version
 ├── build_apk.ps1                        # Reproducible build pipeline (aapt -> javac -> dx -> zipalign -> apksigner)
 ├── README.md                            # Repository overview & build instructions
 ├── ARCHITECTURE.md                      # Architecture & cross-layer interface guide
