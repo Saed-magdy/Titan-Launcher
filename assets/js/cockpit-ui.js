@@ -28,14 +28,23 @@
       buttonActions.forEach(item => {
         const el = document.getElementById(item.id);
         if (!el) return;
-        let lastTime = 0;
+        let lastPointerTime = 0;
+        let lastTriggerTime = 0;
 
         const trigger = (e) => {
-          if (e.cancelable) e.preventDefault();
-          e.stopPropagation();
+          if (e && e.type === 'click' && (Date.now() - lastPointerTime) < 600) {
+            if (e.cancelable) e.preventDefault();
+            e.stopPropagation();
+            return;
+          }
+          if (e && (e.type === 'pointerdown' || e.type === 'touchstart')) {
+            lastPointerTime = Date.now();
+          }
+          if (e && e.cancelable) e.preventDefault();
+          if (e) e.stopPropagation();
           const now = Date.now();
-          if (now - lastTime < 140) return;
-          lastTime = now;
+          if (now - lastTriggerTime < 180) return;
+          lastTriggerTime = now;
           el.classList.add('instant-active');
           setTimeout(() => el.classList.remove('instant-active'), 110);
           item.fn();

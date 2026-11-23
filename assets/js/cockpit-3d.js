@@ -261,8 +261,11 @@ var _paintQueued = false;
         tex.magFilter = THREE.LinearFilter;
         tex.needsUpdate = true;
         lightTextures[key] = tex;
-        if (key === 'C65_zuodeng.png' && leftLightMaterials.length) {
-          applyLightState(leftLightMaterials, tex, false);
+        if (key === 'C65_zuodeng.png') {
+          if (leftLightMaterials.length) applyLightState(leftLightMaterials, tex, false);
+          applyTrunkState();
+        } else if (key === 'C65_zuodeng_jinguang.png') {
+          applyTrunkState();
         } else if (key === 'C65_youdeng.png' && rightLightMaterials.length) {
           applyLightState(rightLightMaterials, tex, false);
         }
@@ -275,11 +278,9 @@ var _paintQueued = false;
     }
 
     function preloadHeadlightTextures() {
-      // Load resting neutral headlight textures immediately
-      loadSingleLightTexture('C65_zuodeng.png');
-      loadSingleLightTexture('C65_youdeng.png');
-
-      // Defer active/flasher textures until after first car paint & render
+      // Base resting textures (C65_zuodeng.png / C65_youdeng.png) are extracted
+      // directly from the embedded GLB in setupLoadedModel(). Only lazy-load
+      // active/flasher state textures after first car paint & render.
       const deferredKeys = [
         'C65_zuodeng_jinguang.png', 'C65_zuodeng_yuanguang.png',
         'C65_zuodeng_01.png', 'C65_zuodeng_jinguang_01.png', 'C65_zuodeng_yuanguang_01.png',
@@ -357,12 +358,6 @@ var _paintQueued = false;
       carPaintTexture.minFilter = THREE.LinearFilter;
       carPaintTexture.magFilter = THREE.LinearFilter;
 
-      rawCheqiImg = new Image();
-      rawCheqiImg.onload = function() {
-        if (carModel) updateCarPaint();
-      };
-      rawCheqiImg.src = 'textures/cheqi_base.png';
-
       seatPaintCanvas = document.createElement('canvas');
       seatPaintCanvas.width = 256;
       seatPaintCanvas.height = 256;
@@ -372,20 +367,17 @@ var _paintQueued = false;
       seatPaintTexture.generateMipmaps = false;
       seatPaintTexture.minFilter = THREE.LinearFilter;
       seatPaintTexture.magFilter = THREE.LinearFilter;
+    }
 
-      const seatImg = new Image();
-      seatImg.onload = function() {
-        seatImages.sport = seatImg;
-        if (carModel) updateSeatUpholstery();
-      };
-      seatImg.src = 'textures/zuoyi_orig.png';
+    function isTexImgReady(img) {
+      return !!(img && (img.complete === true || (img.complete === undefined && img.width > 0 && img.height > 0)));
     }
 
     function updateSeatUpholstery() {
       if (!seatPaintCtx || !seatPaintTexture) return;
       const sOpt = state.seatOption || 'sport';
       const baseImg = seatImages.sport || seatImages[sOpt];
-      if (!baseImg || !baseImg.complete) return;
+      if (!isTexImgReady(baseImg)) return;
 
       seatPaintCtx.clearRect(0, 0, 256, 256);
       seatPaintCtx.drawImage(baseImg, 0, 0, 256, 256);
@@ -468,7 +460,7 @@ var _paintQueued = false;
     }
 
     function updateCarPaint() {
-      if (!rawCheqiImg || !rawCheqiImg.complete || !carPaintCtx) return;
+      if (!isTexImgReady(rawCheqiImg) || !carPaintCtx) return;
 
       carPaintCtx.clearRect(0, 0, 512, 512);
       carPaintCtx.drawImage(rawCheqiImg, 0, 0);
@@ -1009,16 +1001,48 @@ var _paintQueued = false;
 
       setupHinges();
       freezeStaticCarMatrices();
-      if (rawCheqiImg && rawCheqiImg.complete) {
+
+      // Extract base paint, seat, and resting light textures directly from embedded GLB materials
+      // so the first rendered frame is 100% textured with zero extra HTTP/file fetches.
+      function makeGlbBaseTex(mat) {
+        if (!mat || !mat.map || !mat.map.image) return null;
+        const tex = new THREE.Texture(mat.map.image);
+        tex.flipY = false;
+        tex.generateMipmaps = false;
+        tex.minFilter = THREE.LinearFilter;
+        tex.magFilter = THREE.LinearFilter;
+        tex.needsUpdate = true;
+        return tex;
+      }
+
+      if (!rawCheqiImg && nodes['C65_cheqi'] && nodes['C65_cheqi'].material && nodes['C65_cheqi'].material.map) {
+        rawCheqiImg = nodes['C65_cheqi'].material.map.image;
+      }
+      if (!seatImages.sport) {
+        const seatMat = seatMaterials[0] || (nodes['C65_zuoyi'] && nodes['C65_zuoyi'].material);
+        if (seatMat && seatMat.map && seatMat.map.image) {
+          seatImages.sport = seatMat.map.image;
+        }
+      }
+      if (!lightTextures['C65_zuodeng.png']) {
+        const leftTex = makeGlbBaseTex(leftLightMaterials[0] || trunkMaterial);
+        if (leftTex) lightTextures['C65_zuodeng.png'] = leftTex;
+      }
+      if (!lightTextures['C65_youdeng.png']) {
+        const rightTex = makeGlbBaseTex(rightLightMaterials[0]);
+        if (rightTex) lightTextures['C65_youdeng.png'] = rightTex;
+      }
+
+      if (isTexImgReady(rawCheqiImg)) {
         updateCarPaint();
-      } else if (seatImages.sport && seatImages.sport.complete) {
+      } else if (isTexImgReady(seatImages.sport)) {
         updateSeatUpholstery();
       }
 
       if (lightTextures['C65_zuodeng.png']) {
         applyLightState(leftLightMaterials, lightTextures['C65_zuodeng.png'], false);
-        applyTrunkState();
       }
+      applyTrunkState();
       if (lightTextures['C65_youdeng.png']) {
         applyLightState(rightLightMaterials, lightTextures['C65_youdeng.png'], false);
       }
@@ -1088,10 +1112,11 @@ var _paintQueued = false;
       if (!trunkMaterial) return;
       const isActive = state.lights.dipped || state.lights.main || state.lights.position || state.lights.fog;
       const baseKey = isActive ? 'C65_zuodeng_jinguang.png' : 'C65_zuodeng.png';
-      if (lightTextures[baseKey]) {
-        trunkMaterial.map = lightTextures[baseKey];
+      const targetTex = lightTextures[baseKey] || lightTextures['C65_zuodeng.png'] || trunkMaterial.map;
+      if (targetTex) {
+        trunkMaterial.map = targetTex;
         if (isActive) {
-          trunkMaterial.emissiveMap = lightTextures[baseKey];
+          trunkMaterial.emissiveMap = targetTex;
           trunkMaterial.emissive = new THREE.Color(0xffffff);
           if (state.lights.main) {
             trunkMaterial.emissiveIntensity = 1.35;
