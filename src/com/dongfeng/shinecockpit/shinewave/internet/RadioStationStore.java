@@ -25,8 +25,27 @@ public final class RadioStationStore {
         this.prefs = context.getApplicationContext().getSharedPreferences(PREFS, Context.MODE_PRIVATE);
     }
 
+    public static List<RadioBrowserClient.Station> getCuratedArabicStations() {
+        List<RadioBrowserClient.Station> list = new ArrayList<>();
+        list.add(new RadioBrowserClient.Station("curated_quran", "إذاعة القرآن الكريم - القاهرة", "https://stream.radiojar.com/0tpy1h0kxtzuv", "EG"));
+        list.add(new RadioBrowserClient.Station("curated_nogoum", "نجوم إف إم 100.6", "https://reach-audio.nrpstream.com/nogoumfm", "EG"));
+        list.add(new RadioBrowserClient.Station("curated_radiomasr", "راديو مصر 88.7", "https://radiomasr.radioca.st/stream", "EG"));
+        list.add(new RadioBrowserClient.Station("curated_megafm", "ميجا إف إم 92.7", "https://reach-audio.nrpstream.com/megafm", "EG"));
+        list.add(new RadioBrowserClient.Station("curated_9090", "راديو 9090 مصر", "https://9090streaming.mobtada.com/9090FMEGY", "EG"));
+        list.add(new RadioBrowserClient.Station("curated_aghani", "إذاعة الأغاني المصرية", "https://stream.zeno.fm/k2y9wzpmdg8uv", "EG"));
+        list.add(new RadioBrowserClient.Station("curated_rotana", "روتانا إف إم", "https://stream.zeno.fm/46yqdtpmdg8uv", "SA"));
+        list.add(new RadioBrowserClient.Station("curated_sawa", "راديو سوا", "https://mbgradio.com/sawa_levant/", "US"));
+        list.add(new RadioBrowserClient.Station("curated_skynews", "سكاي نيوز عربية", "https://stream.zeno.fm/v2m5ytpmdg8uv", "AE"));
+        list.add(new RadioBrowserClient.Station("curated_asharq", "راديو الشرق", "https://stream.zeno.fm/9uvy63pmdg8uv", "SA"));
+        return list;
+    }
+
     public synchronized List<RadioBrowserClient.Station> getFavorites() {
-        return readList(KEY_FAVS);
+        List<RadioBrowserClient.Station> favs = readList(KEY_FAVS);
+        if (favs.isEmpty()) {
+            return getCuratedArabicStations();
+        }
+        return favs;
     }
 
     public synchronized List<RadioBrowserClient.Station> getRecent() {

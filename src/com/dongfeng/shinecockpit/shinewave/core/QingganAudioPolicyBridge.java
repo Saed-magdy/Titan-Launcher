@@ -102,6 +102,27 @@ public final class QingganAudioPolicyBridge {
     }
 
     /**
+     * Routes hardware DSP audio to Media/Music (streamType = 3).
+     */
+    public boolean routeToMusic() {
+        requestMediaAudioFocus();
+        synchronized (lock) {
+            ensureClassesAvailable();
+            if (policyManager == null) return false;
+            try {
+                Method m = managerClass.getMethod("requestAudioPolicy", policyListenerClass, int.class);
+                Object res = m.invoke(policyManager, policyListenerProxy, STREAM_MUSIC);
+                Log.i(TAG, "requestAudioPolicy(3) music returned: " + res);
+                currentRoutingStream = STREAM_MUSIC;
+                return true;
+            } catch (Throwable t) {
+                Log.w(TAG, "routeToMusic failed: " + t.getMessage());
+                return false;
+            }
+        }
+    }
+
+    /**
      * Routes hardware DSP audio to Bluetooth A2DP Sink (streamType = 4).
      * Calls requestAudioPolicyForVehicleBtMusicOnly() or requestAudioPolicy(listener, 4).
      */

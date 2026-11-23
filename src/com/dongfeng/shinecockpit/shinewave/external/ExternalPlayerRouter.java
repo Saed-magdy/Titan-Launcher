@@ -231,12 +231,12 @@ public final class ExternalPlayerRouter {
                 switch (cmd) {
                     case "play":
                         tc.play();
-                        // Also dispatch targeted media key for players that ignore onPlay() when paused
-                        dispatchTargetedMediaKey(pkg, KeyEvent.KEYCODE_MEDIA_PLAY);
                         return true;
                     case "pause":
                         tc.pause();
-                        dispatchTargetedMediaKey(pkg, KeyEvent.KEYCODE_MEDIA_PAUSE);
+                        return true;
+                    case "stop":
+                        tc.stop();
                         return true;
                     case "toggle": {
                         PlaybackState st = controller.getPlaybackState();
@@ -244,10 +244,8 @@ public final class ExternalPlayerRouter {
                                 || st.getState() == PlaybackState.STATE_BUFFERING);
                         if (isPlaying) {
                             tc.pause();
-                            dispatchTargetedMediaKey(pkg, KeyEvent.KEYCODE_MEDIA_PAUSE);
                         } else {
                             tc.play();
-                            dispatchTargetedMediaKey(pkg, KeyEvent.KEYCODE_MEDIA_PLAY);
                         }
                         return true;
                     }
@@ -321,9 +319,17 @@ public final class ExternalPlayerRouter {
     public SessionSnapshot readSelectedSession() {
         String pkg = getSelectedPackage();
         String label = getSelectedLabel();
-        if (pkg.isEmpty()) return null;
 
         MediaController controller = findSession(pkg);
+        if (controller != null) {
+            if (pkg.isEmpty()) {
+                pkg = controller.getPackageName();
+                label = resolveAppLabel(pkg);
+            }
+        } else if (pkg.isEmpty()) {
+            return null;
+        }
+
         if (controller == null) {
             return new SessionSnapshot(pkg, label, label.isEmpty() ? "مشغل خارجي" : label,
                     "اضغط تشغيل لفتح المشغل", "", false, 0L, 0L, "", null);
@@ -559,19 +565,122 @@ public final class ExternalPlayerRouter {
         }
     }
 
-    private MediaController findSession(String pkg) {
-        if (pkg == null || pkg.isEmpty()) return null;
+    public MediaController findSession(String pkg) {
         try {
             MediaSessionManager mgr = (MediaSessionManager) appContext.getSystemService(Context.MEDIA_SESSION_SERVICE);
             if (mgr == null) return null;
-            List<MediaController> list = mgr.getActiveSessions(new ComponentName(appContext, CockpitMediaListenerService.class));
-            if (list != null) {
+            List<MediaController> list = null;
+            try {
+                list = mgr.getActiveSessions(new ComponentName(appContext, CockpitMediaListenerService.class));
+            } catch (Throwable ignored) {}
+            if (list == null || list.isEmpty()) {
+                try {
+                    list = mgr.getActiveSessions(null);
+                } catch (Throwable ignored) {}
+            }
+            if (list != null && !list.isEmpty()) {
+                // 1. Try matching requested package
+                if (pkg != null && !pkg.isEmpty()) {
+                    for (MediaController c : list) {
+                        if (pkg.equals(c.getPackageName())) return c;
+                    }
+                }
+                // 2. Prioritize VLC if present
                 for (MediaController c : list) {
-                    if (pkg.equals(c.getPackageName())) return c;
+                    if ("org.videolan.vlc".equals(c.getPackageName())) {
+                        return c;
+                    }
+                }
+                // 3. Prioritize currently playing/buffering external session
+                for (MediaController c : list) {
+                    String p = c.getPackageName();
+                    if (!appContext.getPackageName().equals(p) && !"com.android.bluetooth".equals(p)) {
+                        PlaybackState st = c.getPlaybackState();
+                        if (st != null && (st.getState() == PlaybackState.STATE_PLAYING || st.getState() == PlaybackState.STATE_BUFFERING)) {
+                            return c;
+                        }
+                    }
+                }
+                // 4. Fallback to any non-self, non-bluetooth media session
+                for (MediaController c : list) {
+                    String p = c.getPackageName();
+                    if (!appContext.getPackageName().equals(p) && !"com.android.bluetooth".equals(p)) {
+                        return c;
+                    }
                 }
             }
-        } catch (Throwable ignored) {}
+        } catch (Throwable t) {
+            Log.w(TAG, "findSession error: " + t.getMessage());
+        }
         return null;
+    }
+
+    public JSONObject getQueueJson() {
+        JSONObject root = new JSONObject();
+        JSONArray arr = new JSONArray();
+        MediaController controller = findSession(getSelectedPackage());
+        if (controller != null) {
+            try {
+                List<android.media.session.MediaSession.QueueItem> queue = controller.getQueue();
+                PlaybackState ps = controller.getPlaybackState();
+                long activeId = (ps != null) ? ps.getActiveQueueItemId() : -1;
+                int curIdx = 0;
+                if (queue != null && !queue.isEmpty()) {
+                    for (int i = 0; i < queue.size(); i++) {
+                        android.media.session.MediaSession.QueueItem qi = queue.get(i);
+                        String title = (qi.getDescription() != null && qi.getDescription().getTitle() != null)
+                                ? qi.getDescription().getTitle().toString() : ("Track " + (i + 1));
+                        String subtitle = (qi.getDescription() != null && qi.getDescription().getSubtitle() != null)
+                                ? qi.getDescription().getSubtitle().toString() : "";
+                        boolean active = (qi.getQueueId() == activeId) || (activeId == -1 && i == 0);
+                        if (active) curIdx = i;
+                        JSONObject itemObj = new JSONObject();
+                        itemObj.put("index", i);
+                        itemObj.put("id", String.valueOf(qi.getQueueId()));
+                        itemObj.put("title", title);
+                        itemObj.put("artist", subtitle);
+                        itemObj.put("durationSec", 0);
+                        itemObj.put("active", active);
+                        arr.put(itemObj);
+                    }
+                    root.put("currentIndex", curIdx);
+                    root.put("items", arr);
+                    return root;
+                }
+            } catch (Throwable ignored) {}
+
+            // Fallback: active track
+            SessionSnapshot snap = readSelectedSession();
+            if (snap != null && !snap.title.isEmpty() && !snap.title.contains("اختر تطبيق")) {
+                try {
+                    JSONObject itemObj = new JSONObject();
+                    itemObj.put("index", 0);
+                    itemObj.put("id", "0");
+                    itemObj.put("title", snap.title);
+                    itemObj.put("artist", snap.artist);
+                    itemObj.put("durationSec", snap.durationSec);
+                    itemObj.put("active", true);
+                    arr.put(itemObj);
+                    root.put("currentIndex", 0);
+                    root.put("items", arr);
+                    return root;
+                } catch (Throwable ignored) {}
+            }
+        }
+        try {
+            root.put("currentIndex", 0);
+            root.put("items", arr);
+        } catch (Throwable ignored) {}
+        return root;
+    }
+
+    public void skipToQueueItem(long queueId) {
+        MediaController controller = findSession(getSelectedPackage());
+        if (controller != null) {
+            try {
+                controller.getTransportControls().skipToQueueItem(queueId);
+            } catch (Throwable ignored) {}
+        }
     }
 
     private boolean dispatchMediaKey(String cmd) {
@@ -608,6 +717,17 @@ public final class ExternalPlayerRouter {
             }
         } catch (Throwable ignored) {}
         return null;
+    }
+
+    private String resolveAppLabel(String pkg) {
+        if (pkg == null || pkg.isEmpty()) return "";
+        try {
+            PackageManager pm = appContext.getPackageManager();
+            CharSequence cs = pm.getApplicationLabel(pm.getApplicationInfo(pkg, 0));
+            return cs != null ? cs.toString().trim() : pkg;
+        } catch (Throwable ignored) {
+            return pkg;
+        }
     }
 
     private static String safeLabel(PackageManager pm, ResolveInfo ri) {

@@ -1,6 +1,6 @@
 # 📋 Titan Cockpit Launcher - Changelog
 
-## 🌟 [v2.1.3] - 2026-11-23
+## 🌟 [v2.1.4] - 2026-11-23
 
 ### 🔄 التحديث التلقائي وصلاحيات التنزيل والتثبيت:
 - **إضافة صلاحيات التنزيل والتثبيت (Auto-Updater Permissions):**
@@ -18,6 +18,21 @@
 - **التمرير السريع عبر البلوتوث:** تفعيل النقر والتمرير على الشريط المموج لمقاطع البلوتوث عبر بروتوكول AVRCP 1.6 و MediaSession بدون تأخير.
 - **إصلاح صور الألبومات عبر البلوتوث:** تنقية أسماء المقاطع من الزوائد والأقواس لتنزيل صور الألبومات العربية والأجنبية بنجاح.
 
+### 🛠️ تحديثات وإصلاحات مشغل الصوتيات الشاملة (Audio Player Fixes):
+- **التحكم الكامل في التطبيقات الخارجية (VLC & External Apps):**
+  - إصلاح استجابة أزرار التشغيل والإيقاف المؤقت (Play / Pause / Stop) عند التحكم في تطبيق VLC والمشغلات الخارجية، واكتشاف الجلسة النشطة تلقائياً دون تعارض.
+- **تحديث مؤقت التقدم اللحظي لملفات الفلاشة والتخزين:**
+  - تفعيل عداد الثواني وشريط التقدم في الوقت الفعلي (1s Real-time Progress Ticker) أثناء تشغيل الملفات الصوتية من الفلاشة والذاكرة.
+  - خفض الحد الأدنى لمدة المقاطع الممسوحة إلى 5 ثوانٍ وتوسيع نطاق قراءة وحدات USB التلقائية.
+- **قائمة التشغيل الموحدة والديناميكية (Unified Dynamic Queue):**
+  - قراءة قائمة التشغيل تلقائياً وعرضها بدقة من أي مصدر نشط (VLC MediaSession، ملفات الفلاشة، محطات راديو السيارة، راديو الإنترنت) مع إمكانية القفز المباشر لأي مقطع أو محطة.
+- **البحث والتسجيل التلقائي لمحطات الراديو (Auto-Scan & Save):**
+  - إضافة ميزة وزر المسح التلقائي لترددات FM وحفظ القنوات ذات الإشارة الصافية تلقائياً في قائمة القنوات والمفضلة.
+- **تشغيل راديو الإنترنت وتوجيه عتاد الصوت DSP:**
+  - توجيه عتاد الصوت تلقائياً عبر QingganAudioPolicyBridge لمنع صمت الصوت عند الانتقال للإنترنت والمشغلات الخارجية، مع تزويد المشغل بباقة مسبقة من الإذاعات المصرية والعربية عالية الموثوقية (إذاعة القرآن الكريم، نجوم FM، راديو مصر، ميجا FM، 9090، الأغاني، روتانا، سوا، سكاي نيوز).
+- **إصلاح انهيار خيط البلوتوث (Qinggan BT Stack Fix):**
+  - ضمان تهيئة مهايئ البلوتوث WL8BTAdapter عبر Main Looper لمنع انهيار Looper.prepare عند ضغطات عجلة القيادة أو الشاشة.
+
 ### ☕ تحسينات عامة:
 - **تحديث نافذة الدعم:** إضافة Paypal و InstaPay مع توجيه الرمز المباشر.
 - **تحسين استجابة أزرار Play/Pause** واستئناف الصوت التلقائي عند التبديل بين البلوتوث والتطبيقات المحلية.
@@ -34,6 +49,13 @@
   - Added automatic runtime permission checks on boot for storage and visualizer audio.
 
 ### 🎵 Shine Wave Audio Player & Studio:
+- **Comprehensive Audio Player & Controller Fixes:**
+  - **External Player (VLC) Control:** Fixed Play/Pause/Stop button response and automatic active MediaSession detection when controlling VLC or third-party audio apps.
+  - **Real-Time Storage Progress Ticker:** Active 1-second progress ticker for local and USB drive playback, lowered minimum track duration threshold to 5s, and expanded storage volume discovery.
+  - **Unified Dynamic Queue:** Real-time queue reading and instant item navigation across all audio sources (VLC MediaSession items, USB files, Car Radio frequencies, Internet Radio stations).
+  - **OEM Radio Auto-Scan & Save:** Added Auto-Scan & Save action that sweeps the FM band and automatically saves all high-clarity frequencies into station presets.
+  - **Internet Radio & Hardware Audio DSP Policy:** Ensured car hardware audio DSP routes properly to `STREAM_MUSIC` (streamType 3) to prevent silence bugs, with 10+ pre-seeded high-reliability Egyptian and Arabic live streams (Cairo Quran, Nogoum FM, Radio Masr, Mega FM, etc.).
+  - **Qinggan Bluetooth Stack Thread Crash Fix:** Synchronized `WL8BTAdapter` initialization on the Main Looper, eliminating the `Can't create handler inside thread that has not called Looper.prepare()` crash on steering wheel key presses.
 - **Redesigned Studio Equalizer:** 28 smoothly curved reactive bars with pastel gradients and peak neon caps.
 - **Pastel Jester / Clown Mascot:** Musical mascot that sways, jumps to the beat, and blows iridescent bubbles, with sleep stance when paused and show/hide toggle.
 - **10-Second Seek:** Long-press Next/Previous on Steering Wheel (650ms) and on-screen player buttons (>500ms) with visual seek toasts.

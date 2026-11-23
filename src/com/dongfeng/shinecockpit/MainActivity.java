@@ -375,12 +375,15 @@ public class MainActivity extends Activity implements CockpitMediaListenerServic
     private long mLastCenterKeyTime = 0L;
     private static final long CENTER_KEY_DEBOUNCE_MS = 350L;
 
-    private static final int QG_KEY_NEXT = 3;
-    private static final int QG_KEY_PREVIOUS = 4;
+    // Steering Wheel Control (SWC) keycodes on Dongfeng Shine:
+    // Physical "Next" / Forward = keycode 4 (long: 14)
+    // Physical "Before" / Backward = keycode 3 (long: 13)
+    private static final int QG_KEY_NEXT = 4;
+    private static final int QG_KEY_PREVIOUS = 3;
     private static final int QG_KEY_PLAY_PAUSE = 6;
     private static final int QG_KEY_MEDIA_OK = 145;
-    private static final int QG_LONG_PREVIOUS_KEY = 14;
-    private static final int QG_LONG_NEXT_KEY = 13;
+    private static final int QG_LONG_NEXT_KEY = 14;
+    private static final int QG_LONG_PREVIOUS_KEY = 13;
 
     private void registerQingganSteeringWheelKeys() {
         try {
@@ -428,23 +431,25 @@ public class MainActivity extends Activity implements CockpitMediaListenerServic
                                 mHandler.post(new Runnable() {
                                     @Override public void run() { handleQingganKey(keyCode); }
                                 });
-                            } else if ("onKeyLongPressStart".equals(name)) {
-                                if (keyCode == QG_LONG_NEXT_KEY || keyCode == QG_KEY_NEXT || keyCode == 13 || keyCode == 3) {
+                            } else if ("onKeyLongPressStart".equals(name) || "onKeyHoldPressStart".equals(name)) {
+                                if (keyCode == QG_LONG_NEXT_KEY || keyCode == QG_KEY_NEXT || keyCode == 14 || keyCode == 4) {
+                                    // Forward Seek (+10s) on Next button hold
                                     mHandler.post(new Runnable() {
                                         @Override public void run() {
                                             if (mShineWave != null) mShineWave.startLongSeek(1);
                                         }
                                     });
-                                } else if (keyCode == QG_LONG_PREVIOUS_KEY || keyCode == QG_KEY_PREVIOUS || keyCode == 14 || keyCode == 4) {
+                                } else if (keyCode == QG_LONG_PREVIOUS_KEY || keyCode == QG_KEY_PREVIOUS || keyCode == 13 || keyCode == 3) {
+                                    // Backward Seek (-10s) on Before/Previous button hold
                                     mHandler.post(new Runnable() {
                                         @Override public void run() {
                                             if (mShineWave != null) mShineWave.startLongSeek(-1);
                                         }
                                     });
                                 }
-                            } else if ("onKeyLongPressStop".equals(name) || "onKeyRelease".equals(name)) {
-                                if (keyCode == QG_LONG_NEXT_KEY || keyCode == QG_KEY_NEXT || keyCode == 13 || keyCode == 3 ||
-                                    keyCode == QG_LONG_PREVIOUS_KEY || keyCode == QG_KEY_PREVIOUS || keyCode == 14 || keyCode == 4) {
+                            } else if ("onKeyLongPressStop".equals(name) || "onKeyHoldPressStop".equals(name) || "onKeyRelease".equals(name) || "onKeyUp".equals(name)) {
+                                if (keyCode == QG_LONG_NEXT_KEY || keyCode == QG_KEY_NEXT || keyCode == 14 || keyCode == 4 ||
+                                    keyCode == QG_LONG_PREVIOUS_KEY || keyCode == QG_KEY_PREVIOUS || keyCode == 13 || keyCode == 3) {
                                     mHandler.post(new Runnable() {
                                         @Override public void run() {
                                             if (mShineWave != null) mShineWave.stopLongSeek();
@@ -633,14 +638,16 @@ public class MainActivity extends Activity implements CockpitMediaListenerServic
                     mSwcKeyDownTime = System.currentTimeMillis();
                     mIsLongPressSeeking = false;
 
-                    // Schedule long-press detection at 1.5 seconds
+                    // Schedule long-press detection
                     mLongPressSeekRunnable = new Runnable() {
                         @Override
                         public void run() {
                             mIsLongPressSeeking = true;
-                            // Perform initial 5s seek
-                            if (mShineWave != null) mShineWave.seekBySec(stepMs / 1000L);
-                            else CockpitMediaListenerService.seekBy(MainActivity.this, stepMs);
+                            if (mShineWave != null) {
+                                mShineWave.startLongSeek(isForward ? 1 : -1);
+                            } else {
+                                CockpitMediaListenerService.seekBy(MainActivity.this, stepMs);
+                            }
                             if (mWebView != null) {
                                 mWebView.evaluateJavascript("if (typeof window.onSwcSeek === 'function') { window.onSwcSeek('" + dir + "', " + Math.abs(stepMs) + "); }", null);
                             }
@@ -650,8 +657,9 @@ public class MainActivity extends Activity implements CockpitMediaListenerServic
                                 @Override
                                 public void run() {
                                     if (mIsLongPressSeeking && mPressedSwcKey != 0) {
-                                        if (mShineWave != null) mShineWave.seekBySec(stepMs / 1000L);
-                                        else CockpitMediaListenerService.seekBy(MainActivity.this, stepMs);
+                                        if (mShineWave == null) {
+                                            CockpitMediaListenerService.seekBy(MainActivity.this, stepMs);
+                                        }
                                         if (mWebView != null) {
                                             mWebView.evaluateJavascript("if (typeof window.onSwcSeek === 'function') { window.onSwcSeek('" + dir + "', " + Math.abs(stepMs) + "); }", null);
                                         }
@@ -683,6 +691,7 @@ public class MainActivity extends Activity implements CockpitMediaListenerServic
                         // Was seeking - end seek and do NOT change track
                         mIsLongPressSeeking = false;
                         mPressedSwcKey = 0;
+                        if (mShineWave != null) mShineWave.stopLongSeek();
                         if (mWebView != null) {
                             mWebView.evaluateJavascript("if (typeof window.onSwcSeekEnd === 'function') { window.onSwcSeekEnd(); }", null);
                         }
@@ -1178,6 +1187,21 @@ public class MainActivity extends Activity implements CockpitMediaListenerServic
         @JavascriptInterface
         public void seekShineWaveRadio(final boolean up) {
             if (mShineWave != null) mShineWave.seekCarRadio(up);
+        }
+
+        @JavascriptInterface
+        public void startShineWaveRadioAutoScan() {
+            if (mShineWave != null) mShineWave.startRadioAutoScan();
+        }
+
+        @JavascriptInterface
+        public void stopShineWaveRadioAutoScan() {
+            if (mShineWave != null) mShineWave.stopRadioAutoScan();
+        }
+
+        @JavascriptInterface
+        public boolean isShineWaveRadioAutoScanning() {
+            return mShineWave != null && mShineWave.isRadioAutoScanning();
         }
 
         @JavascriptInterface
