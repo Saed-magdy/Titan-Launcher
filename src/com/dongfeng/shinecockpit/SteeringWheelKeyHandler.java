@@ -24,13 +24,15 @@ public final class SteeringWheelKeyHandler {
     private static final long SWC_SEEK_STEP_MS = 10000L;
     private static final long CENTER_KEY_DEBOUNCE_MS = 350L;
 
-    // Dongfeng Shine CAN SWC mapping: Next/Forward = 4 (long: 14), Before/Backward = 3 (long: 13)
+    // Dongfeng Shine CAN SWC mapping:
+    // Forward = 4 (at 1000ms long press, TranslatorSink translates 4 -> QG_LONG_NEXT_KEY = 13)
+    // Backward = 3 (at 1000ms long press, TranslatorSink translates 3 -> QG_LONG_PREVIOUS_KEY = 14)
     private static final int QG_KEY_NEXT = 4;
     private static final int QG_KEY_PREVIOUS = 3;
     private static final int QG_KEY_PLAY_PAUSE = 6;
     private static final int QG_KEY_MEDIA_OK = 145;
-    private static final int QG_LONG_NEXT_KEY = 14;
-    private static final int QG_LONG_PREVIOUS_KEY = 13;
+    private static final int QG_LONG_NEXT_KEY = 13;
+    private static final int QG_LONG_PREVIOUS_KEY = 14;
 
     public interface HostCallback {
         ShineWaveEngine getShineWaveEngine();
@@ -49,6 +51,7 @@ public final class SteeringWheelKeyHandler {
     private Runnable mContinuousSeekRunnable = null;
     private int mPressedSwcKey = 0;
     private boolean mIsLongPressSeeking = false;
+    private volatile boolean mQingganSeekActive = false;
     private long mSwcKeyDownTime = 0L;
 
     public SteeringWheelKeyHandler(Context context, HostCallback callback) {
@@ -98,28 +101,34 @@ public final class SteeringWheelKeyHandler {
                         final String name = method.getName();
                         if (args != null && args.length > 0 && args[0] instanceof Number) {
                             final int keyCode = ((Number) args[0]).intValue();
-                            if ("onKeyShortClick".equals(name)) {
+                            final boolean isHandledMedia = isQingganMediaKey(keyCode);
+                            if (!isHandledMedia) {
+                                return false;
+                            }
+                            if ("onKeyDown".equals(name)) {
+                                // Clear any lingering seek if a different key starts pressing
+                                stopQingganSeek();
+                                return true;
+                            } else if ("onKeyShortClick".equals(name)) {
+                                stopQingganSeek();
                                 mHandler.post(new Runnable() {
                                     @Override public void run() { handleQingganShortClick(keyCode); }
                                 });
-                            } else if ("onKeyLongPressStart".equals(name) || "onKeyHoldPressStart".equals(name)) {
-                                if (keyCode == QG_LONG_NEXT_KEY || keyCode == QG_KEY_NEXT) {
+                                return true;
+                            } else if ("onKeyHoldPressStart".equals(name) || "onKeyLongPressStart".equals(name)) {
+                                if (keyCode == QG_KEY_NEXT || keyCode == QG_LONG_NEXT_KEY) {
                                     startQingganSeek(1);
-                                } else if (keyCode == QG_LONG_PREVIOUS_KEY || keyCode == QG_KEY_PREVIOUS) {
+                                } else if (keyCode == QG_KEY_PREVIOUS || keyCode == QG_LONG_PREVIOUS_KEY) {
                                     startQingganSeek(-1);
                                 }
+                                return true;
                             } else if ("onKeyLongPressStop".equals(name) || "onKeyHoldPressStop".equals(name)
                                     || "onKeyRelease".equals(name) || "onKeyUp".equals(name)) {
-                                if (keyCode == QG_LONG_NEXT_KEY || keyCode == QG_KEY_NEXT
-                                        || keyCode == QG_LONG_PREVIOUS_KEY || keyCode == QG_KEY_PREVIOUS) {
-                                    mHandler.post(new Runnable() {
-                                        @Override public void run() {
-                                            ShineWaveEngine sw = mCallback.getShineWaveEngine();
-                                            if (sw != null) sw.stopLongSeek();
-                                            mCallback.evaluateJs("if (typeof window.onSwcSeekEnd === 'function') { window.onSwcSeekEnd(); }");
-                                        }
-                                    });
+                                if (keyCode == QG_KEY_NEXT || keyCode == QG_LONG_NEXT_KEY
+                                        || keyCode == QG_KEY_PREVIOUS || keyCode == QG_LONG_PREVIOUS_KEY) {
+                                    stopQingganSeek();
                                 }
+                                return true;
                             }
                         }
                         return false;
@@ -127,24 +136,72 @@ public final class SteeringWheelKeyHandler {
                 }
             );
 
+            // Register both intercept (receives translated 13/14 LONG & LONG_STOP even when EventListenerSink
+            // wouldn't orient them) and normal listener as backup.
+            int resIntercept = -1;
+            try {
+                java.lang.reflect.Method regInt = mQingganKeyManager.getClass().getMethod("registerInterceptListener", listenerClass);
+                resIntercept = ((Number) regInt.invoke(mQingganKeyManager, listenerProxy)).intValue();
+            } catch (Throwable t) {
+                Log.w(TAG, "registerInterceptListener note: " + t.getMessage());
+            }
+
             java.lang.reflect.Method reg = mQingganKeyManager.getClass().getMethod("registerKeyEventListener", listenerClass);
-            int res = ((Number) reg.invoke(mQingganKeyManager, listenerProxy)).intValue();
-            if (res >= 0) {
+            int resNormal = ((Number) reg.invoke(mQingganKeyManager, listenerProxy)).intValue();
+            if (resIntercept >= 0 || resNormal >= 0) {
                 mQingganKeyRegistered = true;
-                Log.i(TAG, "Qinggan KeyManager listener registered! Code=" + res);
+                Log.i(TAG, "Qinggan KeyManager registered! intercept=" + resIntercept + " normal=" + resNormal);
             }
         } catch (Throwable t) {
             Log.e(TAG, "registerKeyEventListener failed: " + t.getMessage());
         }
     }
 
+    private static boolean isQingganMediaKey(int keyCode) {
+        return keyCode == QG_KEY_NEXT || keyCode == QG_KEY_PREVIOUS
+                || keyCode == QG_LONG_NEXT_KEY || keyCode == QG_LONG_PREVIOUS_KEY
+                || keyCode == QG_KEY_PLAY_PAUSE || keyCode == QG_KEY_MEDIA_OK;
+    }
+
     private void startQingganSeek(final int dirSign) {
-        final String dir = (dirSign > 0) ? "forward" : "backward";
         mHandler.post(new Runnable() {
             @Override public void run() {
+                if (mQingganSeekActive) {
+                    // Already seeking from 500ms HOLD when 1000ms LONG arrives: keep seeking smoothly without re-triggering
+                    return;
+                }
+                mQingganSeekActive = true;
+                final ShineWaveEngine sw = mCallback.getShineWaveEngine();
+                if (sw != null) {
+                    sw.setSeekUiCallback(new ShineWaveEngine.SeekUiCallback() {
+                        @Override public void onSeekTick(int direction) {
+                            final String d = (direction > 0) ? "forward" : "backward";
+                            mCallback.evaluateJs("if (typeof window.onSwcSeek === 'function') { window.onSwcSeek('" + d + "', " + SWC_SEEK_STEP_MS + "); }");
+                        }
+                        @Override public void onSeekStopped() {
+                            mCallback.evaluateJs("if (typeof window.onSwcSeekEnd === 'function') { window.onSwcSeekEnd(); }");
+                        }
+                    });
+                    sw.startLongSeek(dirSign);
+                } else {
+                    final String dir = (dirSign > 0) ? "forward" : "backward";
+                    mCallback.evaluateJs("if (typeof window.onSwcSeek === 'function') { window.onSwcSeek('" + dir + "', " + SWC_SEEK_STEP_MS + "); }");
+                }
+            }
+        });
+    }
+
+    private void stopQingganSeek() {
+        mHandler.post(new Runnable() {
+            @Override public void run() {
+                if (!mQingganSeekActive) return;
+                mQingganSeekActive = false;
                 ShineWaveEngine sw = mCallback.getShineWaveEngine();
-                if (sw != null) sw.startLongSeek(dirSign);
-                mCallback.evaluateJs("if (typeof window.onSwcSeek === 'function') { window.onSwcSeek('" + dir + "', " + SWC_SEEK_STEP_MS + "); }");
+                if (sw != null) {
+                    sw.stopLongSeek();
+                } else {
+                    mCallback.evaluateJs("if (typeof window.onSwcSeekEnd === 'function') { window.onSwcSeekEnd(); }");
+                }
             }
         });
     }
@@ -175,6 +232,10 @@ public final class SteeringWheelKeyHandler {
 
         if (code == KeyEvent.KEYCODE_MEDIA_NEXT || code == KeyEvent.KEYCODE_MEDIA_FAST_FORWARD
                 || code == KeyEvent.KEYCODE_MEDIA_PREVIOUS || code == KeyEvent.KEYCODE_MEDIA_REWIND) {
+            // Avoid duplicate timers when Qinggan KeyManager intercept/listener already owns virtual SWC keys
+            if (mQingganKeyRegistered && event.getDeviceId() <= 0) {
+                return true;
+            }
 
             final boolean isForward = (code == KeyEvent.KEYCODE_MEDIA_NEXT || code == KeyEvent.KEYCODE_MEDIA_FAST_FORWARD);
             final long stepMs = isForward ? SWC_SEEK_STEP_MS : -SWC_SEEK_STEP_MS;

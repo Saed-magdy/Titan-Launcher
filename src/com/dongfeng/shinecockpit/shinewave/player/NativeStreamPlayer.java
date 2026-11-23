@@ -18,6 +18,8 @@ import android.util.Log;
 
 import com.dongfeng.shinecockpit.shinewave.core.AudioSourceType;
 import com.dongfeng.shinecockpit.shinewave.core.RepeatMode;
+import com.dongfeng.shinecockpit.shinewave.internet.LocalStreamProxy;
+import com.dongfeng.shinecockpit.shinewave.internet.RadioStationStore;
 import com.dongfeng.shinecockpit.shinewave.local.ArtworkCacheManager;
 
 import org.json.JSONArray;
@@ -167,6 +169,17 @@ public final class NativeStreamPlayer {
         currentIndex = Math.max(0, Math.min(startIndex, queue.size() - 1));
         saveQueueSnapshot(0L);
         prepareCurrentItem(true, 0L);
+    }
+
+    public synchronized void setQueuePaused(List<QueueItem> items, int startIndex, AudioSourceType source) {
+        if (items == null || items.isEmpty()) return;
+        queue.clear();
+        queue.addAll(items);
+        queueSource = (source != null) ? source : AudioSourceType.LOCAL_MUSIC;
+        currentIndex = Math.max(0, Math.min(startIndex, queue.size() - 1));
+        pendingSeekMs = 0L;
+        saveQueueSnapshot(0L);
+        notifyStateChanged();
     }
 
     public synchronized boolean resumeSavedQueue(AudioSourceType source) {
@@ -444,7 +457,8 @@ public final class NativeStreamPlayer {
             });
 
             if (item.uriString.startsWith("http://") || item.uriString.startsWith("https://")) {
-                mp.setDataSource(item.uriString);
+                String proxied = LocalStreamProxy.getInstance().getProxyStreamUrl(item.uriString);
+                mp.setDataSource(proxied);
             } else {
                 mp.setDataSource(appContext, Uri.parse(item.uriString));
             }
@@ -682,6 +696,9 @@ public final class NativeStreamPlayer {
                 if (o == null) continue;
                 String uri = o.optString("uri", "");
                 if (uri.isEmpty()) continue;
+                if (source == AudioSourceType.INTERNET_RADIO && RadioStationStore.isLegacyDeadUrl(uri)) {
+                    continue;
+                }
                 restored.add(new QueueItem(
                         o.optString("id", uri),
                         uri,

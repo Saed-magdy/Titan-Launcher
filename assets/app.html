@@ -611,7 +611,30 @@
   <script src="js/shinewave-card.js"></script>
   <script src="js/shinewave-studio.js"></script>
 
-  <!-- Phase 2: Deferred Non-Blocking 3D WebGL Engine & Model Loader -->
-  <script src="js/cockpit-boot.js"></script>
+  <!-- Phase 2: Parallel Non-Blocking 3D WebGL Engine & Binary GLB Model Loader -->
+  <script>
+    (function () {
+      if (window.__carGlbBufferPromise) return;
+      window.__carGlbBufferPromise = new Promise(function (resolve, reject) {
+        var xhr = new XMLHttpRequest();
+        xhr.open('GET', 'models/c65_car.glb', true);
+        xhr.responseType = 'arraybuffer';
+        xhr.onload = function () {
+          if ((xhr.status === 200 || xhr.status === 0) && xhr.response && xhr.response.byteLength > 0) {
+            resolve(xhr.response);
+          } else {
+            reject(new Error('GLB load failed: status=' + xhr.status));
+          }
+        };
+        xhr.onerror = function (e) { reject(e || new Error('GLB XHR network error')); };
+        xhr.send();
+      });
+    })();
+  </script>
+  <script defer src="js/three.min.js"></script>
+  <script defer src="js/OrbitControls.js"></script>
+  <script defer src="js/GLTFLoader.js"></script>
+  <script defer src="js/cockpit-3d.js"></script>
+  <script defer src="js/cockpit-boot.js"></script>
 </body>
 </html>

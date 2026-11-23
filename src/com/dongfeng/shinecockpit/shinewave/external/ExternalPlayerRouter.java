@@ -104,10 +104,28 @@ public final class ExternalPlayerRouter {
         }
     }
 
+    private static final int MAX_SESSION_TRACKS = 30;
+
+    private static final class ExternalTrackItem {
+        final String pkg;
+        final String title;
+        final String artist;
+        long durationSec;
+
+        ExternalTrackItem(String pkg, String title, String artist, long durationSec) {
+            this.pkg = pkg;
+            this.title = title;
+            this.artist = artist;
+            this.durationSec = durationSec;
+        }
+    }
+
     private final Context appContext;
     private final SharedPreferences prefs;
     private final ArtworkCacheManager artworkCache;
     private final Map<String, String> appIconCache = new HashMap<>();
+    private final List<ExternalTrackItem> sessionTracks = new ArrayList<>();
+    private int sessionActiveIndex = -1;
 
     public ExternalPlayerRouter(Context context, ArtworkCacheManager artworkCache) {
         this.appContext = context.getApplicationContext();
@@ -127,6 +145,12 @@ public final class ExternalPlayerRouter {
         String oldPkg = getSelectedPackage();
         if (!oldPkg.isEmpty() && !oldPkg.equals(pkg)) {
             pausePackage(oldPkg);
+        }
+        if (!oldPkg.equals(pkg != null ? pkg : "")) {
+            synchronized (sessionTracks) {
+                sessionTracks.clear();
+                sessionActiveIndex = -1;
+            }
         }
         prefs.edit().putString(KEY_PKG, pkg != null ? pkg : "").putString(KEY_LABEL, label != null ? label : "").apply();
         if (launchNow && pkg != null && !pkg.isEmpty()) {
@@ -165,6 +189,7 @@ public final class ExternalPlayerRouter {
         if (controller == null) return false;
         try {
             int current = getRepeatMode();
+            if (current == REPEAT_MODE_INVALID) return false;
             int next;
             // 0: NONE/OFF -> 2: ALL -> 1: ONE -> 0: OFF
             if (current == REPEAT_MODE_NONE) {
@@ -188,6 +213,7 @@ public final class ExternalPlayerRouter {
         if (controller == null) return false;
         try {
             int current = getShuffleMode();
+            if (current == SHUFFLE_MODE_INVALID) return false;
             int next = (current == SHUFFLE_MODE_NONE) ? SHUFFLE_MODE_ALL : SHUFFLE_MODE_NONE;
             Method m = controller.getTransportControls().getClass().getMethod("setShuffleMode", int.class);
             m.invoke(controller.getTransportControls(), next);
@@ -200,25 +226,25 @@ public final class ExternalPlayerRouter {
 
     public int getRepeatMode() {
         MediaController controller = findSession(getSelectedPackage());
-        if (controller == null) return REPEAT_MODE_NONE;
+        if (controller == null) return REPEAT_MODE_INVALID;
         try {
             Method m = controller.getClass().getMethod("getRepeatMode");
             Object res = m.invoke(controller);
-            return (res instanceof Number) ? ((Number) res).intValue() : REPEAT_MODE_NONE;
+            return (res instanceof Number) ? ((Number) res).intValue() : REPEAT_MODE_INVALID;
         } catch (Throwable ignored) {
-            return REPEAT_MODE_NONE;
+            return REPEAT_MODE_INVALID;
         }
     }
 
     public int getShuffleMode() {
         MediaController controller = findSession(getSelectedPackage());
-        if (controller == null) return SHUFFLE_MODE_NONE;
+        if (controller == null) return SHUFFLE_MODE_INVALID;
         try {
             Method m = controller.getClass().getMethod("getShuffleMode");
             Object res = m.invoke(controller);
-            return (res instanceof Number) ? ((Number) res).intValue() : SHUFFLE_MODE_NONE;
+            return (res instanceof Number) ? ((Number) res).intValue() : SHUFFLE_MODE_INVALID;
         } catch (Throwable ignored) {
-            return SHUFFLE_MODE_NONE;
+            return SHUFFLE_MODE_INVALID;
         }
     }
 
@@ -376,11 +402,17 @@ public final class ExternalPlayerRouter {
                 || state.getState() == PlaybackState.STATE_BUFFERING);
         long posMs = state != null ? Math.max(0L, state.getPosition()) : 0L;
 
+        String resolvedTitle = !title.isEmpty() ? title : (!label.isEmpty() ? label : "External Player");
+        String resolvedArtist = !artist.isEmpty() ? artist : (!label.isEmpty() ? label : "مشغل خارجي");
+        if (!title.isEmpty() && !title.contains("اختر تطبيق")) {
+            recordSessionTrack(pkg, resolvedTitle, resolvedArtist, durMs / 1000L);
+        }
+
         return new SessionSnapshot(
                 pkg,
                 label,
-                !title.isEmpty() ? title : (!label.isEmpty() ? label : "External Player"),
-                !artist.isEmpty() ? artist : (!label.isEmpty() ? label : "مشغل خارجي"),
+                resolvedTitle,
+                resolvedArtist,
                 album,
                 playing,
                 posMs / 1000L,
@@ -615,6 +647,30 @@ public final class ExternalPlayerRouter {
         return null;
     }
 
+    private void recordSessionTrack(String pkg, String title, String artist, long durationSec) {
+        if (pkg == null || pkg.isEmpty() || title == null || title.isEmpty()) return;
+        synchronized (sessionTracks) {
+            if (!sessionTracks.isEmpty() && !pkg.equals(sessionTracks.get(0).pkg)) {
+                sessionTracks.clear();
+                sessionActiveIndex = -1;
+            }
+            String safeArtist = artist != null ? artist : "";
+            for (int i = 0; i < sessionTracks.size(); i++) {
+                ExternalTrackItem item = sessionTracks.get(i);
+                if (title.equals(item.title) && safeArtist.equals(item.artist)) {
+                    if (durationSec > 0) item.durationSec = durationSec;
+                    sessionActiveIndex = i;
+                    return;
+                }
+            }
+            if (sessionTracks.size() >= MAX_SESSION_TRACKS) {
+                sessionTracks.remove(0);
+            }
+            sessionTracks.add(new ExternalTrackItem(pkg, title, safeArtist, Math.max(0L, durationSec)));
+            sessionActiveIndex = sessionTracks.size() - 1;
+        }
+    }
+
     public JSONObject getQueueJson() {
         JSONObject root = new JSONObject();
         JSONArray arr = new JSONArray();
@@ -649,22 +705,28 @@ public final class ExternalPlayerRouter {
                 }
             } catch (Throwable ignored) {}
 
-            // Fallback: active track
-            SessionSnapshot snap = readSelectedSession();
-            if (snap != null && !snap.title.isEmpty() && !snap.title.contains("اختر تطبيق")) {
-                try {
-                    JSONObject itemObj = new JSONObject();
-                    itemObj.put("index", 0);
-                    itemObj.put("id", "0");
-                    itemObj.put("title", snap.title);
-                    itemObj.put("artist", snap.artist);
-                    itemObj.put("durationSec", snap.durationSec);
-                    itemObj.put("active", true);
-                    arr.put(itemObj);
-                    root.put("currentIndex", 0);
-                    root.put("items", arr);
-                    return root;
-                } catch (Throwable ignored) {}
+            // Fallback: refresh current session and expose tracked session history
+            readSelectedSession();
+            synchronized (sessionTracks) {
+                if (!sessionTracks.isEmpty()) {
+                    try {
+                        int activeIdx = Math.max(0, Math.min(sessionActiveIndex, sessionTracks.size() - 1));
+                        for (int i = 0; i < sessionTracks.size(); i++) {
+                            ExternalTrackItem item = sessionTracks.get(i);
+                            JSONObject itemObj = new JSONObject();
+                            itemObj.put("index", i);
+                            itemObj.put("id", "ext_" + i);
+                            itemObj.put("title", item.title);
+                            itemObj.put("artist", item.artist);
+                            itemObj.put("durationSec", item.durationSec);
+                            itemObj.put("active", i == activeIdx);
+                            arr.put(itemObj);
+                        }
+                        root.put("currentIndex", activeIdx);
+                        root.put("items", arr);
+                        return root;
+                    } catch (Throwable ignored) {}
+                }
             }
         }
         try {
@@ -672,6 +734,25 @@ public final class ExternalPlayerRouter {
             root.put("items", arr);
         } catch (Throwable ignored) {}
         return root;
+    }
+
+    public int resolveQueueStepOffset(int targetIndex) {
+        MediaController controller = findSession(getSelectedPackage());
+        if (controller != null) {
+            try {
+                List<android.media.session.MediaSession.QueueItem> queue = controller.getQueue();
+                if (queue != null && targetIndex >= 0 && targetIndex < queue.size()) {
+                    controller.getTransportControls().skipToQueueItem(queue.get(targetIndex).getQueueId());
+                    return 0;
+                }
+            } catch (Throwable ignored) {}
+        }
+        synchronized (sessionTracks) {
+            if (targetIndex < 0 || targetIndex >= sessionTracks.size() || sessionActiveIndex < 0) {
+                return 0;
+            }
+            return targetIndex - sessionActiveIndex;
+        }
     }
 
     public void skipToQueueItem(long queueId) {

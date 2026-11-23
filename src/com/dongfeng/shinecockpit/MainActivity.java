@@ -525,7 +525,16 @@ public class MainActivity extends Activity implements CockpitMediaListenerServic
 
         @JavascriptInterface
         public void playShineWaveQueueIndex(final int index) {
-            if (mShineWave != null) mShineWave.playQueueIndex(index);
+            if (mShineWave == null) return;
+            mShineWave.playQueueIndex(index);
+            mHandler.postDelayed(new Runnable() {
+                @Override
+                public void run() {
+                    if (mShineWave != null) {
+                        evalSwJsCallback("onShineWaveQueueData", mShineWave.getActiveQueueJson().toString());
+                    }
+                }
+            }, 120L);
         }
 
         @JavascriptInterface

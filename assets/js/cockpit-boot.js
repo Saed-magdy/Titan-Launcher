@@ -47,8 +47,15 @@
   }
 
   function startPhase23D() {
-    // Begin streaming binary GLB from APK assets/ immediately in parallel with JS parsing
+    // Begin streaming binary GLB immediately if not already prefetched inline
     prefetchCarGlbBinary();
+
+    if (typeof window.startCockpit3DEngine === 'function' && typeof window.THREE !== 'undefined') {
+      window.startCockpit3DEngine();
+      window.__cockpitPhase2Ms = Math.round(performance.now() - bootStartMs);
+      console.log('[CockpitBoot] Phase 2 3D Engine started (parallel defer) in ' + window.__cockpitPhase2Ms + 'ms');
+      return;
+    }
 
     var pThree = (typeof window.THREE !== 'undefined')
       ? Promise.resolve()
@@ -56,13 +63,15 @@
 
     pThree
       .then(function () {
-        return Promise.all([
-          loadScript('js/OrbitControls.js'),
-          loadScript('js/GLTFLoader.js')
-        ]);
+        var deps = [];
+        if (!THREE.OrbitControls) deps.push(loadScript('js/OrbitControls.js'));
+        if (!THREE.GLTFLoader) deps.push(loadScript('js/GLTFLoader.js'));
+        return deps.length ? Promise.all(deps) : Promise.resolve();
       })
       .then(function () {
-        return loadScript('js/cockpit-3d.js');
+        return (typeof window.startCockpit3DEngine === 'function')
+          ? Promise.resolve()
+          : loadScript('js/cockpit-3d.js');
       })
       .then(function () {
         if (typeof window.startCockpit3DEngine === 'function') {
@@ -76,12 +85,6 @@
       });
   }
 
-  // Schedule immediately after the first browser paint frame of Phase 1 HUD
-  if (typeof requestAnimationFrame === 'function') {
-    requestAnimationFrame(function () {
-      setTimeout(startPhase23D, 8);
-    });
-  } else {
-    setTimeout(startPhase23D, 16);
-  }
+  // Execute immediately without extra rAF/setTimeout waterfall delay
+  startPhase23D();
 })();

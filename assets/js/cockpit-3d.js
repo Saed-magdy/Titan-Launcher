@@ -87,7 +87,7 @@ var _paintQueued = false;
         startAngle: startAngle,
         deltaAngle: deltaAngle,
         targetAngle: targetAngle,
-        startTime: performance.now(),
+        startTime: 0,
         duration: durationMs || 1500
       };
       idleRenderCountdown = 90;
@@ -389,40 +389,42 @@ var _paintQueued = false;
         const a = d[i + 3];
         if (a < 10) continue;
         const r = d[i], g = d[i + 1], b = d[i + 2];
-        const lum = (r * 0.299 + g * 0.587 + b * 0.114) / 255.0;
 
         const isOrange = (r > 60 && r > g * 1.15 && r > b * 1.4 && b < 120);
         const isLightGrey = (!isOrange && r > 105 && g > 105 && b > 105 && Math.abs(r - g) < 30 && Math.abs(g - b) < 30);
 
         if (sOpt === 'black') {
           // All seat surfaces deep rich black (4 shades darker)
-          d[i]     = Math.round(2 + lum * 6);
-          d[i + 1] = Math.round(2 + lum * 6);
-          d[i + 2] = Math.round(3 + lum * 7);
+          const lumByte = (r * 77 + g * 150 + b * 29) >> 8;
+          const v = 2 + ((lumByte * 6) >> 8);
+          d[i]     = v;
+          d[i + 1] = v;
+          d[i + 2] = 3 + ((lumByte * 7) >> 8);
         } else if (sOpt === 'yellow') {
           if (isOrange) {
             // Vibrant yellow matching the Sport front bumper lip
-            const yLum = Math.max(r, Math.max(g, b)) / 255.0;
-            d[i]     = Math.min(255, Math.round(230 * (0.28 + 0.72 * yLum)));
-            d[i + 1] = Math.min(255, Math.round(192 * (0.28 + 0.72 * yLum)));
-            d[i + 2] = Math.min(255, Math.round(6 * yLum));
+            const maxC = r > g ? (r > b ? r : b) : (g > b ? g : b);
+            const yScale = 72 + ((maxC * 184) >> 8);
+            d[i]     = Math.min(255, (230 * yScale) >> 8);
+            d[i + 1] = Math.min(255, (192 * yScale) >> 8);
+            d[i + 2] = (6 * maxC) >> 8;
           } else if (isLightGrey) {
             // Dark grey bolsters
-            d[i]     = Math.round(r * 0.22);
-            d[i + 1] = Math.round(g * 0.23);
-            d[i + 2] = Math.round(b * 0.26);
+            d[i]     = (r * 56) >> 8;
+            d[i + 1] = (g * 59) >> 8;
+            d[i + 2] = (b * 67) >> 8;
           } else {
             // Black leather darkened 4 shades
-            d[i]     = Math.round(r * 0.14);
-            d[i + 1] = Math.round(g * 0.14);
-            d[i + 2] = Math.round(b * 0.16);
+            d[i]     = (r * 36) >> 8;
+            d[i + 1] = (g * 36) >> 8;
+            d[i + 2] = (b * 41) >> 8;
           }
         } else {
           // 'sport' (رياضي ملون): keep orange & light grey, darken black leather 4 shades
           if (!isOrange && !isLightGrey) {
-            d[i]     = Math.round(r * 0.14);
-            d[i + 1] = Math.round(g * 0.14);
-            d[i + 2] = Math.round(b * 0.16);
+            d[i]     = (r * 36) >> 8;
+            d[i + 1] = (g * 36) >> 8;
+            d[i + 2] = (b * 41) >> 8;
           }
         }
       }
@@ -1048,6 +1050,9 @@ var _paintQueued = false;
       }
 
       idleRenderCountdown = 120;
+      if (renderer && scene && camera) {
+        renderer.render(scene, camera);
+      }
       requestRender();
     }
 
@@ -1157,10 +1162,10 @@ var _paintQueued = false;
     function initCarGroundShadow() {
       if (!carModel) return;
       const sCanvas = document.createElement('canvas');
-      sCanvas.width = 256;
-      sCanvas.height = 512;
+      sCanvas.width = 64;
+      sCanvas.height = 128;
       const sCtx = sCanvas.getContext('2d');
-      const sImg = sCtx.createImageData(256, 512);
+      const sImg = sCtx.createImageData(64, 128);
       const sd = sImg.data;
 
       const planeW = 2600.0;
@@ -1172,8 +1177,8 @@ var _paintQueued = false;
         [-777.4, -1265.3]
       ];
 
-      for (let py = 0; py < 512; py++) {
-        const vNorm = py / 511.0;
+      for (let py = 0; py < 128; py++) {
+        const vNorm = py / 127.0;
         const wz = (vNorm - 0.5) * planeL;
         const zRatio = Math.min(1.5, Math.abs(wz) / 2200.0);
         const halfW = 815.0 * Math.max(0.52, 1.0 - 0.22 * Math.pow(zRatio, 2.5));
@@ -1181,10 +1186,10 @@ var _paintQueued = false;
         const nzPow = Math.pow(nz, 3.8);
         const edgeV = Math.sin(vNorm * Math.PI);
 
-        for (let px = 0; px < 256; px++) {
-          const uNorm = px / 255.0;
+        for (let px = 0; px < 64; px++) {
+          const uNorm = px / 63.0;
           const wx = (uNorm - 0.5) * planeW;
-          const idx = (py * 256 + px) * 4;
+          const idx = (py * 64 + px) * 4;
 
           // 1. Chassis silhouette Ambient Occlusion core + soft penumbra
           const nx = Math.abs(wx) / halfW;
@@ -1262,22 +1267,22 @@ var _paintQueued = false;
 
       // 1. 2D-Feathered Volumetric Light Cone Texture (Exact previous effect with wider spread)
       const vCanvas = document.createElement('canvas');
-      vCanvas.width = 128;
-      vCanvas.height = 256;
+      vCanvas.width = 64;
+      vCanvas.height = 128;
       const vCtx = vCanvas.getContext('2d');
-      const vImg = vCtx.createImageData(128, 256);
+      const vImg = vCtx.createImageData(64, 128);
       const vd = vImg.data;
 
-      for (let py = 0; py < 256; py++) {
-        const v = py / 255.0; // 0 = at projector lens, 1 = far end of beam
+      for (let py = 0; py < 128; py++) {
+        const v = py / 127.0; // 0 = at projector lens, 1 = far end of beam
         const startFade = Math.min(1.0, v / 0.045);
         const endFade = Math.pow(1.0 - v, 2.0);
         // Starts at lens (0.052) and spreads out wider as it travels forward (up to 0.38)
         const sigmaU = 0.052 + v * 0.33;
 
-        for (let px = 0; px < 128; px++) {
-          const idx = (py * 128 + px) * 4;
-          const u = px / 127.0;
+        for (let px = 0; px < 64; px++) {
+          const idx = (py * 64 + px) * 4;
+          const u = px / 63.0;
           const du = u - 0.5;
           const latGauss = Math.exp(-0.5 * (du * du) / (sigmaU * sigmaU));
           const latWindow = Math.pow(Math.sin(u * Math.PI), 1.4);
@@ -1521,22 +1526,28 @@ var _paintQueued = false;
     };
     syncCar3DPauseState();
     let animLoopScheduled = false;
+    let wasIdleStopped = true;
     function ensureAnimLoop() {
       if (!window.isCar3DFrozen && !animLoopScheduled) {
         animLoopScheduled = true;
-        if (clock) clock.getDelta();
-        lastRenderTime = performance.now() - frameInterval;
+        if (wasIdleStopped && clock) {
+          clock.getDelta();
+        }
+        wasIdleStopped = false;
         requestAnimationFrame(animate);
       }
     }
     window._wake3DLoop = ensureAnimLoop;
     function animate(now) {
       animLoopScheduled = false;
-      if (window.isCar3DFrozen) return;
+      if (window.isCar3DFrozen) {
+        wasIdleStopped = true;
+        return;
+      }
       if (!now) now = performance.now();
-      const elapsed = now - lastRenderTime;
 
-      const delta = Math.min(clock.getDelta(), 0.05);
+      const dtRaw = clock ? clock.getDelta() : 0.016;
+      const delta = Math.min(dtRaw > 0 ? dtRaw : 0.016, 0.05);
 
       flasherTimer += delta;
       if (flasherTimer > 0.45) {
@@ -1666,10 +1677,11 @@ var _paintQueued = false;
         smoothReturnToHeroAngle();
       }
 
-      // Smooth Camera Turntable Tween Interpolation (Orbital Arc around car)
+      // Smooth Camera Turntable Tween Interpolation (60fps Cosine Ease-In-Out Orbital Arc)
       if (camTween) {
-        const p = Math.min(1.0, (now - camTween.startTime) / camTween.duration);
-        const ease = 1 - Math.pow(1 - p, 3);
+        if (!camTween.startTime) camTween.startTime = now;
+        const p = Math.max(0.0, Math.min(1.0, (now - camTween.startTime) / camTween.duration));
+        const ease = 0.5 - 0.5 * Math.cos(p * Math.PI);
         const curAngle = camTween.startAngle + camTween.deltaAngle * ease;
 
         camera.position.x = CAM_ORBIT_RADIUS * Math.sin(curAngle);
@@ -1688,7 +1700,10 @@ var _paintQueued = false;
           camera.position.y = CAM_ORBIT_Y;
           camera.lookAt(CAM_TARGET);
           camTween = null;
-          if (controls) controls.enableDamping = true;
+          if (controls) {
+            controls.enableDamping = true;
+            controls.update();
+          }
         }
       } else if (controls) {
         controls.update();
@@ -1702,15 +1717,16 @@ var _paintQueued = false;
         idleRenderCountdown = Math.max(idleRenderCountdown, 24);
         renderRequested = false;
       }
-      if (elapsed >= frameInterval && idleRenderCountdown > 0) {
-        idleRenderCountdown--;
-        lastRenderTime = now - (elapsed % frameInterval);
+      if (isMovingOrInteracting || idleRenderCountdown > 0) {
+        if (idleRenderCountdown > 0) idleRenderCountdown--;
         if (renderer && scene && camera) {
           renderer.render(scene, camera);
         }
       }
       if (isMovingOrInteracting || hasFlashers || idleRenderCountdown > 0 || renderRequested) {
         ensureAnimLoop();
+      } else {
+        wasIdleStopped = true;
       }
     }
 

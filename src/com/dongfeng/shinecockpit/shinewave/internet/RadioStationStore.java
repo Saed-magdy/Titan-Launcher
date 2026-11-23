@@ -25,31 +25,58 @@ public final class RadioStationStore {
         this.prefs = context.getApplicationContext().getSharedPreferences(PREFS, Context.MODE_PRIVATE);
     }
 
+    public static boolean isLegacyDeadUrl(String url) {
+        if (url == null) return true;
+        String u = url.trim().toLowerCase();
+        return u.contains("reach-audio.nrpstream.com")
+                || u.contains("radiomasr.radioca.st")
+                || u.endsWith("/9090fmegy")
+                || u.contains("mbgradio.com")
+                || u.contains("0tpy1h0kxtzuv")
+                || u.contains("k2y9wzpmdg8uv")
+                || u.contains("46yqdtpmdg8uv")
+                || u.contains("v2m5ytpmdg8uv")
+                || u.contains("9uvy63pmdg8uv");
+    }
+
     public static List<RadioBrowserClient.Station> getCuratedArabicStations() {
         List<RadioBrowserClient.Station> list = new ArrayList<>();
-        list.add(new RadioBrowserClient.Station("curated_quran", "إذاعة القرآن الكريم - القاهرة", "https://stream.radiojar.com/0tpy1h0kxtzuv", "EG"));
-        list.add(new RadioBrowserClient.Station("curated_nogoum", "نجوم إف إم 100.6", "https://reach-audio.nrpstream.com/nogoumfm", "EG"));
-        list.add(new RadioBrowserClient.Station("curated_radiomasr", "راديو مصر 88.7", "https://radiomasr.radioca.st/stream", "EG"));
-        list.add(new RadioBrowserClient.Station("curated_megafm", "ميجا إف إم 92.7", "https://reach-audio.nrpstream.com/megafm", "EG"));
-        list.add(new RadioBrowserClient.Station("curated_9090", "راديو 9090 مصر", "https://9090streaming.mobtada.com/9090FMEGY", "EG"));
-        list.add(new RadioBrowserClient.Station("curated_aghani", "إذاعة الأغاني المصرية", "https://stream.zeno.fm/k2y9wzpmdg8uv", "EG"));
-        list.add(new RadioBrowserClient.Station("curated_rotana", "روتانا إف إم", "https://stream.zeno.fm/46yqdtpmdg8uv", "SA"));
-        list.add(new RadioBrowserClient.Station("curated_sawa", "راديو سوا", "https://mbgradio.com/sawa_levant/", "US"));
-        list.add(new RadioBrowserClient.Station("curated_skynews", "سكاي نيوز عربية", "https://stream.zeno.fm/v2m5ytpmdg8uv", "AE"));
-        list.add(new RadioBrowserClient.Station("curated_asharq", "راديو الشرق", "https://stream.zeno.fm/9uvy63pmdg8uv", "SA"));
+        list.add(new RadioBrowserClient.Station("curated_quran", "إذاعة القرآن الكريم - القاهرة", "http://stream.radiojar.com/8s5u5tpdtwzuv", "EG"));
+        list.add(new RadioBrowserClient.Station("curated_9090", "راديو 9090 مصر", "http://9090streaming.mobtada.com/9090FMEGYPT", "EG"));
+        list.add(new RadioBrowserClient.Station("curated_nogoum", "نجوم إف إم 100.6", "http://stream.zeno.fm/qb1zvsykm98uv", "EG"));
+        list.add(new RadioBrowserClient.Station("curated_nrj", "NRJ Egypt 92.1", "http://nrjstreaming.ahmed-melege.com/nrjegypt", "EG"));
+        list.add(new RadioBrowserClient.Station("curated_alafasy", "إذاعة مشاري العفاسي", "https://qurango.net/radio/mishary_alafasi", "KW"));
+        list.add(new RadioBrowserClient.Station("curated_mustafa", "إذاعة الشيخ مصطفى إسماعيل", "https://qurango.net/radio/mustafa_ismail", "EG"));
+        list.add(new RadioBrowserClient.Station("curated_omkalthom", "إذاعة أم كلثوم", "http://stream.zeno.fm/zsgrfxg71s8uv", "EG"));
+        list.add(new RadioBrowserClient.Station("curated_amrdiab", "إذاعة عمرو دياب", "http://stream.zeno.fm/xa4yhh4k838uv", "EG"));
+        list.add(new RadioBrowserClient.Station("curated_90sfm", "إذاعة التسعينات FM", "http://eu1.fastcast4u.com/proxy/prontofm", "EG"));
+        list.add(new RadioBrowserClient.Station("curated_suwaisi", "إذاعة الشيخ علي حجاج السويسي", "http://live.mp3quran.net:9842/", "EG"));
         return list;
     }
 
     public synchronized List<RadioBrowserClient.Station> getFavorites() {
-        List<RadioBrowserClient.Station> favs = readList(KEY_FAVS);
-        if (favs.isEmpty()) {
+        List<RadioBrowserClient.Station> rawFavs = readList(KEY_FAVS);
+        List<RadioBrowserClient.Station> cleanFavs = new ArrayList<>();
+        for (RadioBrowserClient.Station s : rawFavs) {
+            if (!isLegacyDeadUrl(s.streamUrl)) {
+                cleanFavs.add(s);
+            }
+        }
+        if (cleanFavs.isEmpty()) {
             return getCuratedArabicStations();
         }
-        return favs;
+        return cleanFavs;
     }
 
     public synchronized List<RadioBrowserClient.Station> getRecent() {
-        return readList(KEY_RECENT);
+        List<RadioBrowserClient.Station> rawRecent = readList(KEY_RECENT);
+        List<RadioBrowserClient.Station> clean = new ArrayList<>();
+        for (RadioBrowserClient.Station s : rawRecent) {
+            if (!isLegacyDeadUrl(s.streamUrl)) {
+                clean.add(s);
+            }
+        }
+        return clean;
     }
 
     public synchronized List<RadioBrowserClient.Station> getCustom() {

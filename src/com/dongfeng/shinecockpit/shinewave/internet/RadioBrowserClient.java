@@ -52,29 +52,51 @@ public final class RadioBrowserClient {
 
     public List<Station> searchStations(String query, boolean arabicOnly, int limit) {
         int safeLimit = Math.max(1, Math.min(80, limit));
+        List<Station> apiResults = null;
         for (String server : API_SERVERS) {
             try {
                 String url = buildSearchUrl(server, query, arabicOnly, safeLimit);
                 List<Station> parsed = parseStations(getJson(url));
                 if (!parsed.isEmpty()) {
-                    return parsed;
+                    apiResults = parsed;
+                    break;
                 }
             } catch (Throwable ignored) {
                 // Fall back to next mirror server
             }
         }
-        List<Station> fallback = RadioStationStore.getCuratedArabicStations();
-        if (query == null || query.trim().isEmpty()) {
-            return fallback;
+
+        List<Station> curated = RadioStationStore.getCuratedArabicStations();
+        String q = query != null ? query.trim().toLowerCase() : "";
+
+        if (arabicOnly) {
+            Map<String, Station> merged = new LinkedHashMap<>();
+            for (Station s : curated) {
+                if (q.isEmpty() || s.name.toLowerCase().contains(q)) {
+                    merged.put(s.stationUuid, s);
+                }
+            }
+            if (apiResults != null) {
+                for (Station s : apiResults) {
+                    if (!RadioStationStore.isLegacyDeadUrl(s.streamUrl) && !merged.containsKey(s.stationUuid)) {
+                        merged.put(s.stationUuid, s);
+                    }
+                }
+            }
+            if (!merged.isEmpty()) {
+                return new ArrayList<>(merged.values());
+            }
+        } else if (apiResults != null) {
+            return apiResults;
         }
-        String q = query.trim().toLowerCase();
+
         List<Station> filtered = new ArrayList<>();
-        for (Station s : fallback) {
-            if (s.name.toLowerCase().contains(q)) {
+        for (Station s : curated) {
+            if (q.isEmpty() || s.name.toLowerCase().contains(q)) {
                 filtered.add(s);
             }
         }
-        return filtered.isEmpty() ? fallback : filtered;
+        return filtered.isEmpty() ? curated : filtered;
     }
 
     public void reportClickAsync(final String stationUuid) {
@@ -86,11 +108,7 @@ public final class RadioBrowserClient {
                     HttpURLConnection conn = null;
                     try {
                         String encoded = URLEncoder.encode(stationUuid.trim(), "UTF-8");
-                        conn = (HttpURLConnection) new URL(server + "/json/url/" + encoded).openConnection();
-                        conn.setRequestMethod("GET");
-                        conn.setConnectTimeout(4500);
-                        conn.setReadTimeout(4500);
-                        conn.setRequestProperty("User-Agent", "TitanShineWave/2.1 Android");
+                        conn = LocalStreamProxy.openFollowingRedirects(server + "/json/url/" + encoded, 4500, 4500);
                         int code = conn.getResponseCode();
                         if (code >= 200 && code < 300) return;
                     } catch (Throwable ignored) {
@@ -116,12 +134,7 @@ public final class RadioBrowserClient {
     }
 
     private String getJson(String urlString) throws Exception {
-        HttpURLConnection conn = (HttpURLConnection) new URL(urlString).openConnection();
-        conn.setRequestMethod("GET");
-        conn.setConnectTimeout(7000);
-        conn.setReadTimeout(10000);
-        conn.setRequestProperty("Accept", "application/json");
-        conn.setRequestProperty("User-Agent", "TitanShineWave/2.1 Android");
+        HttpURLConnection conn = LocalStreamProxy.openFollowingRedirects(urlString, 6000, 8000);
         try {
             int code = conn.getResponseCode();
             if (code < 200 || code >= 300) {
