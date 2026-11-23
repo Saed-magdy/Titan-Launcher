@@ -5,6 +5,7 @@
  */
 package com.dongfeng.shinecockpit;
 
+import android.Manifest;
 import android.app.Activity;
 import android.app.ActivityManager;
 import android.app.AlarmManager;
@@ -16,6 +17,8 @@ import android.content.SharedPreferences;
 import android.content.pm.ApplicationInfo;
 import android.content.pm.PackageManager;
 import android.content.pm.ResolveInfo;
+import android.os.Build;
+import android.os.StrictMode;
 import android.media.AudioManager;
 import android.media.audiofx.Visualizer;
 import android.media.MediaMetadata;
@@ -238,8 +241,18 @@ public class MainActivity extends Activity implements CockpitMediaListenerServic
         mStartupStartMs = SystemClock.elapsedRealtime();
         Log.i(TAG, "Startup: onCreate started");
 
+        // Disable StrictMode VmPolicy so FileUriExposedException is never triggered across packages
+        try {
+            StrictMode.setVmPolicy(new StrictMode.VmPolicy.Builder().build());
+        } catch (Throwable t) {
+            Log.w(TAG, "StrictMode config note: " + t.getMessage());
+        }
+
         // Initialize Watchdog & Crash Loop Protection immediately
         setupCrashWatchdog();
+
+        // Check & request runtime permissions (Storage, Microphone, etc.)
+        checkAndRequestAppPermissions();
 
         // Hide title bar and make fullscreen
         requestWindowFeature(Window.FEATURE_NO_TITLE);
@@ -872,6 +885,43 @@ public class MainActivity extends Activity implements CockpitMediaListenerServic
                 GitHubUpdateChecker.checkForUpdates(MainActivity.this, true);
             }
         }, 10000);
+    }
+
+    // ========================================================
+    // RUNTIME PERMISSIONS & SYSTEM INTEGRATION
+    // ========================================================
+    private void checkAndRequestAppPermissions() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            java.util.List<String> needed = new java.util.ArrayList<>();
+            if (checkSelfPermission(Manifest.permission.WRITE_EXTERNAL_STORAGE) != PackageManager.PERMISSION_GRANTED) {
+                needed.add(Manifest.permission.WRITE_EXTERNAL_STORAGE);
+            }
+            if (checkSelfPermission(Manifest.permission.READ_EXTERNAL_STORAGE) != PackageManager.PERMISSION_GRANTED) {
+                needed.add(Manifest.permission.READ_EXTERNAL_STORAGE);
+            }
+            if (checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
+                needed.add(Manifest.permission.RECORD_AUDIO);
+            }
+            if (!needed.isEmpty()) {
+                try {
+                    requestPermissions(needed.toArray(new String[0]), 101);
+                } catch (Throwable t) {
+                    Log.w(TAG, "Permission request note: " + t.getMessage());
+                }
+            }
+        }
+    }
+
+    @Override
+    public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] grantResults) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults);
+        if (requestCode == 101 && permissions != null && grantResults != null) {
+            for (int i = 0; i < permissions.length; i++) {
+                if (Manifest.permission.RECORD_AUDIO.equals(permissions[i]) && grantResults[i] == PackageManager.PERMISSION_GRANTED) {
+                    ensureAudioVisualizer();
+                }
+            }
+        }
     }
 
     private synchronized void handleFatalCrashAndRecovery(String reason) {

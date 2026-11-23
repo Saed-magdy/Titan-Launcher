@@ -142,6 +142,11 @@ public class GitHubUpdateChecker {
 
     private static void downloadAndInstall(final Context context, final String url, final String version) {
         try {
+            // Relax StrictMode VmPolicy immediately to prevent FileUriExposedException across processes
+            try {
+                android.os.StrictMode.setVmPolicy(new android.os.StrictMode.VmPolicy.Builder().build());
+            } catch (Throwable ignored) {}
+
             Toast.makeText(context, "بدأ تنزيل التحديث في الخلفية...", Toast.LENGTH_LONG).show();
 
             DownloadManager.Request request = new DownloadManager.Request(Uri.parse(url));
@@ -149,17 +154,29 @@ public class GitHubUpdateChecker {
             request.setDescription("جاري تنزيل التحديث الجديد...");
             request.setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED);
 
-            String fileName = "Titan_Launcher_v" + version + ".apk";
-            File destinationDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS);
-            if (!destinationDir.exists()) {
-                destinationDir.mkdirs();
+            final String fileName = "Titan_Launcher_v" + version + ".apk";
+            File destDir = context.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS);
+            final File destFile;
+            if (destDir != null) {
+                if (!destDir.exists()) {
+                    destDir.mkdirs();
+                }
+                destFile = new File(destDir, fileName);
+                if (destFile.exists()) {
+                    destFile.delete();
+                }
+                request.setDestinationInExternalFilesDir(context, Environment.DIRECTORY_DOWNLOADS, fileName);
+            } else {
+                destDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS);
+                if (!destDir.exists()) {
+                    destDir.mkdirs();
+                }
+                destFile = new File(destDir, fileName);
+                if (destFile.exists()) {
+                    destFile.delete();
+                }
+                request.setDestinationUri(Uri.fromFile(destFile));
             }
-            final File destFile = new File(destinationDir, fileName);
-            if (destFile.exists()) {
-                destFile.delete();
-            }
-
-            request.setDestinationUri(Uri.fromFile(destFile));
 
             final DownloadManager manager = (DownloadManager) context.getSystemService(Context.DOWNLOAD_SERVICE);
             if (manager == null) {
@@ -181,10 +198,36 @@ public class GitHubUpdateChecker {
 
                         Toast.makeText(context, "اكتمل التنزيل! جاري فتح التثبيت...", Toast.LENGTH_SHORT).show();
 
-                        Intent installIntent = new Intent(Intent.ACTION_VIEW);
-                        installIntent.setDataAndType(Uri.fromFile(destFile), "application/vnd.android.package-archive");
-                        installIntent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_GRANT_READ_URI_PERMISSION);
-                        context.startActivity(installIntent);
+                        try {
+                            // Ensure StrictMode VmPolicy is disabled before starting install intent
+                            android.os.StrictMode.setVmPolicy(new android.os.StrictMode.VmPolicy.Builder().build());
+
+                            if (destFile != null && destFile.exists()) {
+                                destFile.setReadable(true, false);
+                                destFile.setWritable(true, false);
+                            }
+
+                            Intent installIntent = new Intent(Intent.ACTION_VIEW);
+                            installIntent.setDataAndType(Uri.fromFile(destFile), "application/vnd.android.package-archive");
+                            installIntent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_GRANT_READ_URI_PERMISSION);
+                            context.startActivity(installIntent);
+                        } catch (Exception ex) {
+                            Log.e(TAG, "Install via file:// failed, attempting content://: " + ex.getMessage(), ex);
+                            try {
+                                Uri contentUri = manager.getUriForDownloadedFile(downloadId);
+                                if (contentUri != null) {
+                                    Intent fallbackIntent = new Intent(Intent.ACTION_VIEW);
+                                    fallbackIntent.setDataAndType(contentUri, "application/vnd.android.package-archive");
+                                    fallbackIntent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_GRANT_READ_URI_PERMISSION);
+                                    context.startActivity(fallbackIntent);
+                                } else {
+                                    throw new IllegalStateException("URI from DownloadManager is null");
+                                }
+                            } catch (Exception ex2) {
+                                Log.e(TAG, "Fallback install also failed: " + ex2.getMessage(), ex2);
+                                Toast.makeText(context, "تعذر فتح ملف التثبيت: " + ex.getMessage(), Toast.LENGTH_LONG).show();
+                            }
+                        }
                     }
                 }
             }, new IntentFilter(DownloadManager.ACTION_DOWNLOAD_COMPLETE));
