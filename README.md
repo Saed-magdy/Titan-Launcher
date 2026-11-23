@@ -35,13 +35,22 @@ See [ARCHITECTURE.md](ARCHITECTURE.md) for the complete module layout and cross-
 
 The launcher builds without Gradle using standard Android SDK Build-Tools (`aapt`, `dx`, `zipalign`, `apksigner`) and JDK (`javac --release 8`):
 
-1. Install Android SDK `build-tools/28.0.3` and `platforms/android-9/android.jar` (or update the tool paths at the top of `build_apk.ps1`).
-2. Supply platform/release signing keys (`platform.pk8` / `platform.x509.pem` referenced in `build_apk.ps1`, or replace with your own keystore when not deploying as a privileged system app).
-3. Run:
+1. Install a Java JDK (11 or newer) and the Android SDK command-line tools, then the two packages the build needs:
    ```powershell
-   powershell -ExecutionPolicy Bypass -File .\build_apk.ps1
+   sdkmanager "build-tools;28.0.3" "platforms;android-28"
    ```
-4. For UI preview & testing on desktop without a head unit, serve `assets/` with any HTTP server (e.g. `jwebserver`) and open `/app.html` at a `960×1080` viewport.
+2. Tell the script where the SDK is, either with `-SdkDir <folder>` or by setting the `ANDROID_SDK_ROOT` environment variable.
+3. **Release build for the car**, signed with the head unit's platform key (keep these files outside the repository and never commit them):
+   ```powershell
+   powershell -ExecutionPolicy Bypass -File .\build_apk.ps1 -PlatformKey "D:\keys\platform.pk8" -PlatformCert "D:\keys\platform.x509.pem"
+   ```
+   Or set `TITAN_PLATFORM_KEY` and `TITAN_PLATFORM_CERT` once and run the script without those two options.
+4. **Check-only build** (no platform key needed). It is signed with a throwaway test key, so it will not install over the car's launcher:
+   ```powershell
+   powershell -ExecutionPolicy Bypass -File .\build_apk.ps1 -TestSign
+   ```
+5. The result is a single file: `bin\Titan_Launcher_v<version>.apk`. Add `-CopyTo "E:\"` (for example a USB stick) to also copy it elsewhere.
+6. For UI preview & testing on desktop without a head unit, serve `assets/` with any HTTP server (e.g. `jwebserver`) and open `/app.html` at a `960×1080` viewport.
 
 ---
 
