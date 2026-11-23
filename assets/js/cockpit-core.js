@@ -6,6 +6,23 @@
  * the HUD, clock, telemetry, controls, and audio card in < 80ms.
  */
 
+/**
+ * SECURITY: makes a piece of text safe to place inside the screen's HTML.
+ *
+ * App names, song titles, etc. come from outside (any installed app can choose its own name).
+ * If a name contained HTML code such as <img onerror=...>, the screen would run it, and that
+ * code could reach the car controls through AndroidBridge. This turns the special characters
+ * (< > & " ') into harmless look-alikes, so the name is shown as plain text and never run.
+ */
+window.escapeHtml = function (text) {
+  return String(text == null ? '' : text)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+};
+
 /* --- Deferred 3D Engine Shared Handles (populated by cockpit-3d.js) --- */
 let clock = null;
 let scene = null;

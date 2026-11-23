@@ -773,6 +773,22 @@ public class MainActivity extends Activity implements CockpitMediaListenerServic
         }
     }
 
+    /**
+     * True only for the launcher's own screen files, which live inside the app at
+     * file:///android_asset/. Anything else (a website, a file on the USB stick, ...) is refused.
+     * (This check is used when the page itself tries to move somewhere else. The launcher's own
+     * startup call, loadUrl("file:///android_asset/app.html"), is not affected.)
+     */
+    private static boolean isLauncherOwnPage(String url) {
+        if (url == null) return false;
+        if (url.startsWith("file:///android_asset/")) {
+            // Block tricks like "file:///android_asset/../../sdcard/evil.html".
+            return !url.contains("..");
+        }
+        Log.w(TAG, "Blocked an attempt to open a page inside the launcher screen: " + url);
+        return false;
+    }
+
     private void setupWebView() {
         // Use View.LAYER_TYPE_NONE so WebView composites directly with native window hardware acceleration (prevents WebGL context loss on Adreno GPUs)
         mWebView.setLayerType(View.LAYER_TYPE_NONE, null);
@@ -782,8 +798,14 @@ public class MainActivity extends Activity implements CockpitMediaListenerServic
         settings.setJavaScriptEnabled(true);
         settings.setDomStorageEnabled(true);
         settings.setAllowFileAccess(true);
+        // The screen (app.html) is a local file. Keep letting it read the other local files it
+        // ships with (scripts, fonts, pictures), exactly as before.
         settings.setAllowFileAccessFromFileURLs(true);
-        settings.setAllowUniversalAccessFromFileURLs(true);
+        // SECURITY: "Universal access" used to be ON. It lets the screen's code read ANY web
+        // address or file in the background. The launcher never needs that: radio, cover art
+        // and updates are all downloaded by the Java side, not by the screen. Leaving it on
+        // only helps an attacker, so it is now OFF.
+        settings.setAllowUniversalAccessFromFileURLs(false);
         settings.setLoadWithOverviewMode(true);
         settings.setUseWideViewPort(true);
         settings.setSupportZoom(false);
@@ -798,6 +820,20 @@ public class MainActivity extends Activity implements CockpitMediaListenerServic
             }
         });
         mWebView.setWebViewClient(new WebViewClient() {
+            // SECURITY: the screen has a direct line to the car (the "AndroidBridge": doors,
+            // windows, sunroof, lights, apps). Any page shown inside this view gets that same
+            // line. So the view may only ever show the launcher's own built-in screen; if
+            // anything tries to open a web page inside it, the request is simply refused.
+            @Override
+            public boolean shouldOverrideUrlLoading(WebView view, String url) {
+                return !isLauncherOwnPage(url); // true = "refuse to open"
+            }
+
+            @Override
+            public boolean shouldOverrideUrlLoading(WebView view, android.webkit.WebResourceRequest request) {
+                return !isLauncherOwnPage(request.getUrl() != null ? request.getUrl().toString() : null);
+            }
+
             @Override
             public boolean onRenderProcessGone(WebView view, RenderProcessGoneDetail detail) {
                 boolean didCrash = (detail != null && detail.didCrash());

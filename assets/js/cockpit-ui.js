@@ -1112,21 +1112,22 @@ function toggleDoor(key) {
 
         let iconHtml = '';
         if (app.icon && app.icon.startsWith('data:image')) {
-          iconHtml = `<img class="app-drawer-icon-img" src="${app.icon}" alt="${app.name}" />`;
+          // escapeHtml(): app names come from installed apps, so treat them as plain text.
+          iconHtml = `<img class="app-drawer-icon-img" src="${app.icon}" alt="${escapeHtml(app.name)}" />`;
         } else if (app.svg) {
           iconHtml = app.svg;
         } else if (app.iconGlyph) {
           iconHtml = `<span class="app-drawer-icon-fallback">${app.iconGlyph}</span>`;
         } else {
           const letter = (app.name || 'A').charAt(0).toUpperCase();
-          iconHtml = `<span class="app-drawer-icon-fallback">${letter}</span>`;
+          iconHtml = `<span class="app-drawer-icon-fallback">${escapeHtml(letter)}</span>`;
         }
 
         const rawLabel = (isAr && app.nameAr) ? app.nameAr : app.name;
         const labelText = window.localizeAppName(app.pkg, rawLabel, isAr);
         item.innerHTML = `
           <div class="app-drawer-icon-wrap">${iconHtml}</div>
-          <div class="app-drawer-label">${labelText}</div>
+          <div class="app-drawer-label">${escapeHtml(labelText)}</div>
         `;
         bindScrollSafeTap(item, () => {
           closeAppDrawer();
@@ -1257,7 +1258,7 @@ function toggleDoor(key) {
           let label = window.localizeAppName(slot.pkg || slot.key, rawLabel, isAr);
 
           if (matched && matched.icon && matched.icon.startsWith('data:image')) {
-            iconHtml = `<img class="quick-app-icon-img" src="${matched.icon}" alt="${label}" />`;
+            iconHtml = `<img class="quick-app-icon-img" src="${matched.icon}" alt="${escapeHtml(label)}" />`;
           } else if (matched && matched.svg) {
             iconHtml = matched.svg;
           } else {
@@ -1266,7 +1267,7 @@ function toggleDoor(key) {
 
           tile.innerHTML = `
             <div class="quick-app-icon-wrap">${iconHtml}</div>
-            <span class="quick-app-label">${label}</span>
+            <span class="quick-app-label">${escapeHtml(label)}</span>
           `;
 
           let pressTimer = null;
@@ -1367,7 +1368,7 @@ function toggleDoor(key) {
 
         let iconHtml = '';
         if (app.icon && app.icon.startsWith('data:image')) {
-          iconHtml = `<img class="picker-app-icon" src="${app.icon}" alt="${app.name}" />`;
+          iconHtml = `<img class="picker-app-icon" src="${app.icon}" alt="${escapeHtml(app.name)}" />`;
         } else if (app.svg) {
           iconHtml = app.svg;
         } else {
@@ -1378,7 +1379,7 @@ function toggleDoor(key) {
         const appLabel = window.localizeAppName(app.pkg, rawLabel, isAr);
         item.innerHTML = `
           ${iconHtml}
-          <span class="picker-app-name">${appLabel}</span>
+          <span class="picker-app-name">${escapeHtml(appLabel)}</span>
         `;
 
         item.addEventListener('click', () => {
