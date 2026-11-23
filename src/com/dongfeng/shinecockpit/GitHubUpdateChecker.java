@@ -9,10 +9,13 @@ import android.content.Intent;
 import android.content.IntentFilter;
 import android.content.pm.PackageInfo;
 import android.content.pm.PackageManager;
+import android.database.Cursor;
 import android.net.Uri;
+import android.os.Build;
 import android.os.Environment;
 import android.os.Handler;
 import android.os.Looper;
+import android.provider.Settings;
 import android.util.Log;
 import android.widget.Toast;
 
@@ -31,6 +34,8 @@ import java.net.URL;
  */
 public class GitHubUpdateChecker {
     private static final String TAG = "TitanUpdater";
+    /** The file type Android uses to recognise an installable app package (APK). */
+    private static final String APK_MIME_TYPE = "application/vnd.android.package-archive";
     private static final String REPO_API = "https://api.github.com/repos/Saed-magdy/Titan-Launcher/releases/latest";
 
     public static void checkForUpdates(final Context context, final boolean silentIfUpToDate) {
@@ -140,102 +145,127 @@ public class GitHubUpdateChecker {
                 .show();
     }
 
+    /**
+     * Downloads the new APK and then opens Android's installer screen.
+     *
+     * In plain words, the old version of this method had three problems on Android 7 and newer:
+     *
+     *  1. It handed the installer a raw file path ("file://..."). Since Android 7 the system
+     *     treats that as unsafe and crashes the app instead (FileUriExposedException).
+     *     Fix: we ask the DownloadManager itself for a "content://" link to the file. That is
+     *     the modern, permitted way to let another app (the installer) read our download.
+     *
+     *  2. Android 8 refuses to open the installer unless the app has declared the
+     *     REQUEST_INSTALL_PACKAGES permission (added in AndroidManifest.xml) AND the user
+     *     has allowed "Install unknown apps" for the launcher. If that switch is off, we now
+     *     send the user straight to that settings page instead of failing silently.
+     *
+     *  3. It tried to install even when the download had failed (no internet, file deleted).
+     *     Fix: we check the download's status first and show a clear message if it failed.
+     *
+     * We also save the file in the launcher's own folder instead of the public Downloads
+     * folder, so no storage permission is needed and old copies don't pile up.
+     */
     private static void downloadAndInstall(final Context context, final String url, final String version) {
+        // Use the application-wide context, not the screen (Activity) that opened the dialog.
+        // The download can finish minutes later, after that screen is gone; holding on to a
+        // dead screen wastes memory and can crash when we try to show a message on it.
+        final Context appContext = context.getApplicationContext();
         try {
-            // Relax StrictMode VmPolicy immediately to prevent FileUriExposedException across processes
-            try {
-                android.os.StrictMode.setVmPolicy(new android.os.StrictMode.VmPolicy.Builder().build());
-            } catch (Throwable ignored) {}
+            final DownloadManager manager = (DownloadManager) appContext.getSystemService(Context.DOWNLOAD_SERVICE);
+            if (manager == null) {
+                Toast.makeText(appContext, "خدمة DownloadManager غير متاحة في النظام", Toast.LENGTH_SHORT).show();
+                return;
+            }
 
-            Toast.makeText(context, "بدأ تنزيل التحديث في الخلفية...", Toast.LENGTH_LONG).show();
+            String fileName = "Titan_Launcher_v" + version + ".apk";
+
+            // Delete any leftover copy from an earlier attempt so we never install an old file.
+            File oldCopy = new File(appContext.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS), fileName);
+            if (oldCopy.exists()) {
+                oldCopy.delete();
+            }
 
             DownloadManager.Request request = new DownloadManager.Request(Uri.parse(url));
             request.setTitle("Titan Launcher v" + version);
             request.setDescription("جاري تنزيل التحديث الجديد...");
+            request.setMimeType(APK_MIME_TYPE);
             request.setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED);
+            // The launcher's private folder on storage: needs no extra permission.
+            request.setDestinationInExternalFilesDir(appContext, Environment.DIRECTORY_DOWNLOADS, fileName);
 
-            final String fileName = "Titan_Launcher_v" + version + ".apk";
-            File destDir = context.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS);
-            final File destFile;
-            if (destDir != null) {
-                if (!destDir.exists()) {
-                    destDir.mkdirs();
-                }
-                destFile = new File(destDir, fileName);
-                if (destFile.exists()) {
-                    destFile.delete();
-                }
-                request.setDestinationInExternalFilesDir(context, Environment.DIRECTORY_DOWNLOADS, fileName);
-            } else {
-                destDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS);
-                if (!destDir.exists()) {
-                    destDir.mkdirs();
-                }
-                destFile = new File(destDir, fileName);
-                if (destFile.exists()) {
-                    destFile.delete();
-                }
-                request.setDestinationUri(Uri.fromFile(destFile));
-            }
-
-            final DownloadManager manager = (DownloadManager) context.getSystemService(Context.DOWNLOAD_SERVICE);
-            if (manager == null) {
-                Toast.makeText(context, "خدمة DownloadManager غير متاحة في النظام", Toast.LENGTH_SHORT).show();
-                return;
-            }
-
+            Toast.makeText(appContext, "بدأ تنزيل التحديث في الخلفية...", Toast.LENGTH_LONG).show();
             final long downloadId = manager.enqueue(request);
 
-            // Register broadcast receiver for download completion
-            context.getApplicationContext().registerReceiver(new BroadcastReceiver() {
+            // Android tells every listening app when *any* download finishes.
+            // We listen, and react only when it is our download (matching downloadId).
+            appContext.registerReceiver(new BroadcastReceiver() {
                 @Override
                 public void onReceive(Context c, Intent intent) {
                     long id = intent.getLongExtra(DownloadManager.EXTRA_DOWNLOAD_ID, -1);
-                    if (id == downloadId) {
-                        try {
-                            context.getApplicationContext().unregisterReceiver(this);
-                        } catch (Exception ignored) {}
-
-                        Toast.makeText(context, "اكتمل التنزيل! جاري فتح التثبيت...", Toast.LENGTH_SHORT).show();
-
-                        try {
-                            // Ensure StrictMode VmPolicy is disabled before starting install intent
-                            android.os.StrictMode.setVmPolicy(new android.os.StrictMode.VmPolicy.Builder().build());
-
-                            if (destFile != null && destFile.exists()) {
-                                destFile.setReadable(true, false);
-                                destFile.setWritable(true, false);
-                            }
-
-                            Intent installIntent = new Intent(Intent.ACTION_VIEW);
-                            installIntent.setDataAndType(Uri.fromFile(destFile), "application/vnd.android.package-archive");
-                            installIntent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_GRANT_READ_URI_PERMISSION);
-                            context.startActivity(installIntent);
-                        } catch (Exception ex) {
-                            Log.e(TAG, "Install via file:// failed, attempting content://: " + ex.getMessage(), ex);
-                            try {
-                                Uri contentUri = manager.getUriForDownloadedFile(downloadId);
-                                if (contentUri != null) {
-                                    Intent fallbackIntent = new Intent(Intent.ACTION_VIEW);
-                                    fallbackIntent.setDataAndType(contentUri, "application/vnd.android.package-archive");
-                                    fallbackIntent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_GRANT_READ_URI_PERMISSION);
-                                    context.startActivity(fallbackIntent);
-                                } else {
-                                    throw new IllegalStateException("URI from DownloadManager is null");
-                                }
-                            } catch (Exception ex2) {
-                                Log.e(TAG, "Fallback install also failed: " + ex2.getMessage(), ex2);
-                                Toast.makeText(context, "تعذر فتح ملف التثبيت: " + ex.getMessage(), Toast.LENGTH_LONG).show();
-                            }
-                        }
+                    if (id != downloadId) {
+                        return; // someone else's download, not ours
                     }
+                    try {
+                        appContext.unregisterReceiver(this); // stop listening, we got our answer
+                    } catch (Exception e) {
+                        Log.w(TAG, "Could not unregister download receiver: " + e.getMessage());
+                    }
+
+                    if (!isDownloadSuccessful(manager, downloadId)) {
+                        Toast.makeText(appContext, "فشل تنزيل التحديث، حاول مرة أخرى.", Toast.LENGTH_LONG).show();
+                        return;
+                    }
+
+                    // A safe "content://" link the installer is allowed to read (see note 1 above).
+                    Uri apkUri = manager.getUriForDownloadedFile(downloadId);
+                    if (apkUri == null) {
+                        Toast.makeText(appContext, "تعذر العثور على ملف التحديث بعد التنزيل.", Toast.LENGTH_LONG).show();
+                        return;
+                    }
+
+                    // See note 2 above: the user must allow this launcher to install apps.
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O
+                            && !appContext.getPackageManager().canRequestPackageInstalls()) {
+                        Toast.makeText(appContext, "اسمح للانشر بتثبيت التطبيقات ثم اضغط تحديث مرة أخرى.", Toast.LENGTH_LONG).show();
+                        Intent allowIntent = new Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
+                                Uri.parse("package:" + appContext.getPackageName()));
+                        allowIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                        appContext.startActivity(allowIntent);
+                        return;
+                    }
+
+                    Toast.makeText(appContext, "اكتمل التنزيل! جاري فتح التثبيت...", Toast.LENGTH_SHORT).show();
+                    Intent installIntent = new Intent(Intent.ACTION_VIEW);
+                    installIntent.setDataAndType(apkUri, APK_MIME_TYPE);
+                    // NEW_TASK: required when opening a screen from outside an Activity.
+                    // GRANT_READ_URI_PERMISSION: lets the installer read the content:// link.
+                    installIntent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_GRANT_READ_URI_PERMISSION);
+                    appContext.startActivity(installIntent);
                 }
             }, new IntentFilter(DownloadManager.ACTION_DOWNLOAD_COMPLETE));
 
         } catch (Exception e) {
             Log.e(TAG, "Download error: " + e.getMessage(), e);
-            Toast.makeText(context, "فشل بدء التنزيل: " + e.getMessage(), Toast.LENGTH_LONG).show();
+            Toast.makeText(appContext, "فشل بدء التنزيل: " + e.getMessage(), Toast.LENGTH_LONG).show();
         }
+    }
+
+    /** Asks the DownloadManager whether our download really finished, or failed part way. */
+    private static boolean isDownloadSuccessful(DownloadManager manager, long downloadId) {
+        Cursor cursor = null;
+        try {
+            cursor = manager.query(new DownloadManager.Query().setFilterById(downloadId));
+            if (cursor != null && cursor.moveToFirst()) {
+                int status = cursor.getInt(cursor.getColumnIndex(DownloadManager.COLUMN_STATUS));
+                return status == DownloadManager.STATUS_SUCCESSFUL;
+            }
+        } catch (Exception e) {
+            Log.e(TAG, "Could not read download status: " + e.getMessage());
+        } finally {
+            if (cursor != null) cursor.close();
+        }
+        return false;
     }
 
     private static void showToast(final Context context, final String msg) {

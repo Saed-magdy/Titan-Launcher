@@ -18,7 +18,6 @@ import android.content.pm.ApplicationInfo;
 import android.content.pm.PackageManager;
 import android.content.pm.ResolveInfo;
 import android.os.Build;
-import android.os.StrictMode;
 import android.media.AudioManager;
 import android.media.audiofx.Visualizer;
 import android.media.MediaMetadata;
@@ -241,12 +240,10 @@ public class MainActivity extends Activity implements CockpitMediaListenerServic
         mStartupStartMs = SystemClock.elapsedRealtime();
         Log.i(TAG, "Startup: onCreate started");
 
-        // Disable StrictMode VmPolicy so FileUriExposedException is never triggered across packages
-        try {
-            StrictMode.setVmPolicy(new StrictMode.VmPolicy.Builder().build());
-        } catch (Throwable t) {
-            Log.w(TAG, "StrictMode config note: " + t.getMessage());
-        }
+        // Note: an earlier version switched off Android's "StrictMode" file-safety check here, for
+        // the whole app, to stop the updater from crashing. The updater now hands the installer a
+        // safe content:// link instead (see GitHubUpdateChecker), so that switch is no longer
+        // needed, and leaving Android's safety check on means real problems still get reported.
 
         // Initialize Watchdog & Crash Loop Protection immediately
         setupCrashWatchdog();
