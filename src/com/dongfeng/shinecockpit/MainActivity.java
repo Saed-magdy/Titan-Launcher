@@ -1923,7 +1923,29 @@ public class MainActivity extends Activity implements CockpitMediaListenerServic
                 mExecutor.execute(new Runnable() {
                     @Override
                     public void run() {
-                        mCanBusClient.dispatchCommand(command, fVal);
+                        int result = mCanBusClient.dispatchCommand(command, fVal);
+                        // If the command was refused for safety, tell the driver WHY,
+                        // so they don't think the screen is broken. (Arabic, then English.)
+                        final String message;
+                        if (result == CanBusClient.COMMAND_REFUSED_MOVING) {
+                            message = "لا يمكن فتح الشنطة أثناء سير السيارة"
+                                    + "\nTrunk can only be opened when the car is stopped";
+                        } else if (result == CanBusClient.COMMAND_REFUSED_SPEED_UNKNOWN) {
+                            // Usually just after starting the car: not dangerous, just "try again".
+                            message = "تعذر قراءة سرعة السيارة الآن، حاول مرة أخرى بعد لحظات"
+                                    + "\nCan't read the car's speed right now. Please try again in a moment";
+                        } else {
+                            message = null; // sent normally, nothing to say
+                        }
+                        if (message != null) {
+                            runOnUiThread(new Runnable() {
+                                @Override
+                                public void run() {
+                                    android.widget.Toast.makeText(MainActivity.this, message,
+                                            android.widget.Toast.LENGTH_LONG).show();
+                                }
+                            });
+                        }
                     }
                 });
 
