@@ -10,6 +10,7 @@ import android.os.Looper;
 import android.os.Parcel;
 
 import java.lang.reflect.Method;
+import java.util.Locale;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
@@ -43,6 +44,12 @@ public final class FmAmTunerController {
         void onConnectionChanged(boolean connected);
     }
 
+    public interface AutoScanListener {
+        void onScanProgress(int currentFreqKhz, int stationsFound);
+        void onStationFound(int freqKhz, String name);
+        void onScanComplete(int totalStations);
+    }
+
     public static final class TunerStatus {
         public final int frequencyKhz;
         public final int signalLevel;
@@ -69,6 +76,7 @@ public final class FmAmTunerController {
     private volatile int currentBand = BAND_FM;
     private volatile int currentFreqKhz = 87500;
     private volatile boolean boundRequested = false;
+    private volatile boolean autoScanning = false;
 
     private final ServiceConnection serviceConn = new ServiceConnection() {
         @Override
@@ -159,6 +167,116 @@ public final class FmAmTunerController {
                 }
             }
         });
+    }
+
+    public synchronized void startAutoScanAndSave(final OemStationRepository repo, final AutoScanListener scanListener) {
+        if (autoScanning) return;
+        autoScanning = true;
+        worker.execute(new Runnable() {
+            @Override
+            public void run() {
+                try {
+                    connectSync();
+                    setBandInternal(currentBand);
+                    int startFreq = (currentBand == BAND_FM) ? 87500 : 531;
+                    int maxFreq = (currentBand == BAND_FM) ? 108000 : 1629;
+                    int step = (currentBand == BAND_FM) ? 100 : 9;
+
+                    sendTuneDirect(startFreq);
+                    try { Thread.sleep(300); } catch (InterruptedException ignored) {}
+
+                    int foundCount = 0;
+                    int lastFoundFreq = -1;
+                    int curFreq = startFreq;
+                    int attempts = 0;
+                    int maxAttempts = 60;
+
+                    while (autoScanning && attempts < maxAttempts) {
+                        attempts++;
+                        setSeekStatusDirect(1);
+                        boolean ok = transactSimple(TR_SEEK_UP, "seekUp");
+                        if (!ok) break;
+
+                        TunerStatus st = null;
+                        for (int w = 0; w < 10; w++) {
+                            try { Thread.sleep(350); } catch (InterruptedException ignored) {}
+                            if (!autoScanning) break;
+                            st = readTunerStatusInternal();
+                            if (st != null && st.frequencyKhz != curFreq && isValidFreq(currentBand, st.frequencyKhz)) {
+                                break;
+                            }
+                        }
+
+                        if (!autoScanning) break;
+                        if (st == null || !isValidFreq(currentBand, st.frequencyKhz)) {
+                            curFreq += (step * 2);
+                            if (curFreq > maxFreq) break;
+                            sendTuneDirect(curFreq);
+                            st = readTunerStatusInternal();
+                        } else {
+                            curFreq = st.frequencyKhz;
+                        }
+
+                        if (curFreq <= lastFoundFreq && lastFoundFreq != -1) {
+                            break;
+                        }
+
+                        if (st != null && (st.validStation || st.signalLevel >= 2)) {
+                            lastFoundFreq = curFreq;
+                            foundCount++;
+                            final String name = (currentBand == BAND_FM)
+                                    ? String.format(Locale.US, "FM %.1f", curFreq / 1000.0)
+                                    : ("AM " + curFreq);
+                            repo.saveOrUpdateLocalFavorite(currentBand, curFreq, name);
+                            final int fKhz = curFreq;
+                            final int fCount = foundCount;
+                            if (scanListener != null) {
+                                mainHandler.post(new Runnable() {
+                                    @Override
+                                    public void run() {
+                                        scanListener.onStationFound(fKhz, name);
+                                        scanListener.onScanProgress(fKhz, fCount);
+                                    }
+                                });
+                            }
+                        } else {
+                            final int fKhz = curFreq;
+                            final int fCount = foundCount;
+                            if (scanListener != null) {
+                                mainHandler.post(new Runnable() {
+                                    @Override
+                                    public void run() {
+                                        scanListener.onScanProgress(fKhz, fCount);
+                                    }
+                                });
+                            }
+                        }
+
+                        try { Thread.sleep(150); } catch (InterruptedException ignored) {}
+                    }
+
+                    final int total = foundCount;
+                    if (scanListener != null) {
+                        mainHandler.post(new Runnable() {
+                            @Override
+                            public void run() {
+                                scanListener.onScanComplete(total);
+                            }
+                        });
+                    }
+                } finally {
+                    autoScanning = false;
+                }
+            }
+        });
+    }
+
+    public void stopAutoScan() {
+        autoScanning = false;
+    }
+
+    public boolean isAutoScanning() {
+        return autoScanning;
     }
 
     public void setMuteAsync(final boolean muted) {
@@ -466,6 +584,7 @@ public final class FmAmTunerController {
     }
 
     public void release() {
+        autoScanning = false;
         mainHandler.removeCallbacksAndMessages(null);
         if (boundRequested) {
             try { appContext.unbindService(serviceConn); } catch (Throwable ignored) {}

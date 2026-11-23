@@ -35,7 +35,7 @@ import java.util.Set;
  */
 public final class LocalMusicScanner {
     private static final String TAG = "SWLocalScanner";
-    private static final long MIN_TRACK_DURATION_MS = 45_000L;
+    private static final long MIN_TRACK_DURATION_MS = 5_000L;
 
     private static final Set<String> AUDIO_EXTENSIONS = new HashSet<>(Arrays.asList(
             "mp3", "m4a", "aac", "wav", "ogg", "oga", "opus", "flac", "wma"
@@ -289,7 +289,35 @@ public final class LocalMusicScanner {
             seen.add(canonicalize(primary.getAbsolutePath()));
         }
 
-        File[] scanParents = new File[]{new File("/storage"), new File("/mnt/usb_storage"), new File("/mnt")};
+        // Query Android storage manager mounted dirs (all connected USB drives)
+        try {
+            File[] extDirs = appContext.getExternalFilesDirs(null);
+            if (extDirs != null) {
+                for (File f : extDirs) {
+                    if (f == null) continue;
+                    // f is /storage/XXXX-XXXX/Android/data/pkg/files -> ascend to /storage/XXXX-XXXX
+                    File root = f;
+                    while (root != null && root.getParentFile() != null && !"/storage".equals(root.getParentFile().getAbsolutePath()) && !"/mnt".equals(root.getParentFile().getAbsolutePath())) {
+                        root = root.getParentFile();
+                    }
+                    if (root != null && root.isDirectory() && root.canRead()) {
+                        String canon = canonicalize(root.getAbsolutePath());
+                        if (seen.add(canon)) {
+                            roots.add(root);
+                        }
+                    }
+                }
+            }
+        } catch (Throwable ignored) {}
+
+        File[] scanParents = new File[]{
+                new File("/storage"),
+                new File("/mnt/media_rw"),
+                new File("/mnt/usb_storage"),
+                new File("/mnt/udisk"),
+                new File("/udisk"),
+                new File("/mnt")
+        };
         for (File parent : scanParents) {
             if (!parent.isDirectory()) continue;
             File[] children = parent.listFiles();
@@ -297,7 +325,7 @@ public final class LocalMusicScanner {
             for (File child : children) {
                 if (!child.isDirectory() || !child.canRead()) continue;
                 String name = child.getName().toLowerCase(Locale.ROOT);
-                if ("emulated".equals(name) || "self".equals(name) || "obb".equals(name) || "asec".equals(name)) {
+                if ("emulated".equals(name) || "self".equals(name) || "obb".equals(name) || "asec".equals(name) || "knox".equals(name)) {
                     continue;
                 }
                 String canon = canonicalize(child.getAbsolutePath());

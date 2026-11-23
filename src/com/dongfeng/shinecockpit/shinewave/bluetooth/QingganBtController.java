@@ -70,6 +70,12 @@ public final class QingganBtController {
 
     private QingganBtController(Context appContext) {
         this.appContext = appContext;
+        new android.os.Handler(android.os.Looper.getMainLooper()).post(new Runnable() {
+            @Override
+            public void run() {
+                ensureInitializedInternal();
+            }
+        });
     }
 
     public void addListener(Listener listener) {
@@ -179,6 +185,25 @@ public final class QingganBtController {
     }
 
     private void ensureInitialized() {
+        if (a2dp != null) return;
+        if (android.os.Looper.myLooper() != android.os.Looper.getMainLooper()) {
+            final java.util.concurrent.CountDownLatch latch = new java.util.concurrent.CountDownLatch(1);
+            new android.os.Handler(android.os.Looper.getMainLooper()).post(new Runnable() {
+                @Override
+                public void run() {
+                    ensureInitializedInternal();
+                    latch.countDown();
+                }
+            });
+            try {
+                latch.await(3000, java.util.concurrent.TimeUnit.MILLISECONDS);
+            } catch (InterruptedException ignored) {}
+        } else {
+            ensureInitializedInternal();
+        }
+    }
+
+    private void ensureInitializedInternal() {
         synchronized (lock) {
             if (released) released = false;
             if (a2dp != null) return;

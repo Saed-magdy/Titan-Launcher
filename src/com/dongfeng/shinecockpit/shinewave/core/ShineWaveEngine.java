@@ -376,6 +376,7 @@ public final class ShineWaveEngine {
     private void activateSourceInternal(AudioSourceType target, boolean autoActivate) {
         switch (target) {
             case LOCAL_MUSIC: {
+                QingganAudioPolicyBridge.getInstance(appContext).routeToMusic();
                 avrcpTracker.setActivePolling(false);
                 mainHandler.removeCallbacks(externalPollRunnable);
                 if (streamPlayer.getQueueSource() != AudioSourceType.LOCAL_MUSIC || streamPlayer.getCurrentItem() == null) {
@@ -458,6 +459,7 @@ public final class ShineWaveEngine {
                 break;
             }
             case INTERNET_RADIO: {
+                QingganAudioPolicyBridge.getInstance(appContext).routeToMusic();
                 avrcpTracker.setActivePolling(false);
                 mainHandler.removeCallbacks(externalPollRunnable);
                 stateModel.clearArtwork();
@@ -473,6 +475,7 @@ public final class ShineWaveEngine {
                 break;
             }
             case EXTERNAL_APP: {
+                QingganAudioPolicyBridge.getInstance(appContext).routeToMusic();
                 avrcpTracker.setActivePolling(false);
                 stateModel.setExternalApp(externalRouter.getSelectedPackage(), externalRouter.getSelectedLabel());
                 syncExternalSession(true);
@@ -733,30 +736,162 @@ public final class ShineWaveEngine {
     }
 
     public void playQueueIndex(int index) {
-        List<NativeStreamPlayer.QueueItem> q = streamPlayer.getQueueSnapshot();
-        if (index >= 0 && index < q.size()) {
-            streamPlayer.setQueueAndPlay(q, index, streamPlayer.getQueueSource());
+        AudioSourceType src = stateModel.getSource();
+        switch (src) {
+            case LOCAL_MUSIC: {
+                List<NativeStreamPlayer.QueueItem> q = streamPlayer.getQueueSnapshot();
+                if (index >= 0 && index < q.size()) {
+                    streamPlayer.setQueueAndPlay(q, index, AudioSourceType.LOCAL_MUSIC);
+                }
+                break;
+            }
+            case EXTERNAL_APP: {
+                JSONObject queueJson = externalRouter.getQueueJson();
+                if (queueJson != null && queueJson.has("items")) {
+                    JSONArray items = queueJson.optJSONArray("items");
+                    if (items != null && index >= 0 && index < items.length()) {
+                        JSONObject it = items.optJSONObject(index);
+                        if (it != null) {
+                            long qId = it.optLong("id", -1L);
+                            if (qId != -1L) {
+                                externalRouter.skipToQueueItem(qId);
+                            }
+                        }
+                    }
+                }
+                break;
+            }
+            case CAR_RADIO: {
+                int band = prefs.getInt(KEY_FM_BAND, FmAmTunerController.BAND_FM);
+                List<OemStationRepository.Station> stations = oemStationRepo.loadStations(band, fmAmTuner.getFactoryBridge());
+                if (index >= 0 && index < stations.size()) {
+                    OemStationRepository.Station s = stations.get(index);
+                    tuneCarRadio(band == FmAmTunerController.BAND_FM ? "FM" : "AM", s.frequencyKhz);
+                }
+                break;
+            }
+            case INTERNET_RADIO: {
+                List<RadioBrowserClient.Station> favs = internetStore.getFavorites();
+                if (favs.isEmpty()) favs = internetStore.getRecent();
+                if (favs.isEmpty()) favs = RadioStationStore.getCuratedArabicStations();
+                if (index >= 0 && index < favs.size()) {
+                    RadioBrowserClient.Station s = favs.get(index);
+                    playInternetStation(s.stationUuid, s.name, s.streamUrl, s.countryCode);
+                }
+                break;
+            }
+            case BLUETOOTH: {
+                qingganBt.play();
+                break;
+            }
         }
     }
 
     public JSONObject getActiveQueueJson() {
         JSONObject root = new JSONObject();
         JSONArray arr = new JSONArray();
-        List<NativeStreamPlayer.QueueItem> q = streamPlayer.getQueueSnapshot();
-        int cur = streamPlayer.getCurrentIndex();
+        AudioSourceType src = stateModel.getSource();
+        int cur = 0;
         try {
-            for (int i = 0; i < q.size(); i++) {
-                NativeStreamPlayer.QueueItem item = q.get(i);
-                arr.put(new JSONObject()
-                        .put("index", i)
-                        .put("id", item.id)
-                        .put("title", item.title)
-                        .put("artist", item.artist)
-                        .put("durationSec", item.durationMs / 1000L)
-                        .put("active", i == cur));
+            switch (src) {
+                case LOCAL_MUSIC: {
+                    List<NativeStreamPlayer.QueueItem> q = streamPlayer.getQueueSnapshot();
+                    cur = streamPlayer.getCurrentIndex();
+                    for (int i = 0; i < q.size(); i++) {
+                        NativeStreamPlayer.QueueItem item = q.get(i);
+                        arr.put(new JSONObject()
+                                .put("index", i)
+                                .put("id", item.id)
+                                .put("title", item.title)
+                                .put("artist", item.artist)
+                                .put("durationSec", item.durationMs / 1000L)
+                                .put("active", i == cur));
+                    }
+                    root.put("source", "LOCAL_MUSIC");
+                    root.put("currentIndex", cur);
+                    root.put("items", arr);
+                    return root;
+                }
+                case EXTERNAL_APP: {
+                    JSONObject ext = externalRouter.getQueueJson();
+                    if (ext != null && ext.has("items") && ext.getJSONArray("items").length() > 0) {
+                        ext.put("source", "EXTERNAL_APP");
+                        return ext;
+                    }
+                    ExternalPlayerRouter.SessionSnapshot snap = externalRouter.readSelectedSession();
+                    if (snap != null) {
+                        arr.put(new JSONObject()
+                                .put("index", 0)
+                                .put("id", snap.packageName)
+                                .put("title", snap.title.isEmpty() ? snap.label : snap.title)
+                                .put("artist", snap.artist)
+                                .put("durationSec", snap.durationSec)
+                                .put("active", true));
+                    }
+                    root.put("source", "EXTERNAL_APP");
+                    root.put("currentIndex", 0);
+                    root.put("items", arr);
+                    return root;
+                }
+                case CAR_RADIO: {
+                    int band = prefs.getInt(KEY_FM_BAND, FmAmTunerController.BAND_FM);
+                    int curFreq = fmAmTuner.getCurrentFreqKhz() > 0 ? fmAmTuner.getCurrentFreqKhz() : prefs.getInt(KEY_FM_FREQ, 87500);
+                    List<OemStationRepository.Station> stations = oemStationRepo.loadStations(band, fmAmTuner.getFactoryBridge());
+                    for (int i = 0; i < stations.size(); i++) {
+                        OemStationRepository.Station s = stations.get(i);
+                        boolean active = (s.frequencyKhz == curFreq);
+                        if (active) cur = i;
+                        arr.put(new JSONObject()
+                                .put("index", i)
+                                .put("id", String.valueOf(s.frequencyKhz))
+                                .put("title", s.name.isEmpty() ? ((band == FmAmTunerController.BAND_FM ? "FM " : "AM ") + String.format(Locale.US, "%.1f", s.frequencyKhz / 1000.0)) : s.name)
+                                .put("artist", (band == FmAmTunerController.BAND_FM ? "FM " : "AM ") + String.format(Locale.US, "%.1f MHz", s.frequencyKhz / 1000.0))
+                                .put("durationSec", 0)
+                                .put("active", active));
+                    }
+                    root.put("source", "CAR_RADIO");
+                    root.put("currentIndex", cur);
+                    root.put("items", arr);
+                    return root;
+                }
+                case INTERNET_RADIO: {
+                    List<RadioBrowserClient.Station> favs = internetStore.getFavorites();
+                    if (favs.isEmpty()) favs = internetStore.getRecent();
+                    if (favs.isEmpty()) favs = RadioStationStore.getCuratedArabicStations();
+                    NativeStreamPlayer.QueueItem currentItem = streamPlayer.getCurrentItem();
+                    String curUuid = currentItem != null ? currentItem.id : "";
+                    for (int i = 0; i < favs.size(); i++) {
+                        RadioBrowserClient.Station s = favs.get(i);
+                        boolean active = s.stationUuid.equals(curUuid);
+                        if (active) cur = i;
+                        arr.put(new JSONObject()
+                                .put("index", i)
+                                .put("id", s.stationUuid)
+                                .put("title", s.name)
+                                .put("artist", s.countryCode.isEmpty() ? "Internet Radio" : s.countryCode)
+                                .put("durationSec", 0)
+                                .put("active", active));
+                    }
+                    root.put("source", "INTERNET_RADIO");
+                    root.put("currentIndex", cur);
+                    root.put("items", arr);
+                    return root;
+                }
+                case BLUETOOTH: {
+                    AvrcpMetadataTracker.AvrcpSnapshot bSnap = avrcpTracker.getSnapshot();
+                    arr.put(new JSONObject()
+                            .put("index", 0)
+                            .put("id", "bt_active")
+                            .put("title", bSnap.title.isEmpty() ? "Bluetooth Audio" : bSnap.title)
+                            .put("artist", bSnap.artist)
+                            .put("durationSec", bSnap.durationMs / 1000L)
+                            .put("active", true));
+                    root.put("source", "BLUETOOTH");
+                    root.put("currentIndex", 0);
+                    root.put("items", arr);
+                    return root;
+                }
             }
-            root.put("currentIndex", cur);
-            root.put("items", arr);
         } catch (Throwable ignored) {}
         return root;
     }
@@ -815,6 +950,44 @@ public final class ShineWaveEngine {
     public void seekCarRadio(boolean up) {
         selectSource(AudioSourceType.CAR_RADIO, false);
         fmAmTuner.seekAsync(up);
+    }
+
+    public void startRadioAutoScan() {
+        selectSource(AudioSourceType.CAR_RADIO, false);
+        stateModel.setRadioState(prefs.getString(KEY_RADIO_TYPE, "FM"), fmAmTuner.getCurrentFreqKhz(), "جاري البحث التلقائي…");
+        emitState();
+        fmAmTuner.startAutoScanAndSave(oemStationRepo, new FmAmTunerController.AutoScanListener() {
+            @Override
+            public void onScanProgress(int currentFreqKhz, int stationsFound) {
+                String rType = prefs.getString(KEY_RADIO_TYPE, "FM");
+                stateModel.setRadioState(rType, currentFreqKhz, "بحث تلقائي (" + stationsFound + " محطة)…");
+                emitState();
+            }
+
+            @Override
+            public void onStationFound(int freqKhz, String name) {
+                stateModel.setTrackInfo(name, "راديو السيارة", "FM", 0L, 0L, true);
+                emitState();
+            }
+
+            @Override
+            public void onScanComplete(int totalStations) {
+                String rType = prefs.getString(KEY_RADIO_TYPE, "FM");
+                stateModel.setRadioState(rType, fmAmTuner.getCurrentFreqKhz(), "اكتمل البحث (" + totalStations + " محطة)");
+                updateCarRadioTitle();
+                emitState();
+            }
+        });
+    }
+
+    public void stopRadioAutoScan() {
+        fmAmTuner.stopAutoScan();
+        stateModel.setRadioState(prefs.getString(KEY_RADIO_TYPE, "FM"), fmAmTuner.getCurrentFreqKhz(), "تم إيقاف البحث");
+        emitState();
+    }
+
+    public boolean isRadioAutoScanning() {
+        return fmAmTuner.isAutoScanning();
     }
 
     public boolean toggleCarRadioFavorite(int freqKhz, String name) {
@@ -880,6 +1053,7 @@ public final class ShineWaveEngine {
 
     public void playInternetStation(String uuid, String name, String url, String country) {
         if (url == null || url.trim().isEmpty()) return;
+        QingganAudioPolicyBridge.getInstance(appContext).routeToMusic();
         RadioBrowserClient.Station station = new RadioBrowserClient.Station(uuid, name, url, country);
         internetStore.addRecent(station);
         internetClient.reportClickAsync(uuid);

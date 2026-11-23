@@ -26,7 +26,8 @@
   }
 
   function startPhase23D() {
-    loadScript('js/three.min.js')
+    var pThree = (typeof window.THREE !== 'undefined') ? Promise.resolve() : loadScript('js/three.min.js');
+    pThree
       .then(function () { return loadScript('js/OrbitControls.js'); })
       .then(function () { return loadScript('js/GLTFLoader.js'); })
       .then(function () { return loadScript('js/car-model-data.js'); })

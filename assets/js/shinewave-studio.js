@@ -499,6 +499,7 @@
     ctx.shadowBlur = 0;
   }
 
+  /* ---------- Live Fluid Silk Wave Equalizer (أمواج الحرير والنيون الانسيابية) ---------- */
   function drawStudioWaveform() {
     var c = document.getElementById('swst-wave-canvas');
     var wrap = document.getElementById('swst-wave-wrap');
@@ -515,74 +516,512 @@
     ctx.clearRect(0, 0, w, h);
 
     var m = window.ShineWaveCardState || {};
+    var isPlaying = !!m.playing;
     var spec = (window.getShineWaveAudioSpectrum) ? window.getShineWaveAudioSpectrum() : { beat: 0, energy: 0, bands: [] };
     var effDur = m.dur > 0 ? m.dur : 225;
     var frac = Math.max(0, Math.min(1, (m.pos || 0) / effDur));
-    if (m.playing) wavePhase += 0.075;
-
-    var barCount = 28;
-    var gap = 5;
-    var barW = Math.max(4, (w - (barCount - 1) * gap) / barCount);
     var midY = h / 2;
 
-    for (var i = 0; i < barCount; i++) {
-      var pct = i / (barCount - 1);
-      var played = pct <= frac;
+    if (isPlaying) {
+      wavePhase += 0.055 + (spec.beat || 0) * 0.035;
+    } else {
+      wavePhase += 0.012;
+    }
 
-      // Realistic audio spectrum: mirror from center or logarithmic distribution across bands
-      var bVal = 0.15;
-      if (m.playing) {
-        if (spec.bands && spec.bands.length) {
-          // Map to spectrum bands smoothly across the whole width
-          var bIdx = Math.floor(Math.abs(pct - 0.5) * 2 * (spec.bands.length - 1));
-          var rawBand = spec.bands[bIdx] || (spec.energy * 0.8) || 0.35;
-          // Harmonic wave motion across all bars so none remain frozen
-          var waveMod = 0.45 * Math.sin(i * 0.52 + wavePhase) + 0.25 * Math.cos(i * 0.88 - wavePhase * 1.3);
-          bVal = Math.max(0.18, Math.min(1.0, rawBand * 0.75 + waveMod * 0.35 + (spec.beat * 0.25)));
-        } else {
-          var pulse = Math.sin(i * 0.48 + wavePhase) * 0.45 + Math.cos(i * 0.92 - wavePhase * 1.4) * 0.35 + 0.45;
-          bVal = Math.max(0.18, Math.min(0.95, pulse));
-        }
-      } else {
-        // Elegant resting baseline
-        bVal = 0.14 + 0.08 * Math.sin(i * 0.6);
+    var beatAmp = isPlaying ? (0.35 + (spec.beat || 0) * 0.45 + (spec.energy || 0) * 0.35) : 0.15;
+    var bassDrop = isPlaying ? Math.max(0, (spec.beat || 0) * 1.2) : 0;
+
+    // Draw 3 harmonic fluid silk layers
+    var layers = [
+      {
+        color: '#c084fc',
+        glow: 'rgba(192, 132, 252, 0.45)',
+        width: 2.0,
+        alpha: 0.60,
+        speed: 1.4,
+        freq: 0.032,
+        amp: (h * 0.28) * beatAmp + bassDrop * 3.5
+      },
+      {
+        color: '#34d399',
+        glow: 'rgba(52, 211, 153, 0.55)',
+        width: 2.4,
+        alpha: 0.75,
+        speed: 1.9,
+        freq: 0.040,
+        amp: (h * 0.34) * beatAmp + bassDrop * 4.5
+      },
+      {
+        color: '#38bdf8',
+        glow: '#38bdf8',
+        width: 3.2,
+        alpha: 0.95,
+        speed: 2.4,
+        freq: 0.048,
+        amp: (h * 0.42) * beatAmp + bassDrop * 5.5
       }
+    ];
 
-      var barH = Math.max(4, bVal * (h - 2));
-      var x = i * (barW + gap);
-      var y = midY - barH / 2;
-
-      // Premium glowing gradient styling
-      var grad = ctx.createLinearGradient(0, y, 0, y + barH);
-      if (played) {
-        grad.addColorStop(0, '#7dd3fc');
-        grad.addColorStop(0.5, '#93c5fd');
-        grad.addColorStop(1, '#a7f3d0');
-      } else {
-        grad.addColorStop(0, 'rgba(255, 255, 255, 0.45)');
-        grad.addColorStop(1, 'rgba(186, 230, 253, 0.15)');
-      }
-
-      ctx.fillStyle = grad;
+    layers.forEach(function (l, lIdx) {
+      ctx.save();
       ctx.beginPath();
-      var rad = Math.min(barW / 2, barH / 2);
-      if (ctx.roundRect) ctx.roundRect(x, y, barW, barH, rad);
-      else ctx.rect(x, y, barW, barH);
-      ctx.fill();
+      ctx.lineCap = 'round';
+      ctx.lineJoin = 'round';
 
-      // Subtle top/bottom neon glow cap on energetic peaks
-      if (m.playing && bVal > 0.65) {
-        ctx.fillStyle = '#ffffff';
-        ctx.beginPath();
-        ctx.arc(x + barW / 2, y + 1.5, 1.2, 0, Math.PI * 2);
-        ctx.arc(x + barW / 2, y + barH - 1.5, 1.2, 0, Math.PI * 2);
-        ctx.fill();
+      var step = 4;
+      var first = true;
+      for (var x = 0; x <= w; x += step) {
+        var normX = x / w;
+        var env = Math.sin(normX * Math.PI);
+        var specMod = 1.0;
+        if (spec.bands && spec.bands.length) {
+          var bIdx = Math.floor(normX * (spec.bands.length - 1));
+          specMod = 0.5 + (spec.bands[bIdx] || 0.3) * 0.9;
+        }
+
+        var y = midY + Math.sin(x * l.freq - wavePhase * l.speed + lIdx * 1.2) * l.amp * env * specMod;
+        if (first) { ctx.moveTo(x, y); first = false; }
+        else { ctx.lineTo(x, y); }
       }
+
+      ctx.strokeStyle = l.color;
+      ctx.lineWidth = l.width;
+      ctx.shadowColor = l.glow;
+      ctx.shadowBlur = 8;
+      ctx.globalAlpha = l.alpha;
+      ctx.stroke();
+      ctx.restore();
+    });
+
+    // Active playback progress head on the wave
+    var px = w * frac;
+    var pEnv = Math.sin(frac * Math.PI);
+    var py = midY + Math.sin(px * 0.048 - wavePhase * 2.4 + 2.4) * (h * 0.42) * beatAmp * pEnv;
+
+    ctx.save();
+    ctx.shadowColor = '#38bdf8';
+    ctx.shadowBlur = 12;
+    ctx.fillStyle = '#ffffff';
+    ctx.beginPath();
+    ctx.arc(px, py, 4.2, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+  }
+
+  /* ---------- Interactive 3D WebGL Musical Clown Mascot (مجسم المهرج الكرتوني 3D حقيقي) ---------- */
+  var threeMascot = null;
+  var threeMascotCanvas = null;
+  var threeMascotBassHit = 0;
+  var threePointerTarget = { x: 0, y: 0 };
+  var threePointerCurrent = { x: 0, y: 0 };
+
+  function initThreeMascot(canvas, w, h) {
+    if (!window.THREE || !canvas) return false;
+    try {
+      if (!canvas.__isWebgl && canvas.parentNode) {
+        var fresh = canvas.cloneNode(false);
+        canvas.parentNode.replaceChild(fresh, canvas);
+        canvas = fresh;
+      }
+      var THREE = window.THREE;
+      var renderer = new THREE.WebGLRenderer({
+        canvas: canvas,
+        alpha: true,
+        antialias: true,
+        powerPreference: 'low-power'
+      });
+      canvas.__isWebgl = true;
+      renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+      renderer.setSize(w, h, false);
+      if (renderer.toneMapping !== undefined) {
+        renderer.toneMapping = THREE.ACESFilmicToneMapping || THREE.LinearToneMapping;
+        renderer.toneMappingExposure = 1.15;
+      }
+
+      var scene = new THREE.Scene();
+      var camera = new THREE.PerspectiveCamera(36, w / h, 0.1, 50);
+      camera.position.set(0, 0.15, 6.8);
+
+      // Studio 3-Point Lighting
+      var ambLight = new THREE.AmbientLight(0xffffff, 0.75);
+      scene.add(ambLight);
+
+      var keyLight = new THREE.DirectionalLight(0xfff7ed, 1.3);
+      keyLight.position.set(3.5, 4.5, 4.0);
+      scene.add(keyLight);
+
+      var fillLight = new THREE.DirectionalLight(0x93c5fd, 0.55);
+      fillLight.position.set(-3.5, 1.0, 3.0);
+      scene.add(fillLight);
+
+      var rimLight = new THREE.DirectionalLight(0xfef08a, 0.85);
+      rimLight.position.set(0, 4.0, -3.5);
+      scene.add(rimLight);
+
+      // Materials (Standard PBR with fallback-safe properties)
+      var MatClass = THREE.MeshStandardMaterial || THREE.MeshPhongMaterial;
+      var skinMat = new MatClass({ color: 0xffdfd0, roughness: 0.38, metalness: 0.05 });
+      var hairMat = new MatClass({ color: 0xea580c, roughness: 0.75, metalness: 0.0 });
+      var noseMat = new MatClass({ color: 0xdc2626, roughness: 0.15, metalness: 0.1 });
+      var hatMat = new MatClass({ color: 0xdc2626, roughness: 0.35 });
+      var hatBrimMat = new MatClass({ color: 0x2563eb, roughness: 0.4 });
+      var eyeWhiteMat = new MatClass({ color: 0xffffff, roughness: 0.2 });
+      var irisMat = new MatClass({ color: 0x0284c7, roughness: 0.25 });
+      var pupilMat = new THREE.MeshBasicMaterial({ color: 0x080808 });
+      var browMat = new MatClass({ color: 0x1e1e24, roughness: 0.6 });
+      var cheekMat = new THREE.MeshBasicMaterial({ color: 0xf87171, transparent: true, opacity: 0.6 });
+      var lipMat = new MatClass({ color: 0xb91c1c, roughness: 0.3 });
+      var teethMat = new MatClass({ color: 0xffffff, roughness: 0.2 });
+      var collarMat = new MatClass({ color: 0xfacc15, roughness: 0.45 });
+      var bowTieMat = new MatClass({ color: 0xfbbf24, roughness: 0.4 });
+      var bowDotMat = new THREE.MeshBasicMaterial({ color: 0xdc2626 });
+      var shirtMat = new MatClass({ color: 0x1d4ed8, roughness: 0.55 });
+      var overallsMat = new MatClass({ color: 0xdc2626, roughness: 0.5 });
+      var buttonMat = new MatClass({ color: 0xfacc15, roughness: 0.25, metalness: 0.2 });
+      var gloveMat = new MatClass({ color: 0xf8fafc, roughness: 0.35 });
+      var shoeYellowMat = new MatClass({ color: 0xeab308, roughness: 0.4 });
+      var shoeRedMat = new MatClass({ color: 0xdc2626, roughness: 0.35 });
+
+      // Root Hierarchy
+      var mascotRoot = new THREE.Group();
+      scene.add(mascotRoot);
+
+      // Ground Shadow
+      var shadowGeo = new THREE.CircleGeometry(0.85, 24);
+      var shadowCanvas = document.createElement('canvas');
+      shadowCanvas.width = 64; shadowCanvas.height = 64;
+      var sctx = shadowCanvas.getContext('2d');
+      var grad = sctx.createRadialGradient(32, 32, 4, 32, 32, 30);
+      grad.addColorStop(0, 'rgba(0, 0, 0, 0.6)');
+      grad.addColorStop(0.5, 'rgba(0, 0, 0, 0.25)');
+      grad.addColorStop(1, 'rgba(0, 0, 0, 0)');
+      sctx.fillStyle = grad;
+      sctx.fillRect(0, 0, 64, 64);
+      var shadowTex = new THREE.CanvasTexture(shadowCanvas);
+      var shadowMat = new THREE.MeshBasicMaterial({ map: shadowTex, transparent: true, opacity: 0.8 });
+      var groundShadow = new THREE.Mesh(shadowGeo, shadowMat);
+      groundShadow.rotation.x = -Math.PI / 2;
+      groundShadow.position.y = -2.15;
+      scene.add(groundShadow);
+
+      var charGroup = new THREE.Group();
+      mascotRoot.add(charGroup);
+      charGroup.position.y = 0.05;
+
+      var bodyGroup = new THREE.Group();
+      charGroup.add(bodyGroup);
+
+      // Torso - Blue Shirt
+      var shirtGeo = new THREE.CylinderGeometry(0.55, 0.58, 0.95, 20);
+      var shirtMesh = new THREE.Mesh(shirtGeo, shirtMat);
+      shirtMesh.position.y = -0.35;
+      bodyGroup.add(shirtMesh);
+
+      // Overalls (Red Dungarees)
+      var overallsGeo = new THREE.CylinderGeometry(0.58, 0.62, 0.82, 20);
+      var overallsMesh = new THREE.Mesh(overallsGeo, overallsMat);
+      overallsMesh.position.y = -0.45;
+      bodyGroup.add(overallsMesh);
+
+      // Shoulder Straps
+      var strapGeo = new THREE.BoxGeometry(0.14, 0.82, 0.08);
+      var leftStrap = new THREE.Mesh(strapGeo, overallsMat);
+      leftStrap.position.set(-0.32, -0.28, 0.48);
+      leftStrap.rotation.z = -0.08;
+      bodyGroup.add(leftStrap);
+
+      var rightStrap = new THREE.Mesh(strapGeo, overallsMat);
+      rightStrap.position.set(0.32, -0.28, 0.48);
+      rightStrap.rotation.z = 0.08;
+      bodyGroup.add(rightStrap);
+
+      // Golden Buttons
+      var buttonGeo = new THREE.CylinderGeometry(0.095, 0.095, 0.05, 16);
+      var leftBtn = new THREE.Mesh(buttonGeo, buttonMat);
+      leftBtn.rotation.x = Math.PI / 2;
+      leftBtn.position.set(-0.32, -0.38, 0.53);
+      bodyGroup.add(leftBtn);
+
+      var rightBtn = new THREE.Mesh(buttonGeo, buttonMat);
+      rightBtn.rotation.x = Math.PI / 2;
+      rightBtn.position.set(0.32, -0.38, 0.53);
+      bodyGroup.add(rightBtn);
+
+      // Legs
+      var legGeo = new THREE.CylinderGeometry(0.18, 0.20, 0.55, 14);
+      var leftLeg = new THREE.Mesh(legGeo, overallsMat);
+      leftLeg.position.set(-0.28, -1.02, 0);
+      bodyGroup.add(leftLeg);
+
+      var rightLeg = new THREE.Mesh(legGeo, overallsMat);
+      rightLeg.position.set(0.28, -1.02, 0);
+      bodyGroup.add(rightLeg);
+
+      // Yellow Clown Shoes with Red Toe Caps
+      function createClownShoe(isRight) {
+        var shoeGroup = new THREE.Group();
+        var baseGeo = new THREE.SphereGeometry(0.24, 14, 14);
+        baseGeo.scale(1.1, 0.75, 1.6);
+        var baseMesh = new THREE.Mesh(baseGeo, shoeYellowMat);
+        baseMesh.position.set(0, 0, 0.12);
+        shoeGroup.add(baseMesh);
+
+        var toeGeo = new THREE.SphereGeometry(0.21, 14, 14);
+        toeGeo.scale(1.05, 0.9, 1.15);
+        var toeMesh = new THREE.Mesh(toeGeo, shoeRedMat);
+        toeMesh.position.set(0, -0.02, 0.32);
+        shoeGroup.add(toeMesh);
+
+        shoeGroup.position.set(isRight ? 0.28 : -0.28, -1.34, 0);
+        return shoeGroup;
+      }
+      bodyGroup.add(createClownShoe(false));
+      bodyGroup.add(createClownShoe(true));
+
+      // Left Arm (Relaxed)
+      var leftArmGroup = new THREE.Group();
+      leftArmGroup.position.set(-0.62, -0.15, 0);
+      var leftArmGeo = new THREE.CylinderGeometry(0.15, 0.14, 0.65, 14);
+      var leftArmMesh = new THREE.Mesh(leftArmGeo, shirtMat);
+      leftArmMesh.position.set(-0.12, -0.28, 0.08);
+      leftArmMesh.rotation.z = 0.22;
+      leftArmMesh.rotation.x = 0.15;
+      leftArmGroup.add(leftArmMesh);
+
+      var leftHandGeo = new THREE.SphereGeometry(0.18, 14, 14);
+      leftHandGeo.scale(1.1, 1.3, 0.85);
+      var leftHandMesh = new THREE.Mesh(leftHandGeo, gloveMat);
+      leftHandMesh.position.set(-0.22, -0.68, 0.18);
+      leftArmGroup.add(leftHandMesh);
+      bodyGroup.add(leftArmGroup);
+
+      // Right Arm (Waving!)
+      var rightArmGroup = new THREE.Group();
+      rightArmGroup.position.set(0.62, -0.12, 0);
+      var rightUpperGeo = new THREE.CylinderGeometry(0.15, 0.14, 0.52, 14);
+      var rightUpperMesh = new THREE.Mesh(rightUpperGeo, shirtMat);
+      rightUpperMesh.position.set(0.18, 0.18, 0.12);
+      rightUpperMesh.rotation.z = -0.75;
+      rightArmGroup.add(rightUpperMesh);
+
+      var handGroup = new THREE.Group();
+      handGroup.position.set(0.38, 0.42, 0.22);
+      var palmGeo = new THREE.SphereGeometry(0.17, 14, 14);
+      palmGeo.scale(1.1, 1.25, 0.7);
+      var palmMesh = new THREE.Mesh(palmGeo, gloveMat);
+      handGroup.add(palmMesh);
+
+      for (var fi = 0; fi < 4; fi++) {
+        var fingerGeo = new THREE.CylinderGeometry(0.045, 0.04, 0.22, 10);
+        var finger = new THREE.Mesh(fingerGeo, gloveMat);
+        finger.position.set(-0.12 + fi * 0.08, 0.18, 0);
+        finger.rotation.z = -0.3 + fi * 0.22;
+        handGroup.add(finger);
+      }
+      var thumbGeo = new THREE.CylinderGeometry(0.05, 0.045, 0.18, 10);
+      var thumb = new THREE.Mesh(thumbGeo, gloveMat);
+      thumb.position.set(-0.18, 0.02, 0.05);
+      thumb.rotation.z = 0.85;
+      handGroup.add(thumb);
+
+      rightArmGroup.add(handGroup);
+      bodyGroup.add(rightArmGroup);
+
+      // Neck Group
+      var neckGroup = new THREE.Group();
+      neckGroup.position.set(0, 0.18, 0);
+      bodyGroup.add(neckGroup);
+
+      // Ruffled Collar
+      var collarGeo = new THREE.CylinderGeometry(0.58, 0.68, 0.16, 24);
+      var collarMesh = new THREE.Mesh(collarGeo, collarMat);
+      collarMesh.position.set(0, 0, 0.05);
+      neckGroup.add(collarMesh);
+
+      // Bow Tie
+      var bowGroup = new THREE.Group();
+      bowGroup.position.set(0, 0.02, 0.52);
+      var knotGeo = new THREE.CylinderGeometry(0.10, 0.10, 0.14, 14);
+      var knot = new THREE.Mesh(knotGeo, bowTieMat);
+      knot.rotation.z = Math.PI / 2;
+      bowGroup.add(knot);
+
+      var loopGeo = new THREE.ConeGeometry(0.25, 0.42, 14);
+      var leftLoop = new THREE.Mesh(loopGeo, bowTieMat);
+      leftLoop.rotation.z = Math.PI / 2;
+      leftLoop.position.set(-0.25, 0, 0);
+      bowGroup.add(leftLoop);
+
+      var rightLoop = new THREE.Mesh(loopGeo, bowTieMat);
+      rightLoop.rotation.z = -Math.PI / 2;
+      rightLoop.position.set(0.25, 0, 0);
+      bowGroup.add(rightLoop);
+
+      var dotGeo = new THREE.SphereGeometry(0.045, 10, 10);
+      var dotCoords = [
+        [-0.22, 0.08, 0.08], [-0.32, -0.06, 0.08], [-0.16, -0.08, 0.08],
+        [0.22, 0.08, 0.08], [0.32, -0.06, 0.08], [0.16, -0.08, 0.08], [0, 0, 0.09]
+      ];
+      dotCoords.forEach(function(crd) {
+        var dot = new THREE.Mesh(dotGeo, bowDotMat);
+        dot.position.set(crd[0], crd[1], crd[2]);
+        bowGroup.add(dot);
+      });
+      neckGroup.add(bowGroup);
+
+      // Head Group
+      var headGroup = new THREE.Group();
+      headGroup.position.set(0, 0.85, 0);
+      bodyGroup.add(headGroup);
+
+      var headGeo = new THREE.SphereGeometry(0.72, 24, 24);
+      headGeo.scale(1.0, 1.1, 0.96);
+      var headMesh = new THREE.Mesh(headGeo, skinMat);
+      headGroup.add(headMesh);
+
+      // Ears
+      var earGeo = new THREE.SphereGeometry(0.18, 14, 14);
+      earGeo.scale(0.6, 1.1, 0.8);
+      var leftEar = new THREE.Mesh(earGeo, skinMat);
+      leftEar.position.set(-0.72, 0, -0.05);
+      headGroup.add(leftEar);
+      var rightEar = new THREE.Mesh(earGeo, skinMat);
+      rightEar.position.set(0.72, 0, -0.05);
+      headGroup.add(rightEar);
+
+      // Afro Curls
+      var curlGeo = new THREE.SphereGeometry(0.24, 12, 12);
+      var curlPositions = [
+        [-0.52, 0.65, -0.1], [0, 0.78, -0.15], [0.52, 0.65, -0.1],
+        [-0.32, 0.76, 0.05], [0.32, 0.76, 0.05],
+        [-0.45, 0.58, 0.42], [-0.22, 0.68, 0.48], [0, 0.72, 0.52], [0.22, 0.68, 0.48], [0.45, 0.58, 0.42],
+        [-0.68, 0.42, 0.12], [-0.75, 0.18, 0.05], [-0.68, -0.08, -0.05],
+        [0.68, 0.42, 0.12], [0.75, 0.18, 0.05], [0.68, -0.08, -0.05],
+        [-0.45, 0.35, -0.45], [0, 0.45, -0.52], [0.45, 0.35, -0.45]
+      ];
+      curlPositions.forEach(function(pos) {
+        var curl = new THREE.Mesh(curlGeo, hairMat);
+        curl.position.set(pos[0], pos[1], pos[2]);
+        headGroup.add(curl);
+      });
+
+      // Party Hat
+      var hatGroup = new THREE.Group();
+      hatGroup.position.set(0.04, 0.92, 0.05);
+      hatGroup.rotation.z = -0.12;
+      hatGroup.rotation.x = -0.05;
+      var coneGeo = new THREE.ConeGeometry(0.24, 0.56, 18);
+      var coneMesh = new THREE.Mesh(coneGeo, hatMat);
+      coneMesh.position.y = 0.28;
+      hatGroup.add(coneMesh);
+      var brimGeo = new THREE.TorusGeometry(0.24, 0.05, 12, 24);
+      var brimMesh = new THREE.Mesh(brimGeo, hatBrimMat);
+      brimMesh.rotation.x = Math.PI / 2;
+      hatGroup.add(brimMesh);
+      headGroup.add(hatGroup);
+
+      // Nose
+      var noseGeo = new THREE.SphereGeometry(0.21, 18, 18);
+      var noseMesh = new THREE.Mesh(noseGeo, noseMat);
+      noseMesh.position.set(0, 0.02, 0.72);
+      headGroup.add(noseMesh);
+
+      // Eyes
+      function createEye3D(isRight) {
+        var eyeGrp = new THREE.Group();
+        var scleraGeo = new THREE.SphereGeometry(0.16, 16, 16);
+        scleraGeo.scale(0.85, 1.15, 0.75);
+        var sclera = new THREE.Mesh(scleraGeo, eyeWhiteMat);
+        eyeGrp.add(sclera);
+
+        var irisGeo = new THREE.CircleGeometry(0.075, 16);
+        var iris = new THREE.Mesh(irisGeo, irisMat);
+        iris.position.set(0, 0, 0.122);
+        eyeGrp.add(iris);
+
+        var pupilGeo = new THREE.CircleGeometry(0.042, 14);
+        var pupil = new THREE.Mesh(pupilGeo, pupilMat);
+        pupil.position.set(0, 0, 0.124);
+        eyeGrp.add(pupil);
+
+        var dotGeo = new THREE.CircleGeometry(0.022, 10);
+        var dot = new THREE.Mesh(dotGeo, new THREE.MeshBasicMaterial({ color: 0xffffff }));
+        dot.position.set(0.025, 0.025, 0.126);
+        eyeGrp.add(dot);
+
+        eyeGrp.position.set(isRight ? 0.20 : -0.20, 0.18, 0.62);
+        return eyeGrp;
+      }
+      headGroup.add(createEye3D(false));
+      headGroup.add(createEye3D(true));
+
+      // Cheeks
+      var cheekGeo = new THREE.CircleGeometry(0.12, 14);
+      var leftCheek = new THREE.Mesh(cheekGeo, cheekMat);
+      leftCheek.position.set(-0.35, 0, 0.64);
+      leftCheek.rotation.y = -0.35;
+      headGroup.add(leftCheek);
+      var rightCheek = new THREE.Mesh(cheekGeo, cheekMat);
+      rightCheek.position.set(0.35, 0, 0.64);
+      rightCheek.rotation.y = 0.35;
+      headGroup.add(rightCheek);
+
+      // Smile
+      var mouthGroup = new THREE.Group();
+      mouthGroup.position.set(0, -0.22, 0.66);
+      mouthGroup.rotation.x = 0.18;
+      var lipCurve = new THREE.QuadraticBezierCurve3(
+        new THREE.Vector3(-0.32, 0.06, 0),
+        new THREE.Vector3(0, -0.16, 0),
+        new THREE.Vector3(0.32, 0.06, 0)
+      );
+      var lipGeo = new THREE.TubeGeometry(lipCurve, 16, 0.04, 8, false);
+      var lipMesh = new THREE.Mesh(lipGeo, lipMat);
+      mouthGroup.add(lipMesh);
+      var teethGeo = new THREE.BoxGeometry(0.34, 0.06, 0.03);
+      var teethMesh = new THREE.Mesh(teethGeo, teethMat);
+      teethMesh.position.set(0, 0.01, -0.01);
+      mouthGroup.add(teethMesh);
+      headGroup.add(mouthGroup);
+
+      // Touch / pointer interaction
+      function onPointerMove(e) {
+        var rect = canvas.getBoundingClientRect();
+        var clientX = e.clientX !== undefined ? e.clientX : (e.touches && e.touches[0] ? e.touches[0].clientX : rect.left + rect.width / 2);
+        var clientY = e.clientY !== undefined ? e.clientY : (e.touches && e.touches[0] ? e.touches[0].clientY : rect.top + rect.height / 2);
+        var normX = ((clientX - rect.left) / rect.width - 0.5) * 2;
+        var normY = ((clientY - rect.top) / rect.height - 0.5) * 2;
+        threePointerTarget.x = normX * 0.45;
+        threePointerTarget.y = normY * 0.25;
+      }
+      function onPointerLeave() {
+        threePointerTarget.x = 0;
+        threePointerTarget.y = 0;
+      }
+      canvas.addEventListener('mousemove', onPointerMove);
+      canvas.addEventListener('touchmove', onPointerMove, { passive: true });
+      canvas.addEventListener('mouseleave', onPointerLeave);
+      canvas.addEventListener('touchend', onPointerLeave);
+
+      threeMascot = {
+        renderer: renderer,
+        scene: scene,
+        camera: camera,
+        charGroup: charGroup,
+        bodyGroup: bodyGroup,
+        headGroup: headGroup,
+        rightArmGroup: rightArmGroup,
+        handGroup: handGroup,
+        groundShadow: groundShadow
+      };
+      threeMascotCanvas = canvas;
+      return true;
+    } catch (err) {
+      console.warn('[ShineWave] Failed to init Three.js Mascot:', err);
+      return false;
     }
   }
 
-  /* ---------- Interactive Animated Musical Clown Mascot (دمية المهرج الباستيلي) ---------- */
-  var clownBubbles = [];
   function drawStudioMascot() {
     var c = document.getElementById('swst-mascot-canvas');
     var wrap = document.getElementById('swst-mascot-wrap');
@@ -590,364 +1029,262 @@
 
     var w = wrap.clientWidth || 104;
     var h = wrap.clientHeight || 104;
+
+    if (!threeMascot || threeMascotCanvas !== c) {
+      if (window.THREE) {
+        initThreeMascot(c, w, h);
+      }
+    }
+
+    if (threeMascot) {
+      var m = window.ShineWaveCardState || {};
+      var isPlaying = !!m.playing;
+      var spec = (window.getShineWaveAudioSpectrum) ? window.getShineWaveAudioSpectrum() : { beat: 0, energy: 0, bands: [] };
+      var beatVal = spec.beat || 0;
+      var energyVal = spec.energy || 0;
+
+      // Detect bass hit
+      var bassBand = (spec.bands && spec.bands.length > 2) ? ((spec.bands[0] || 0) + (spec.bands[1] || 0)) * 0.5 : energyVal;
+      if (bassBand > 0.65 || beatVal > 0.7) {
+        threeMascotBassHit = Math.max(threeMascotBassHit, Math.max(bassBand, beatVal));
+      }
+      threeMascotBassHit *= 0.88;
+
+      if (isPlaying) {
+        mascotPhase += 0.045 + energyVal * 0.05;
+      }
+
+      // Smooth pointer tracking
+      threePointerCurrent.x += (threePointerTarget.x - threePointerCurrent.x) * 0.12;
+      threePointerCurrent.y += (threePointerTarget.y - threePointerCurrent.y) * 0.12;
+
+      var charGroup = threeMascot.charGroup;
+      var bodyGroup = threeMascot.bodyGroup;
+      var headGroup = threeMascot.headGroup;
+      var rightArmGroup = threeMascot.rightArmGroup;
+      var handGroup = threeMascot.handGroup;
+      var groundShadow = threeMascot.groundShadow;
+
+      if (isPlaying) {
+        // Sway left & right in 3D
+        charGroup.position.x = Math.sin(mascotPhase) * 0.16 + threePointerCurrent.x * 0.3;
+        charGroup.rotation.z = Math.sin(mascotPhase) * 0.06;
+        charGroup.rotation.y = Math.sin(mascotPhase * 0.5) * 0.14 + threePointerCurrent.x;
+        charGroup.rotation.x = -threePointerCurrent.y * 0.6;
+
+        // Bass jump off the ground
+        var jump = Math.pow(threeMascotBassHit, 1.4) * 0.45;
+        charGroup.position.y = 0.05 + jump;
+
+        // Shadow scales and fades when character leaps
+        var shadowScale = Math.max(0.4, 1.0 - jump * 0.9);
+        groundShadow.scale.set(shadowScale, shadowScale, 1.0);
+        groundShadow.material.opacity = Math.max(0.15, 0.8 - jump * 1.2);
+
+        // Head bobbing with music
+        headGroup.rotation.z = Math.sin(mascotPhase + 0.3) * 0.06;
+        headGroup.rotation.x = Math.sin(mascotPhase * 0.5) * 0.04;
+
+        // Enthusiastic hand wave
+        handGroup.rotation.z = Math.sin(mascotPhase * 4.0) * 0.35;
+        rightArmGroup.rotation.z = Math.sin(mascotPhase * 2.0) * 0.12;
+      } else {
+        // Calm breathing stance when paused
+        var breathe = Math.sin(Date.now() * 0.0025);
+        bodyGroup.scale.y = 1.0 + breathe * 0.015;
+        headGroup.rotation.x = breathe * 0.02 - threePointerCurrent.y * 0.4;
+        charGroup.position.x = charGroup.position.x * 0.92 + threePointerCurrent.x * 0.3;
+        charGroup.rotation.y = charGroup.rotation.y * 0.92 + threePointerCurrent.x;
+        charGroup.rotation.z *= 0.92;
+        charGroup.position.y = 0.05;
+        groundShadow.scale.set(1, 1, 1);
+        groundShadow.material.opacity = 0.8;
+        handGroup.rotation.z = Math.sin(Date.now() * 0.003) * 0.12;
+      }
+
+      threeMascot.renderer.render(threeMascot.scene, threeMascot.camera);
+      return;
+    }
+
+    // Fallback 2D canvas if THREE not yet loaded - renders complete 3D cartoon clown
     var dpr = window.devicePixelRatio || 1;
     if (c.width !== Math.round(w * dpr) || c.height !== Math.round(h * dpr)) {
       c.width = Math.round(w * dpr);
       c.height = Math.round(h * dpr);
     }
     var ctx = c.getContext('2d');
+    if (!ctx) return;
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.clearRect(0, 0, w, h);
 
-    var m = window.ShineWaveCardState || {};
-    var isPlaying = !!m.playing;
-    var spec = (window.getShineWaveAudioSpectrum) ? window.getShineWaveAudioSpectrum() : { beat: 0, energy: 0, bands: [] };
-    var beatVal = spec.beat || 0;
-    var energyVal = spec.energy || 0;
+    var mState = window.ShineWaveCardState || {};
+    var isPl = !!mState.playing;
+    mascotPhase += isPl ? 0.05 : 0.02;
+    var swayX = isPl ? Math.sin(mascotPhase * 1.8) * 6.0 : Math.sin(mascotPhase * 0.8) * 1.5;
+    var tilt = isPl ? Math.sin(mascotPhase * 1.8) * 0.06 : 0;
+    var jump = isPl ? Math.pow(threeMascotBassHit, 1.4) * 12.0 : 0;
 
+    ctx.save();
     var cx = w / 2;
-    var cy = h / 2 + 10;
+    var cy = h / 2 + 12;
 
-    var bounce = 0;
-    var swayX = 0;
-    var tilt = 0;
-    var armWave = 0;
-
-    if (isPlaying) {
-      mascotPhase += 0.08 + beatVal * 0.08;
-      // Sways left and right smoothly
-      swayX = Math.sin(mascotPhase * 1.4) * 8.5;
-      tilt = Math.sin(mascotPhase * 1.4) * 0.18;
-      // Bouncy jump with the beat and energy
-      bounce = Math.abs(Math.sin(mascotPhase * 2.2)) * (8 + beatVal * 11 + energyVal * 4);
-      armWave = Math.sin(mascotPhase * 2.2) * 6;
-      mascotBlinkTimer++;
-
-      // Bubble generation on rhythmic pulses
-      if ((beatVal > 0.35 || mascotBlinkTimer % 14 === 0) && clownBubbles.length < 18) {
-        clownBubbles.push({
-          x: cx + swayX + (Math.random() - 0.5) * 12,
-          y: cy - bounce - 24,
-          vx: (Math.random() - 0.5) * 1.4,
-          vy: -1.3 - Math.random() * 1.5 - beatVal * 0.8,
-          rad: 3.5 + Math.random() * 5.5,
-          colorIdx: Math.floor(Math.random() * 4),
-          wobble: Math.random() * Math.PI * 2,
-          life: 0,
-          maxLife: 40 + Math.random() * 25
-        });
-      }
-    } else {
-      // Gentle calm breathing stance when music is paused
-      mascotPhase += 0.032;
-      swayX = Math.sin(mascotPhase * 0.8) * 1.8;
-      tilt = Math.sin(mascotPhase * 0.8) * 0.03;
-      bounce = Math.sin(mascotPhase) * 1.5;
-      armWave = 0;
-      mascotBlinkTimer = 0;
-    }
-
-    // 1. Draw & Update Floating Magical Pastel Bubbles
-    var bubbleColors = [
-      'rgba(186, 230, 253, ',  // Pastel Sky
-      'rgba(216, 180, 254, ',  // Pastel Lilac
-      'rgba(251, 207, 232, ',  // Pastel Pink
-      'rgba(167, 243, 208, '   // Pastel Mint
-    ];
-    for (var bi = clownBubbles.length - 1; bi >= 0; bi--) {
-      var b = clownBubbles[bi];
-      b.life++;
-      b.x += b.vx + Math.sin(b.wobble) * 0.45;
-      b.y += b.vy;
-      b.wobble += 0.09;
-      var frac = b.life / b.maxLife;
-      if (frac >= 1 || b.y < 4) {
-        clownBubbles.splice(bi, 1);
-        continue;
-      }
-      var bAlpha = (frac < 0.2) ? (frac / 0.2) : (1 - (frac - 0.2) / 0.8);
-      var bColorPrefix = bubbleColors[b.colorIdx % bubbleColors.length];
-
-      ctx.save();
-      // Translucent bubble body
-      ctx.fillStyle = bColorPrefix + (bAlpha * 0.35).toFixed(2) + ')';
-      ctx.beginPath();
-      ctx.arc(b.x, b.y, b.rad, 0, Math.PI * 2);
-      ctx.fill();
-
-      // Iridescent shimmering bubble rim
-      ctx.strokeStyle = bColorPrefix + (bAlpha * 0.85).toFixed(2) + ')';
-      ctx.lineWidth = 1.2;
-      ctx.stroke();
-
-      // Little curved white glare reflection at top-left
-      ctx.fillStyle = 'rgba(255, 255, 255, ' + (bAlpha * 0.80).toFixed(2) + ')';
-      ctx.beginPath();
-      ctx.arc(b.x - b.rad * 0.35, b.y - b.rad * 0.35, Math.max(1, b.rad * 0.28), 0, Math.PI * 2);
-      ctx.fill();
-      ctx.restore();
-    }
-
-    // 2. Soft Dynamic Ground Shadow
+    // Ground shadow
+    var sScale = Math.max(0.3, 1.0 - jump / 16.0);
     ctx.save();
-    var shadowW = 24 - bounce * 0.38;
-    var shadowH = Math.max(2, 5.8 - bounce * 0.12);
-    var shadowAlpha = Math.max(0.12, 0.42 - bounce * 0.02);
-    ctx.fillStyle = 'rgba(0, 0, 0, ' + shadowAlpha.toFixed(2) + ')';
-    ctx.beginPath();
-    ctx.ellipse(cx + swayX * 0.4, h - 8, Math.max(10, shadowW), Math.max(2, shadowH), 0, 0, Math.PI * 2);
-    ctx.fill();
+    ctx.translate(cx + swayX * 0.3, cy + 30);
+    ctx.scale(sScale, sScale * 0.35);
+    var sGrad = ctx.createRadialGradient(0, 0, 2, 0, 0, 26);
+    sGrad.addColorStop(0, 'rgba(0,0,0,0.45)');
+    sGrad.addColorStop(1, 'rgba(0,0,0,0)');
+    ctx.fillStyle = sGrad;
+    ctx.beginPath(); ctx.arc(0, 0, 26, 0, Math.PI * 2); ctx.fill();
     ctx.restore();
 
-    var clownY = cy - bounce;
-    var clownX = cx + swayX;
-
-    // 3. Floating Cute Gloved Hands
-    ctx.save();
-    var handY1 = clownY + 2 + armWave;
-    var handY2 = clownY + 2 - armWave;
-    var handGrad = ctx.createLinearGradient(0, clownY - 8, 0, clownY + 8);
-    handGrad.addColorStop(0, '#ffffff');
-    handGrad.addColorStop(1, '#fed7aa');
-
-    ctx.fillStyle = handGrad;
-    ctx.shadowColor = 'rgba(254, 215, 170, 0.5)';
-    ctx.shadowBlur = 6;
-
-    // Left hand
-    ctx.beginPath();
-    ctx.arc(clownX - 22, handY1, 5.2, 0, Math.PI * 2);
-    ctx.fill();
-    // Left wrist ruffle
-    ctx.fillStyle = '#a7f3d0';
-    ctx.fillRect(clownX - 24, handY1 - 1, 4, 2.5);
-
-    // Right hand
-    ctx.fillStyle = handGrad;
-    ctx.beginPath();
-    ctx.arc(clownX + 22, handY2, 5.2, 0, Math.PI * 2);
-    ctx.fill();
-    // Right wrist ruffle
-    ctx.fillStyle = '#fbcfe8';
-    ctx.fillRect(clownX + 20, handY2 - 1, 4, 2.5);
-    ctx.restore();
-
-    // 4. Clown Body / Onesie Costume (Split Pastel Colors: Lavender & Sky Blue)
-    ctx.save();
-    ctx.translate(clownX, clownY);
-    ctx.rotate(tilt * 0.6);
-
-    // Left half (Pastel Lilac)
-    ctx.fillStyle = '#c4b5fd';
-    ctx.beginPath();
-    ctx.moveTo(0, -12);
-    ctx.bezierCurveTo(-14, -10, -18, 2, -14, 12);
-    ctx.lineTo(0, 12);
-    ctx.closePath();
-    ctx.fill();
-
-    // Right half (Pastel Sky Blue)
-    ctx.fillStyle = '#7dd3fc';
-    ctx.beginPath();
-    ctx.moveTo(0, -12);
-    ctx.bezierCurveTo(14, -10, 18, 2, 14, 12);
-    ctx.lineTo(0, 12);
-    ctx.closePath();
-    ctx.fill();
-
-    // Cute Pastel Pom-Pom Buttons down costume
-    var btnColors = ['#f472b6', '#a7f3d0', '#fde68a'];
-    for (var bi2 = 0; bi2 < 3; bi2++) {
-      ctx.fillStyle = btnColors[bi2];
-      ctx.shadowColor = btnColors[bi2];
-      ctx.shadowBlur = 4;
-      ctx.beginPath();
-      ctx.arc(0, -6 + bi2 * 6, 2.6, 0, Math.PI * 2);
-      ctx.fill();
-    }
-    ctx.shadowBlur = 0;
-
-    // 5. Multi-Layered Pastel Frilled Collar / Ruff
-    var collarY = -12;
-    var ruffColors = ['#a7f3d0', '#fbcfe8', '#fef08a', '#bae6fd', '#fed7aa'];
-    for (var ri = 0; ri < 5; ri++) {
-      var ruffX = -14 + ri * 7;
-      ctx.fillStyle = ruffColors[ri];
-      ctx.beginPath();
-      ctx.ellipse(ruffX, collarY + 2, 4.2, 5.5, 0, 0, Math.PI * 2);
-      ctx.fill();
-    }
-    ctx.restore();
-
-    // 6. Clown Head, Makeup, and Jester Hat
-    ctx.save();
-    ctx.translate(clownX, clownY - 20);
+    ctx.translate(cx + swayX, cy - jump);
     ctx.rotate(tilt);
 
-    // Porcelain Head Base
-    var headGrad = ctx.createLinearGradient(0, -16, 0, 14);
-    headGrad.addColorStop(0, '#ffffff');
-    headGrad.addColorStop(1, '#fff1f2');
-    ctx.fillStyle = headGrad;
-    ctx.shadowColor = 'rgba(244, 114, 182, 0.25)';
-    ctx.shadowBlur = 8;
+    // Legs & Shoes
+    ctx.fillStyle = '#dc2626';
+    ctx.fillRect(-14, 10, 9, 14);
+    ctx.fillRect(5, 10, 9, 14);
+    // Yellow Clown Shoes with Red Caps
+    ctx.fillStyle = '#eab308';
+    ctx.beginPath(); ctx.ellipse(-9, 25, 10, 6, 0, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.ellipse(9, 25, 10, 6, 0, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = '#dc2626';
+    ctx.beginPath(); ctx.arc(-16, 25, 4.5, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.arc(16, 25, 4.5, 0, Math.PI * 2); ctx.fill();
+
+    // Torso - Blue Shirt & Red Dungarees
+    ctx.fillStyle = '#1d4ed8';
+    ctx.beginPath(); ctx.ellipse(0, -6, 20, 14, 0, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = '#dc2626';
+    ctx.beginPath(); ctx.ellipse(0, 2, 17, 12, 0, 0, Math.PI * 2); ctx.fill();
+    // Straps & Yellow Buttons
+    ctx.fillRect(-11, -12, 5, 14);
+    ctx.fillRect(6, -12, 5, 14);
+    ctx.fillStyle = '#facc15';
+    ctx.beginPath(); ctx.arc(-8.5, -2, 3.5, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.arc(8.5, -2, 3.5, 0, Math.PI * 2); ctx.fill();
+
+    // Left Arm & Waving Right Arm
+    ctx.fillStyle = '#f8fafc';
+    ctx.beginPath(); ctx.ellipse(-19, -2, 5, 4, 0, 0, Math.PI * 2); ctx.fill();
+    // Waving right hand
+    var waveA = isPl ? Math.sin(mascotPhase * 3.5) * 0.3 - 0.4 : -0.3;
+    ctx.save();
+    ctx.translate(18, -6);
+    ctx.rotate(waveA);
+    ctx.fillStyle = '#1d4ed8';
+    ctx.beginPath(); ctx.ellipse(2, -4, 4, 7, 0.4, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = '#ffffff';
+    ctx.beginPath(); ctx.ellipse(6, -11, 5.5, 5, 0, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.arc(4, -16, 1.8, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.arc(7, -17, 1.8, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.arc(10, -15, 1.8, 0, Math.PI * 2); ctx.fill();
+    ctx.restore();
+
+    // Yellow Ruffled Collar & Bow Tie with Red Dots
+    ctx.fillStyle = '#facc15';
+    ctx.beginPath(); ctx.ellipse(0, -17, 18, 5, 0, 0, Math.PI * 2); ctx.fill();
+    // Bow Tie
     ctx.beginPath();
-    ctx.arc(0, 0, 15, 0, Math.PI * 2);
+    ctx.moveTo(0, -15);
+    ctx.bezierCurveTo(-5, -20, -12, -19, -13, -15);
+    ctx.bezierCurveTo(-12, -11, -5, -10, 0, -15);
+    ctx.bezierCurveTo(5, -20, 12, -19, 13, -15);
+    ctx.bezierCurveTo(12, -11, 5, -10, 0, -15);
     ctx.fill();
-    ctx.shadowBlur = 0;
+    ctx.fillStyle = '#eab308';
+    ctx.beginPath(); ctx.ellipse(0, -15, 3, 3.8, 0, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = '#dc2626';
+    ctx.beginPath(); ctx.arc(-8, -16, 1.5, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.arc(-6, -13, 1.4, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.arc(8, -16, 1.5, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.arc(6, -13, 1.4, 0, Math.PI * 2); ctx.fill();
 
-    // Rosy Pink Pastel Cheeks
-    ctx.fillStyle = 'rgba(251, 113, 133, 0.45)';
+    // Head
+    var headY = -34;
+    // Peach Ears
+    ctx.fillStyle = '#fed7aa';
+    ctx.beginPath(); ctx.ellipse(-16, headY + 1, 4, 5, 0, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.ellipse(16, headY + 1, 4, 5, 0, 0, Math.PI * 2); ctx.fill();
+    // Head base
+    var hGrad = ctx.createRadialGradient(-3, headY - 3, 2, 0, headY, 17);
+    hGrad.addColorStop(0, '#ffffff');
+    hGrad.addColorStop(0.4, '#fed7aa');
+    hGrad.addColorStop(1, '#fdba74');
+    ctx.fillStyle = hGrad;
+    ctx.beginPath(); ctx.ellipse(0, headY, 16, 17, 0, 0, Math.PI * 2); ctx.fill();
+
+    // Rosy cheeks & smile
+    ctx.fillStyle = 'rgba(248, 113, 113, 0.75)';
+    ctx.beginPath(); ctx.arc(-8, headY + 4, 4, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.arc(8, headY + 4, 4, 0, Math.PI * 2); ctx.fill();
+    // Smile with teeth
+    ctx.fillStyle = '#b91c1c';
     ctx.beginPath();
-    ctx.arc(-8, 3, 3.5, 0, Math.PI * 2);
-    ctx.arc(8, 3, 3.5, 0, Math.PI * 2);
+    ctx.moveTo(-10, headY + 6.5);
+    ctx.quadraticCurveTo(0, headY + 16, 10, headY + 6.5);
+    ctx.quadraticCurveTo(0, headY + 10, -10, headY + 6.5);
     ctx.fill();
-
-    // Shiny Round Clown Nose (Pastel Coral Red)
-    var noseGrad = ctx.createRadialGradient(-0.8, 0.2, 0.5, 0, 1, 4.5);
-    noseGrad.addColorStop(0, '#ffffff');
-    noseGrad.addColorStop(0.35, '#fb7185');
-    noseGrad.addColorStop(1, '#e11d48');
-    ctx.fillStyle = noseGrad;
-    ctx.shadowColor = '#fb7185';
-    ctx.shadowBlur = 6;
+    ctx.fillStyle = '#ffffff';
     ctx.beginPath();
-    ctx.arc(0, 1.2, 4.2, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.shadowBlur = 0;
-
-    // Jester Teardrop / Star Marks on Eyes
-    ctx.fillStyle = '#a855f7';
-    // Left eye marks (top & bottom)
-    ctx.beginPath();
-    ctx.arc(-7, -9, 1.3, 0, Math.PI * 2);
-    ctx.arc(-7, 7.5, 1.3, 0, Math.PI * 2);
-    // Right eye marks (top & bottom)
-    ctx.arc(7, -9, 1.3, 0, Math.PI * 2);
-    ctx.arc(7, 7.5, 1.3, 0, Math.PI * 2);
-    ctx.fill();
-
-    // Digital / Cute Eyes & Smile
-    var isBlinking = isPlaying && (mascotBlinkTimer % 140 > 132);
-
-    if (isPlaying && !isBlinking) {
-      // Cheerful crescent smiling eyes (^ ^)
-      ctx.strokeStyle = '#0f172a';
-      ctx.lineWidth = 2.2;
-      ctx.lineCap = 'round';
-      ctx.beginPath();
-      ctx.arc(-7, -3, 3.5, Math.PI * 1.15, Math.PI * 1.85);
-      ctx.stroke();
-      ctx.beginPath();
-      ctx.arc(7, -3, 3.5, Math.PI * 1.15, Math.PI * 1.85);
-      ctx.stroke();
-
-      // Cheerful smiling clown mouth
-      ctx.strokeStyle = '#f43f5e';
-      ctx.lineWidth = 2.2;
-      ctx.lineCap = 'round';
-      ctx.beginPath();
-      ctx.arc(0, 6, 4.8, 0.15 * Math.PI, 0.85 * Math.PI);
-      ctx.stroke();
-
-    } else if (isPlaying && isBlinking) {
-      // Closed blinking eyes
-      ctx.strokeStyle = '#0f172a';
-      ctx.lineWidth = 2;
-      ctx.lineCap = 'round';
-      ctx.beginPath();
-      ctx.moveTo(-9, -3);
-      ctx.lineTo(-5, -3);
-      ctx.moveTo(5, -3);
-      ctx.lineTo(9, -3);
-      ctx.stroke();
-
-      ctx.strokeStyle = '#f43f5e';
-      ctx.lineWidth = 1.8;
-      ctx.beginPath();
-      ctx.arc(0, 6, 4, 0.2 * Math.PI, 0.8 * Math.PI);
-      ctx.stroke();
-    } else {
-      // Peaceful sleeping / resting stance (˘ ˘)
-      ctx.strokeStyle = '#64748b';
-      ctx.lineWidth = 2.0;
-      ctx.lineCap = 'round';
-      ctx.beginPath();
-      ctx.arc(-7, -2, 3.2, Math.PI * 1.15, Math.PI * 1.85);
-      ctx.stroke();
-      ctx.beginPath();
-      ctx.arc(7, -2, 3.2, Math.PI * 1.15, Math.PI * 1.85);
-      ctx.stroke();
-
-      // Gentle sleeping resting smile
-      ctx.strokeStyle = '#fda4af';
-      ctx.lineWidth = 1.6;
-      ctx.beginPath();
-      ctx.arc(0, 6, 3.2, 0.25 * Math.PI, 0.75 * Math.PI);
-      ctx.stroke();
-    }
-
-    // 7. Jester Hat (قبعة المهرج ذات القرنين المائلين والأجراس الذهبية)
-    // Hat Band / Rim
-    ctx.fillStyle = '#fde68a';
-    ctx.beginPath();
-    if (ctx.roundRect) ctx.roundRect(-14, -13, 28, 5, 2.5);
-    else ctx.rect(-14, -13, 28, 5);
+    ctx.moveTo(-6.5, headY + 7.5);
+    ctx.quadraticCurveTo(0, headY + 11, 6.5, headY + 7.5);
+    ctx.lineTo(5.5, headY + 9.5);
+    ctx.quadraticCurveTo(0, headY + 12.5, -5.5, headY + 9.5);
     ctx.fill();
 
-    // Left Hat Horn (Curved Lilac)
-    ctx.fillStyle = '#c084fc';
-    ctx.beginPath();
-    ctx.moveTo(-13, -13);
-    ctx.bezierCurveTo(-18, -26, -26, -24, -25, -16);
-    ctx.bezierCurveTo(-20, -18, -14, -15, -7, -13);
-    ctx.closePath();
-    ctx.fill();
+    // Eyes & Eyebrows
+    ctx.strokeStyle = '#18181b'; ctx.lineWidth = 1.6;
+    ctx.beginPath(); ctx.arc(-5.5, headY - 6.5, 4, Math.PI * 1.15, Math.PI * 1.85); ctx.stroke();
+    ctx.beginPath(); ctx.arc(5.5, headY - 6.5, 4, Math.PI * 1.15, Math.PI * 1.85); ctx.stroke();
+    ctx.fillStyle = '#ffffff';
+    ctx.beginPath(); ctx.ellipse(-5.5, headY - 3, 3.5, 4.8, 0, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.ellipse(5.5, headY - 3, 3.5, 4.8, 0, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = '#0284c7';
+    ctx.beginPath(); ctx.arc(-5.2, headY - 2.8, 2.3, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.arc(5.2, headY - 2.8, 2.3, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = '#0f172a';
+    ctx.beginPath(); ctx.arc(-5.2, headY - 2.8, 1.2, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.arc(5.2, headY - 2.8, 1.2, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = '#ffffff';
+    ctx.beginPath(); ctx.arc(-4.5, headY - 3.5, 0.8, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.arc(5.9, headY - 3.5, 0.8, 0, Math.PI * 2); ctx.fill();
 
-    // Right Hat Horn (Curved Pastel Cyan)
-    ctx.fillStyle = '#38bdf8';
-    ctx.beginPath();
-    ctx.moveTo(13, -13);
-    ctx.bezierCurveTo(18, -26, 26, -24, 25, -16);
-    ctx.bezierCurveTo(20, -18, 14, -15, 7, -13);
-    ctx.closePath();
-    ctx.fill();
+    // 3D Glossy Red Nose
+    var nGrad = ctx.createRadialGradient(-1.5, headY - 0.5, 0.5, 0, headY + 1.2, 5.8);
+    nGrad.addColorStop(0, '#fca5a5'); nGrad.addColorStop(0.4, '#ef4444'); nGrad.addColorStop(1, '#991b1b');
+    ctx.fillStyle = nGrad;
+    ctx.beginPath(); ctx.arc(0, headY + 1.2, 5.6, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = '#ffffff';
+    ctx.beginPath(); ctx.arc(-1.5, headY - 0.5, 1.1, 0, Math.PI * 2); ctx.fill();
 
-    // Middle Hat Peak (Pastel Peach)
-    ctx.fillStyle = '#fb923c';
-    ctx.beginPath();
-    ctx.moveTo(-6, -13);
-    ctx.quadraticCurveTo(0, -26, 0, -25);
-    ctx.quadraticCurveTo(0, -26, 6, -13);
-    ctx.closePath();
-    ctx.fill();
-
-    // Jingle Bells / Pom-Poms at horn tips (Pastel Gold with Glint)
-    var bellBob = Math.sin(mascotPhase * 3.2) * 1.5;
-    var bells = [
-      { x: -26, y: -16 + bellBob },
-      { x: 26, y: -16 - bellBob },
-      { x: 0, y: -26 + bellBob * 0.5 }
+    // Orange Afro Curls
+    ctx.fillStyle = '#ea580c';
+    var curls = [
+      [-13, headY - 2, 4.5], [-14, headY - 7, 4.5], [-12, headY - 12, 4.5], [-8, headY - 15, 4.5],
+      [-3, headY - 16, 4.4], [3, headY - 16, 4.4], [8, headY - 15, 4.5], [12, headY - 12, 4.5],
+      [14, headY - 7, 4.5], [13, headY - 2, 4.5], [-11, headY + 2, 3.6], [11, headY + 2, 3.6]
     ];
-    for (var bi3 = 0; bi3 < bells.length; bi3++) {
-      var bell = bells[bi3];
-      ctx.fillStyle = '#fde047';
-      ctx.shadowColor = '#fde047';
-      ctx.shadowBlur = 6;
-      ctx.beginPath();
-      ctx.arc(bell.x, bell.y, 3.8, 0, Math.PI * 2);
-      ctx.fill();
+    curls.forEach(function(crl) {
+      ctx.beginPath(); ctx.arc(crl[0], crl[1], crl[2], 0, Math.PI * 2); ctx.fill();
+    });
 
-      // Little glint shine
-      ctx.fillStyle = '#ffffff';
-      ctx.beginPath();
-      ctx.arc(bell.x - 1, bell.y - 1, 1.2, 0, Math.PI * 2);
-      ctx.fill();
-    }
+    // Red Party Cone Hat with Blue Brim
+    var hatBaseY = headY - 16;
+    ctx.fillStyle = '#2563eb';
+    ctx.beginPath(); ctx.ellipse(0, hatBaseY, 7.5, 2.5, 0, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = '#dc2626';
+    ctx.beginPath();
+    ctx.moveTo(-5.5, hatBaseY); ctx.lineTo(0, hatBaseY - 13); ctx.lineTo(5.5, hatBaseY);
+    ctx.closePath(); ctx.fill();
+    ctx.fillStyle = '#f87171';
+    ctx.beginPath(); ctx.arc(0, hatBaseY - 13, 1.6, 0, Math.PI * 2); ctx.fill();
 
     ctx.restore();
   }
-
   /* ---------- Public Lifecycle ---------- */
   window.openShineWaveStudio = function (tabKey) {
     ensureDom();
@@ -1160,7 +1497,7 @@
         '<div class="swst-row-icon">' + (t.active ? '▶' : '♪') + '</div>' +
         '<div class="swst-row-info"><div class="swst-row-title">' + escHtml(t.title) + '</div>' +
         '<div class="swst-row-sub">' + escHtml(t.artist) + '</div></div>' +
-        '<div class="swst-row-badge">' + fmtTime(t.durationSec) + '</div></div>';
+        '<div class="swst-row-badge">' + (t.durationSec > 0 ? fmtTime(t.durationSec) : '') + '</div></div>';
     });
     body.innerHTML = html;
     body.querySelectorAll('[data-qidx]').forEach(function (r) {
@@ -1202,7 +1539,7 @@
         '<div class="swst-row-icon">♪</div>' +
         '<div class="swst-row-info"><div class="swst-row-title">' + escHtml(t.title) + '</div>' +
         '<div class="swst-row-sub">' + escHtml(t.artist) + '</div></div>' +
-        '<div class="swst-row-badge">' + fmtTime(t.durationSec) + '</div></div>';
+        '<div class="swst-row-badge">' + (t.durationSec > 0 ? fmtTime(t.durationSec) : '') + '</div></div>';
     });
 
     if ((!d.folders || !d.folders.length) && (!d.tracks || !d.tracks.length)) {
@@ -1303,6 +1640,7 @@
         '<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;justify-content:center;direction:ltr;">' +
           '<button type="button" class="swst-pill-action lavender" id="swst-r-seek-dn">◀ ' + (ar ? 'بحث' : 'Seek -') + '</button>' +
           '<button type="button" class="swst-pill-action" id="swst-r-step-dn" dir="ltr">' + (isAm ? '-9' : '-0.1') + '</button>' +
+          '<button type="button" class="swst-pill-action mint" id="swst-r-autoscan">⚡ ' + (ar ? 'مسح وحفظ تلقائي' : 'Auto Scan & Save') + '</button>' +
           '<button type="button" class="swst-pill-action" id="swst-r-step-up" dir="ltr">' + (isAm ? '+9' : '+0.1') + '</button>' +
           '<button type="button" class="swst-pill-action lavender" id="swst-r-seek-up">' + (ar ? 'بحث' : 'Seek +') + ' ▶</button>' +
         '</div>' +
@@ -1365,6 +1703,19 @@
     if (stDn) stDn.addEventListener('click', function () { if (bridge()) bridge().stepShineWaveRadio(isAm ? -9 : -100); else simTune(r.band, r.freqKhz - (isAm ? 9 : 100)); });
     var stUp = document.getElementById('swst-r-step-up');
     if (stUp) stUp.addEventListener('click', function () { if (bridge()) bridge().stepShineWaveRadio(isAm ? 9 : 100); else simTune(r.band, r.freqKhz + (isAm ? 9 : 100)); });
+    var aScan = document.getElementById('swst-r-autoscan');
+    if (aScan) aScan.addEventListener('click', function () {
+      if (bridge() && bridge().startShineWaveRadioAutoScan) {
+        bridge().startShineWaveRadioAutoScan();
+        aScan.innerText = ar ? '⏳ جاري المسح...' : '⏳ Scanning...';
+        aScan.disabled = true;
+        setTimeout(function () {
+          if (bridge() && bridge().getShineWaveRadioState) bridge().getShineWaveRadioState();
+          aScan.disabled = false;
+          aScan.innerText = '⚡ ' + (ar ? 'مسح وحفظ تلقائي' : 'Auto Scan & Save');
+        }, 12000);
+      }
+    });
 
     var nameInput = document.getElementById('swst-r-name-input');
     if (nameInput) nameInput.addEventListener('input', function () { editingRadioName = nameInput.value || ''; });
@@ -1563,4 +1914,17 @@
       });
     });
   }
+
+  // Auto-open studio in browser simulation if #studio or ?studio is present
+  try {
+    if (window.location && (window.location.hash.indexOf('studio') !== -1 || window.location.search.indexOf('studio') !== -1)) {
+      window.addEventListener('DOMContentLoaded', function () {
+        setTimeout(function () {
+          if (typeof window.openShineWaveStudio === 'function') {
+            window.openShineWaveStudio('LOCAL_MUSIC');
+          }
+        }, 400);
+      });
+    }
+  } catch (e) {}
 })();

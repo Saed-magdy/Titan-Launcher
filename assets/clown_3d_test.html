@@ -1,0 +1,549 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>3D Clown Three.js Test</title>
+  <style>
+    body {
+      margin: 0;
+      padding: 20px;
+      background: #0f172a;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      min-height: 100vh;
+      font-family: sans-serif;
+      color: #e2e8f0;
+    }
+    .card {
+      background: rgba(30, 41, 59, 0.7);
+      backdrop-filter: blur(16px);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      border-radius: 20px;
+      padding: 24px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 16px;
+      box-shadow: 0 20px 40px rgba(0,0,0,0.5);
+    }
+    #clown-container {
+      width: 220px;
+      height: 220px;
+      border-radius: 24px;
+      background: radial-gradient(circle, rgba(147, 197, 253, 0.18) 0%, rgba(15, 23, 42, 0.8) 100%);
+      border: 1px solid rgba(147, 197, 253, 0.25);
+      overflow: hidden;
+      position: relative;
+    }
+    canvas {
+      width: 100%;
+      height: 100%;
+      display: block;
+    }
+    .controls {
+      display: flex;
+      gap: 12px;
+      align-items: center;
+    }
+    button {
+      padding: 8px 18px;
+      border-radius: 12px;
+      border: none;
+      background: #38bdf8;
+      color: #0f172a;
+      font-weight: bold;
+      cursor: pointer;
+    }
+    button:hover { background: #7dd3fc; }
+  </style>
+  <script src="js/three.min.js"></script>
+</head>
+<body>
+
+  <div class="card">
+    <h2>ShineWave 3D Clown Model</h2>
+    <div id="clown-container">
+      <canvas id="clown-canvas"></canvas>
+    </div>
+    <div class="controls">
+      <button id="btn-toggle">Pause / Play</button>
+      <button id="btn-bass">Trigger Bass Hit</button>
+    </div>
+  </div>
+
+  <script>
+    (function() {
+      const container = document.getElementById('clown-container');
+      const canvas = document.getElementById('clown-canvas');
+      const w = container.clientWidth;
+      const h = container.clientHeight;
+
+      const renderer = new THREE.WebGLRenderer({ canvas: canvas, alpha: true, antialias: true, powerPreference: 'high-performance' });
+      renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+      renderer.setSize(w, h);
+      renderer.toneMapping = THREE.ACESFilmicToneMapping;
+      renderer.toneMappingExposure = 1.15;
+
+      const scene = new THREE.Scene();
+      const camera = new THREE.PerspectiveCamera(36, w / h, 0.1, 100);
+      camera.position.set(0, 0.15, 6.8);
+
+      // Studio 3-Point Lighting
+      const ambLight = new THREE.AmbientLight(0xffffff, 0.75);
+      scene.add(ambLight);
+
+      const keyLight = new THREE.DirectionalLight(0xfff7ed, 1.3);
+      keyLight.position.set(3.5, 4.5, 4.0);
+      scene.add(keyLight);
+
+      const fillLight = new THREE.DirectionalLight(0x93c5fd, 0.55);
+      fillLight.position.set(-3.5, 1.0, 3.0);
+      scene.add(fillLight);
+
+      const rimLight = new THREE.DirectionalLight(0xfef08a, 0.85);
+      rimLight.position.set(0, 4.0, -3.5);
+      scene.add(rimLight);
+
+      // Materials
+      const skinMat = new THREE.MeshStandardMaterial({ color: 0xffdfd0, roughness: 0.38, metalness: 0.05 });
+      const hairMat = new THREE.MeshStandardMaterial({ color: 0xea580c, roughness: 0.75, metalness: 0.0 });
+      const noseMat = new THREE.MeshStandardMaterial({ color: 0xdc2626, roughness: 0.15, metalness: 0.1 });
+      const hatMat = new THREE.MeshStandardMaterial({ color: 0xdc2626, roughness: 0.35 });
+      const hatBrimMat = new THREE.MeshStandardMaterial({ color: 0x2563eb, roughness: 0.4 });
+      const eyeWhiteMat = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.2 });
+      const irisMat = new THREE.MeshStandardMaterial({ color: 0x0284c7, roughness: 0.25 });
+      const pupilMat = new THREE.MeshBasicMaterial({ color: 0x080808 });
+      const browMat = new THREE.MeshStandardMaterial({ color: 0x1e1e24, roughness: 0.6 });
+      const cheekMat = new THREE.MeshBasicMaterial({ color: 0xf87171, transparent: true, opacity: 0.6 });
+      const mouthInteriorMat = new THREE.MeshBasicMaterial({ color: 0x7f1d1d });
+      const lipMat = new THREE.MeshStandardMaterial({ color: 0xb91c1c, roughness: 0.3 });
+      const teethMat = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.2 });
+      const collarMat = new THREE.MeshStandardMaterial({ color: 0xfacc15, roughness: 0.45 });
+      const bowTieMat = new THREE.MeshStandardMaterial({ color: 0xfbbf24, roughness: 0.4 });
+      const bowDotMat = new THREE.MeshBasicMaterial({ color: 0xdc2626 });
+      const shirtMat = new THREE.MeshStandardMaterial({ color: 0x1d4ed8, roughness: 0.55 });
+      const overallsMat = new THREE.MeshStandardMaterial({ color: 0xdc2626, roughness: 0.5 });
+      const buttonMat = new THREE.MeshStandardMaterial({ color: 0xfacc15, roughness: 0.25, metalness: 0.2 });
+      const gloveMat = new THREE.MeshStandardMaterial({ color: 0xf8fafc, roughness: 0.35 });
+      const shoeYellowMat = new THREE.MeshStandardMaterial({ color: 0xeab308, roughness: 0.4 });
+      const shoeRedMat = new THREE.MeshStandardMaterial({ color: 0xdc2626, roughness: 0.35 });
+
+      // Root hierarchy
+      const mascotRoot = new THREE.Group();
+      scene.add(mascotRoot);
+
+      // Dynamic ground shadow
+      const shadowGeo = new THREE.CircleGeometry(0.85, 32);
+      const shadowCanvas = document.createElement('canvas');
+      shadowCanvas.width = 128; shadowCanvas.height = 128;
+      const sctx = shadowCanvas.getContext('2d');
+      const grad = sctx.createRadialGradient(64, 64, 10, 64, 64, 60);
+      grad.addColorStop(0, 'rgba(0, 0, 0, 0.55)');
+      grad.addColorStop(0.5, 'rgba(0, 0, 0, 0.25)');
+      grad.addColorStop(1, 'rgba(0, 0, 0, 0)');
+      sctx.fillStyle = grad;
+      sctx.fillRect(0, 0, 128, 128);
+      const shadowTex = new THREE.CanvasTexture(shadowCanvas);
+      const shadowMat = new THREE.MeshBasicMaterial({ map: shadowTex, transparent: true, opacity: 0.8 });
+      const groundShadow = new THREE.Mesh(shadowGeo, shadowMat);
+      groundShadow.rotation.x = -Math.PI / 2;
+      groundShadow.position.y = -2.15;
+      scene.add(groundShadow);
+
+      // Character Group
+      const charGroup = new THREE.Group();
+      mascotRoot.add(charGroup);
+      charGroup.position.y = 0.05;
+
+      // Pelvis / Torso Group
+      const bodyGroup = new THREE.Group();
+      charGroup.add(bodyGroup);
+
+      // Torso - Blue Shirt
+      const shirtGeo = new THREE.CylinderGeometry(0.55, 0.58, 0.95, 24);
+      const shirtMesh = new THREE.Mesh(shirtGeo, shirtMat);
+      shirtMesh.position.y = -0.35;
+      bodyGroup.add(shirtMesh);
+
+      // Overalls (Red Dungarees)
+      const overallsGeo = new THREE.CylinderGeometry(0.58, 0.62, 0.82, 24);
+      const overallsMesh = new THREE.Mesh(overallsGeo, overallsMat);
+      overallsMesh.position.y = -0.45;
+      bodyGroup.add(overallsMesh);
+
+      // Shoulder Straps
+      const strapGeo = new THREE.BoxGeometry(0.14, 0.82, 0.08);
+      const leftStrap = new THREE.Mesh(strapGeo, overallsMat);
+      leftStrap.position.set(-0.32, -0.28, 0.48);
+      leftStrap.rotation.z = -0.08;
+      bodyGroup.add(leftStrap);
+
+      const rightStrap = new THREE.Mesh(strapGeo, overallsMat);
+      rightStrap.position.set(0.32, -0.28, 0.48);
+      rightStrap.rotation.z = 0.08;
+      bodyGroup.add(rightStrap);
+
+      // Golden Buttons
+      const buttonGeo = new THREE.CylinderGeometry(0.095, 0.095, 0.05, 16);
+      const leftBtn = new THREE.Mesh(buttonGeo, buttonMat);
+      leftBtn.rotation.x = Math.PI / 2;
+      leftBtn.position.set(-0.32, -0.38, 0.53);
+      bodyGroup.add(leftBtn);
+
+      const rightBtn = new THREE.Mesh(buttonGeo, buttonMat);
+      rightBtn.rotation.x = Math.PI / 2;
+      rightBtn.position.set(0.32, -0.38, 0.53);
+      bodyGroup.add(rightBtn);
+
+      // Legs & Shoes
+      const legGeo = new THREE.CylinderGeometry(0.18, 0.20, 0.55, 16);
+      const leftLeg = new THREE.Mesh(legGeo, overallsMat);
+      leftLeg.position.set(-0.28, -1.02, 0);
+      bodyGroup.add(leftLeg);
+
+      const rightLeg = new THREE.Mesh(legGeo, overallsMat);
+      rightLeg.position.set(0.28, -1.02, 0);
+      bodyGroup.add(rightLeg);
+
+      // Yellow Clown Shoes with Red Rounded Front Caps
+      function createClownShoe(isRight) {
+        const shoeGroup = new THREE.Group();
+        const baseGeo = new THREE.SphereGeometry(0.24, 16, 16);
+        baseGeo.scale(1.1, 0.75, 1.6);
+        const baseMesh = new THREE.Mesh(baseGeo, shoeYellowMat);
+        baseMesh.position.set(0, 0, 0.12);
+        shoeGroup.add(baseMesh);
+
+        // Red bulbous toe cap
+        const toeGeo = new THREE.SphereGeometry(0.21, 16, 16);
+        toeGeo.scale(1.05, 0.9, 1.15);
+        const toeMesh = new THREE.Mesh(toeGeo, shoeRedMat);
+        toeMesh.position.set(0, -0.02, 0.32);
+        shoeGroup.add(toeMesh);
+
+        shoeGroup.position.set(isRight ? 0.28 : -0.28, -1.34, 0);
+        return shoeGroup;
+      }
+      bodyGroup.add(createClownShoe(false));
+      bodyGroup.add(createClownShoe(true));
+
+      // Left Arm (Relaxed)
+      const leftArmGroup = new THREE.Group();
+      leftArmGroup.position.set(-0.62, -0.15, 0);
+      const leftArmGeo = new THREE.CylinderGeometry(0.15, 0.14, 0.65, 16);
+      const leftArmMesh = new THREE.Mesh(leftArmGeo, shirtMat);
+      leftArmMesh.position.set(-0.12, -0.28, 0.08);
+      leftArmMesh.rotation.z = 0.22;
+      leftArmMesh.rotation.x = 0.15;
+      leftArmGroup.add(leftArmMesh);
+
+      // Left Hand (White Glove)
+      const leftHandGeo = new THREE.SphereGeometry(0.18, 16, 16);
+      leftHandGeo.scale(1.1, 1.3, 0.85);
+      const leftHandMesh = new THREE.Mesh(leftHandGeo, gloveMat);
+      leftHandMesh.position.set(-0.22, -0.68, 0.18);
+      leftArmGroup.add(leftHandMesh);
+      bodyGroup.add(leftArmGroup);
+
+      // Right Arm (Waving!)
+      const rightArmGroup = new THREE.Group();
+      rightArmGroup.position.set(0.62, -0.12, 0);
+      const rightUpperGeo = new THREE.CylinderGeometry(0.15, 0.14, 0.52, 16);
+      const rightUpperMesh = new THREE.Mesh(rightUpperGeo, shirtMat);
+      rightUpperMesh.position.set(0.18, 0.18, 0.12);
+      rightUpperMesh.rotation.z = -0.75;
+      rightArmGroup.add(rightUpperMesh);
+
+      // Right Hand (Waving 4-finger glove)
+      const handGroup = new THREE.Group();
+      handGroup.position.set(0.38, 0.42, 0.22);
+      const palmGeo = new THREE.SphereGeometry(0.17, 16, 16);
+      palmGeo.scale(1.1, 1.25, 0.7);
+      const palmMesh = new THREE.Mesh(palmGeo, gloveMat);
+      handGroup.add(palmMesh);
+
+      // Fingers
+      for (let i = 0; i < 4; i++) {
+        const fingerGeo = new THREE.CylinderGeometry(0.045, 0.04, 0.22, 12);
+        const finger = new THREE.Mesh(fingerGeo, gloveMat);
+        const angle = -0.3 + i * 0.22;
+        finger.position.set(-0.12 + i * 0.08, 0.18, 0);
+        finger.rotation.z = angle;
+        handGroup.add(finger);
+      }
+      // Thumb
+      const thumbGeo = new THREE.CylinderGeometry(0.05, 0.045, 0.18, 12);
+      const thumb = new THREE.Mesh(thumbGeo, gloveMat);
+      thumb.position.set(-0.18, 0.02, 0.05);
+      thumb.rotation.z = 0.85;
+      handGroup.add(thumb);
+
+      rightArmGroup.add(handGroup);
+      bodyGroup.add(rightArmGroup);
+
+      // Neck Group
+      const neckGroup = new THREE.Group();
+      neckGroup.position.set(0, 0.18, 0);
+      bodyGroup.add(neckGroup);
+
+      // Pleated Yellow Accordion Ruffle Collar
+      const collarGeo = new THREE.CylinderGeometry(0.58, 0.68, 0.16, 32);
+      const collarMesh = new THREE.Mesh(collarGeo, collarMat);
+      collarMesh.position.set(0, 0, 0.05);
+      neckGroup.add(collarMesh);
+
+      // Bow Tie - Center Knot + 2 Puffy Loops
+      const bowGroup = new THREE.Group();
+      bowGroup.position.set(0, 0.02, 0.52);
+      const knotGeo = new THREE.CylinderGeometry(0.10, 0.10, 0.14, 16);
+      const knot = new THREE.Mesh(knotGeo, bowTieMat);
+      knot.rotation.z = Math.PI / 2;
+      bowGroup.add(knot);
+
+      // Left Loop
+      const loopGeo = new THREE.ConeGeometry(0.25, 0.42, 16);
+      const leftLoop = new THREE.Mesh(loopGeo, bowTieMat);
+      leftLoop.rotation.z = Math.PI / 2;
+      leftLoop.position.set(-0.25, 0, 0);
+      bowGroup.add(leftLoop);
+
+      // Right Loop
+      const rightLoop = new THREE.Mesh(loopGeo, bowTieMat);
+      rightLoop.rotation.z = -Math.PI / 2;
+      rightLoop.position.set(0.25, 0, 0);
+      bowGroup.add(rightLoop);
+
+      // Red Polka Dots on Bow Tie
+      const dotGeo = new THREE.SphereGeometry(0.045, 12, 12);
+      const dotCoords = [
+        [-0.22, 0.08, 0.08], [-0.32, -0.06, 0.08], [-0.16, -0.08, 0.08],
+        [0.22, 0.08, 0.08], [0.32, -0.06, 0.08], [0.16, -0.08, 0.08], [0, 0, 0.09]
+      ];
+      dotCoords.forEach(function(c) {
+        const dot = new THREE.Mesh(dotGeo, bowDotMat);
+        dot.position.set(c[0], c[1], c[2]);
+        bowGroup.add(dot);
+      });
+      neckGroup.add(bowGroup);
+
+      // Head Group
+      const headGroup = new THREE.Group();
+      headGroup.position.set(0, 0.85, 0);
+      bodyGroup.add(headGroup);
+
+      // 3D Head Sphere (Egg-shaped cartoon head)
+      const headGeo = new THREE.SphereGeometry(0.72, 32, 32);
+      headGeo.scale(1.0, 1.1, 0.96);
+      const headMesh = new THREE.Mesh(headGeo, skinMat);
+      headGroup.add(headMesh);
+
+      // Peach Ears
+      const earGeo = new THREE.SphereGeometry(0.18, 16, 16);
+      earGeo.scale(0.6, 1.1, 0.8);
+      const leftEar = new THREE.Mesh(earGeo, skinMat);
+      leftEar.position.set(-0.72, 0, -0.05);
+      headGroup.add(leftEar);
+      const rightEar = new THREE.Mesh(earGeo, skinMat);
+      rightEar.position.set(0.72, 0, -0.05);
+      headGroup.add(rightEar);
+
+      // Afro Curls - Volumetric 3D Orange Spheres around crown & temples
+      const curlGeo = new THREE.SphereGeometry(0.24, 16, 16);
+      const curlPositions = [
+        // Top crown & back
+        [-0.52, 0.65, -0.1], [0, 0.78, -0.15], [0.52, 0.65, -0.1],
+        [-0.32, 0.76, 0.05], [0.32, 0.76, 0.05],
+        // Forehead curls
+        [-0.45, 0.58, 0.42], [-0.22, 0.68, 0.48], [0, 0.72, 0.52], [0.22, 0.68, 0.48], [0.45, 0.58, 0.42],
+        // Side curls around ears
+        [-0.68, 0.42, 0.12], [-0.75, 0.18, 0.05], [-0.68, -0.08, -0.05],
+        [0.68, 0.42, 0.12], [0.75, 0.18, 0.05], [0.68, -0.08, -0.05],
+        // Back fill
+        [-0.45, 0.35, -0.45], [0, 0.45, -0.52], [0.45, 0.35, -0.45]
+      ];
+      curlPositions.forEach(function(pos) {
+        const curl = new THREE.Mesh(curlGeo, hairMat);
+        curl.position.set(pos[0], pos[1], pos[2]);
+        headGroup.add(curl);
+      });
+
+      // Cone Party Hat (Red cone with blue brim perched tilted)
+      const hatGroup = new THREE.Group();
+      hatGroup.position.set(0.04, 0.92, 0.05);
+      hatGroup.rotation.z = -0.12;
+      hatGroup.rotation.x = -0.05;
+
+      const coneGeo = new THREE.ConeGeometry(0.24, 0.56, 24);
+      const coneMesh = new THREE.Mesh(coneGeo, hatMat);
+      coneMesh.position.y = 0.28;
+      hatGroup.add(coneMesh);
+
+      const brimGeo = new THREE.TorusGeometry(0.24, 0.05, 16, 32);
+      const brimMesh = new THREE.Mesh(brimGeo, hatBrimMat);
+      brimMesh.rotation.x = Math.PI / 2;
+      hatGroup.add(brimMesh);
+
+      headGroup.add(hatGroup);
+
+      // Glossy Red Nose (Spherical 3D Ball)
+      const noseGeo = new THREE.SphereGeometry(0.21, 24, 24);
+      const noseMesh = new THREE.Mesh(noseGeo, noseMat);
+      noseMesh.position.set(0, 0.02, 0.72);
+      headGroup.add(noseMesh);
+
+      // Eyes
+      function create3DEye(isRight) {
+        const eyeGroup = new THREE.Group();
+        const scleraGeo = new THREE.SphereGeometry(0.16, 20, 20);
+        scleraGeo.scale(0.85, 1.15, 0.75);
+        const sclera = new THREE.Mesh(scleraGeo, eyeWhiteMat);
+        eyeGroup.add(sclera);
+
+        // Iris
+        const irisGeo = new THREE.CircleGeometry(0.075, 20);
+        const iris = new THREE.Mesh(irisGeo, irisMat);
+        iris.position.set(0, 0, 0.122);
+        eyeGroup.add(iris);
+
+        // Pupil
+        const pupilGeo = new THREE.CircleGeometry(0.042, 16);
+        const pupil = new THREE.Mesh(pupilGeo, pupilMat);
+        pupil.position.set(0, 0, 0.124);
+        eyeGroup.add(pupil);
+
+        // Specular Catchlight Dot
+        const dotGeo = new THREE.CircleGeometry(0.022, 12);
+        const dot = new THREE.Mesh(dotGeo, new THREE.MeshBasicMaterial({ color: 0xffffff }));
+        dot.position.set(0.025, 0.025, 0.126);
+        eyeGroup.add(dot);
+
+        eyeGroup.position.set(isRight ? 0.20 : -0.20, 0.18, 0.62);
+        return eyeGroup;
+      }
+      headGroup.add(create3DEye(false));
+      headGroup.add(create3DEye(true));
+
+      // Eyebrows
+      function createEyebrow(isRight) {
+        const curve = new THREE.QuadraticBezierCurve3(
+          new THREE.Vector3(isRight ? 0.08 : -0.32, 0, 0),
+          new THREE.Vector3(isRight ? 0.20 : -0.20, 0.08, 0),
+          new THREE.Vector3(isRight ? 0.32 : -0.08, 0.02, 0)
+        );
+        const tubeGeo = new THREE.TubeGeometry(curve, 16, 0.028, 8, false);
+        const brow = new THREE.Mesh(tubeGeo, browMat);
+        brow.position.set(0, 0.34, 0.62);
+        return brow;
+      }
+      headGroup.add(createEyebrow(false));
+      headGroup.add(createEyebrow(true));
+
+      // Rosy Cheeks
+      const cheekGeo = new THREE.CircleGeometry(0.12, 16);
+      const leftCheek = new THREE.Mesh(cheekGeo, cheekMat);
+      leftCheek.position.set(-0.35, 0, 0.64);
+      leftCheek.rotation.y = -0.35;
+      headGroup.add(leftCheek);
+
+      const rightCheek = new THREE.Mesh(cheekGeo, cheekMat);
+      rightCheek.position.set(0.35, 0, 0.64);
+      rightCheek.rotation.y = 0.35;
+      headGroup.add(rightCheek);
+
+      // Wide Joyful Smile
+      const mouthGroup = new THREE.Group();
+      mouthGroup.position.set(0, -0.22, 0.66);
+      mouthGroup.rotation.x = 0.18;
+
+      // Outer Red Lip Smile
+      const lipCurve = new THREE.QuadraticBezierCurve3(
+        new THREE.Vector3(-0.32, 0.06, 0),
+        new THREE.Vector3(0, -0.16, 0),
+        new THREE.Vector3(0.32, 0.06, 0)
+      );
+      const lipGeo = new THREE.TubeGeometry(lipCurve, 20, 0.04, 10, false);
+      const lipMesh = new THREE.Mesh(lipGeo, lipMat);
+      mouthGroup.add(lipMesh);
+
+      // White Upper Teeth Bar
+      const teethGeo = new THREE.BoxGeometry(0.34, 0.06, 0.03);
+      const teethMesh = new THREE.Mesh(teethGeo, teethMat);
+      teethMesh.position.set(0, 0.01, -0.01);
+      mouthGroup.add(teethMesh);
+
+      headGroup.add(mouthGroup);
+
+      // State and Animation Loop
+      let isPlaying = true;
+      let phase = 0;
+      let bassHit = 0;
+
+      document.getElementById('btn-toggle').addEventListener('click', function() {
+        isPlaying = !isPlaying;
+        this.textContent = isPlaying ? 'Pause' : 'Play';
+      });
+
+      document.getElementById('btn-bass').addEventListener('click', function() {
+        bassHit = 1.0;
+      });
+
+      function animate() {
+        requestAnimationFrame(animate);
+
+        const delta = 0.016;
+        if (isPlaying) {
+          phase += delta * 2.8;
+          // Periodic simulated bass beat
+          if (Math.sin(phase * 0.9) > 0.88 && bassHit < 0.2) {
+            bassHit = 0.9;
+          }
+        }
+        bassHit *= 0.88; // Decay
+
+        // Dynamic 3D Transformations
+        if (isPlaying) {
+          // Sway left & right
+          charGroup.position.x = Math.sin(phase) * 0.16;
+          charGroup.rotation.z = Math.sin(phase) * 0.06;
+          charGroup.rotation.y = Math.sin(phase * 0.5) * 0.14; // Subtle 3D perspective turn
+
+          // Bass jump off the ground
+          const jump = Math.pow(bassHit, 1.4) * 0.45;
+          charGroup.position.y = 0.05 + jump;
+
+          // Shadow scales and fades when character leaps
+          const shadowScale = Math.max(0.4, 1.0 - jump * 0.9);
+          groundShadow.scale.set(shadowScale, shadowScale, 1.0);
+          groundShadow.material.opacity = Math.max(0.15, 0.8 - jump * 1.2);
+
+          // Head bobbing with music
+          headGroup.rotation.z = Math.sin(phase + 0.3) * 0.06;
+          headGroup.rotation.x = Math.sin(phase * 0.5) * 0.04;
+
+          // Enthusiastic hand wave
+          handGroup.rotation.z = Math.sin(phase * 4.0) * 0.35;
+          rightArmGroup.rotation.z = Math.sin(phase * 2.0) * 0.12;
+        } else {
+          // Calm breathing stance when paused
+          const breathe = Math.sin(Date.now() * 0.0025);
+          bodyGroup.scale.y = 1.0 + breathe * 0.015;
+          headGroup.rotation.x = breathe * 0.02;
+          charGroup.position.x *= 0.95;
+          charGroup.rotation.y *= 0.95;
+          charGroup.rotation.z *= 0.95;
+          charGroup.position.y = 0.05;
+          groundShadow.scale.set(1, 1, 1);
+          groundShadow.material.opacity = 0.8;
+          handGroup.rotation.z = Math.sin(Date.now() * 0.003) * 0.12;
+        }
+
+        renderer.render(scene, camera);
+      }
+
+      animate();
+    })();
+  </script>
+</body>
+</html>

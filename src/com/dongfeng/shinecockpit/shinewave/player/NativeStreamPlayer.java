@@ -95,6 +95,27 @@ public final class NativeStreamPlayer {
     private String currentArtDataUrl = null;
     private int prepareGeneration = 0;
 
+    private final Runnable progressTicker = new Runnable() {
+        @Override
+        public void run() {
+            synchronized (NativeStreamPlayer.this) {
+                if (mediaPlayer != null && prepared && isPlaying()) {
+                    notifyStateChanged();
+                    mainHandler.postDelayed(this, 1000L);
+                }
+            }
+        }
+    };
+
+    private void startProgressTicker() {
+        mainHandler.removeCallbacks(progressTicker);
+        mainHandler.postDelayed(progressTicker, 1000L);
+    }
+
+    private void stopProgressTicker() {
+        mainHandler.removeCallbacks(progressTicker);
+    }
+
     private final AudioManager.OnAudioFocusChangeListener focusListener = new AudioManager.OnAudioFocusChangeListener() {
         @Override
         public void onAudioFocusChange(int focusChange) {
@@ -174,6 +195,7 @@ public final class NativeStreamPlayer {
                 }
                 mediaPlayer.start();
                 playWhenPrepared = false;
+                startProgressTicker();
                 notifyStateChanged();
                 return;
             } catch (Throwable t) {
@@ -185,6 +207,7 @@ public final class NativeStreamPlayer {
 
     public synchronized void pause() {
         playWhenPrepared = false;
+        stopProgressTicker();
         if (mediaPlayer != null && prepared) {
             try {
                 long pos = getCurrentPositionMs();
@@ -386,6 +409,7 @@ public final class NativeStreamPlayer {
                             }
                             if (playWhenPrepared) {
                                 player.start();
+                                startProgressTicker();
                             }
                         } catch (Throwable t) {
                             Log.w(TAG, "onPrepared action warning: " + t.getMessage());
@@ -435,6 +459,7 @@ public final class NativeStreamPlayer {
     }
 
     private void handleTrackCompleted(QueueItem finishedItem) {
+        stopProgressTicker();
         if (finishedItem.isStream) {
             playWhenPrepared = false;
             notifyStateChanged();
@@ -685,6 +710,7 @@ public final class NativeStreamPlayer {
     }
 
     private void releaseMediaPlayerOnly() {
+        stopProgressTicker();
         prepared = false;
         if (mediaPlayer != null) {
             try {

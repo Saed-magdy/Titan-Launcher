@@ -63,7 +63,18 @@ public final class RadioBrowserClient {
                 // Fall back to next mirror server
             }
         }
-        return new ArrayList<>();
+        List<Station> fallback = RadioStationStore.getCuratedArabicStations();
+        if (query == null || query.trim().isEmpty()) {
+            return fallback;
+        }
+        String q = query.trim().toLowerCase();
+        List<Station> filtered = new ArrayList<>();
+        for (Station s : fallback) {
+            if (s.name.toLowerCase().contains(q)) {
+                filtered.add(s);
+            }
+        }
+        return filtered.isEmpty() ? fallback : filtered;
     }
 
     public void reportClickAsync(final String stationUuid) {
