@@ -9,7 +9,7 @@
   var queueViewOpen = false;
   var localFolder = '';
   var localQuery = '';
-  var internetTab = 'popular';
+  var internetTab = 'arabic';
   var internetQuery = '';
   var editingRadioName = '';
   var localData = null;
@@ -338,7 +338,6 @@
     });
     document.getElementById('swst-btn-queue').addEventListener('click', function () {
       queueViewOpen = !queueViewOpen;
-      lastQueueSyncKey = '';
       if (queueViewOpen) {
         if (bridge() && bridge().requestShineWaveQueue) bridge().requestShineWaveQueue();
         else queueData = { items: simDb.localTracks.map(function (t, i) { return { index: i, id: t.id, title: t.title, artist: t.artist, durationSec: t.durationSec, active: i === simDb.localIdx }; }) };
@@ -1303,20 +1302,10 @@
     }
   };
 
-  var lastQueueSyncKey = '';
-
   window.syncShineWaveStudioState = function () {
     var overlay = document.getElementById('sw-studio-overlay');
     if (overlay && overlay.classList.contains('active')) {
       renderPlayerHeader();
-      if (queueViewOpen) {
-        var st = window.ShineWaveCardState || {};
-        var qKey = (st.source || '') + '|' + (st.title || '') + '|' + (st.artist || '') + '|' + (st.freqKhz || '') + '|' + (st.playing ? '1' : '0');
-        if (qKey !== lastQueueSyncKey) {
-          lastQueueSyncKey = qKey;
-          if (bridge() && bridge().requestShineWaveQueue) bridge().requestShineWaveQueue();
-        }
-      }
     }
   };
 
@@ -1496,16 +1485,6 @@
     body.querySelectorAll('[data-qidx]').forEach(function (r) {
       r.addEventListener('click', function () {
         var idx = parseInt(r.getAttribute('data-qidx'), 10);
-        body.querySelectorAll('.swst-row').forEach(function (row) {
-          var isSel = parseInt(row.getAttribute('data-qidx'), 10) === idx;
-          row.classList.toggle('active', isSel);
-          var icon = row.querySelector('.swst-row-icon');
-          if (icon) icon.textContent = isSel ? '▶' : '♪';
-        });
-        if (queueData && Array.isArray(queueData.items)) {
-          queueData.currentIndex = idx;
-          queueData.items.forEach(function (it) { it.active = (it.index === idx); });
-        }
         if (bridge()) bridge().playShineWaveQueueIndex(idx);
         else { simDb.localIdx = idx; window.simSwitchShineWaveSource('LOCAL_MUSIC'); queueViewOpen = false; renderPlayerHeader(); renderBody(); }
       });

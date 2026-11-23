@@ -19,9 +19,8 @@ import java.util.Map;
  */
 public final class RadioBrowserClient {
     private static final List<String> API_SERVERS = Arrays.asList(
-            "https://stations.radioss.app",
-            "https://all.api.radio-browser.info",
-            "https://de1.api.radio-browser.info"
+            "https://de1.api.radio-browser.info",
+            "https://all.api.radio-browser.info"
     );
 
     public static final class Station {
@@ -51,6 +50,9 @@ public final class RadioBrowserClient {
     }
 
     public List<Station> searchStations(String query, boolean arabicOnly, int limit) {
+        if (arabicOnly && (query == null || query.trim().isEmpty())) {
+            return RadioStationStore.getCuratedArabicStations();
+        }
         int safeLimit = Math.max(1, Math.min(80, limit));
         List<Station> apiResults = null;
         for (String server : API_SERVERS) {
@@ -134,7 +136,7 @@ public final class RadioBrowserClient {
     }
 
     private String getJson(String urlString) throws Exception {
-        HttpURLConnection conn = LocalStreamProxy.openFollowingRedirects(urlString, 6000, 8000);
+        HttpURLConnection conn = LocalStreamProxy.openFollowingRedirects(urlString, 2500, 3500);
         try {
             int code = conn.getResponseCode();
             if (code < 200 || code >= 300) {

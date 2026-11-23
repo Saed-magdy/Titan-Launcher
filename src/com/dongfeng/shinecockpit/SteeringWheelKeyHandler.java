@@ -22,17 +22,20 @@ public final class SteeringWheelKeyHandler {
     private static final long SWC_LONG_PRESS_DELAY_MS = 650L;
     private static final long SWC_SEEK_INTERVAL_MS = 450L;
     private static final long SWC_SEEK_STEP_MS = 10000L;
+    private static final long SWC_SEEK_WATCHDOG_MS = 12000L;
     private static final long CENTER_KEY_DEBOUNCE_MS = 350L;
+    private static final int QG_CB_FLAG_ALWAYS = 2;
+    private static final int QG_INTERCEPT_PRIORITY = 1000;
 
-    // Dongfeng Shine CAN SWC mapping:
-    // Forward = 4 (at 1000ms long press, TranslatorSink translates 4 -> QG_LONG_NEXT_KEY = 13)
-    // Backward = 3 (at 1000ms long press, TranslatorSink translates 3 -> QG_LONG_PREVIOUS_KEY = 14)
-    private static final int QG_KEY_NEXT = 4;
-    private static final int QG_KEY_PREVIOUS = 3;
+    // Dongfeng Shine CAN / KeyManager SWC mapping (verified from QGKeyEvent, TranslatorSink, DongfengKeyMaster):
+    // Physical Forward (SEEK+)  = 3 (at 1000ms long press, TranslatorSink translates 3 -> 14 = QG_LONG_NEXT_KEY)
+    // Physical Backward (SEEK-) = 4 (at 1000ms long press, TranslatorSink translates 4 -> 13 = QG_LONG_PREVIOUS_KEY)
+    private static final int QG_KEY_NEXT = 3;
+    private static final int QG_KEY_PREVIOUS = 4;
     private static final int QG_KEY_PLAY_PAUSE = 6;
     private static final int QG_KEY_MEDIA_OK = 145;
-    private static final int QG_LONG_NEXT_KEY = 13;
-    private static final int QG_LONG_PREVIOUS_KEY = 14;
+    private static final int QG_LONG_NEXT_KEY = 14;
+    private static final int QG_LONG_PREVIOUS_KEY = 13;
 
     public interface HostCallback {
         ShineWaveEngine getShineWaveEngine();
@@ -44,14 +47,17 @@ public final class SteeringWheelKeyHandler {
     private final Handler mHandler = new Handler(Looper.getMainLooper());
 
     private Object mQingganKeyManager = null;
+    private Object mQingganKeyListener = null;
     private boolean mQingganKeyRegistered = false;
     private long mLastCenterKeyTime = 0L;
 
     private Runnable mLongPressSeekRunnable = null;
     private Runnable mContinuousSeekRunnable = null;
+    private Runnable mSeekWatchdogRunnable = null;
     private int mPressedSwcKey = 0;
     private boolean mIsLongPressSeeking = false;
     private volatile boolean mQingganSeekActive = false;
+    private int mQingganSeekDir = 0;
     private long mSwcKeyDownTime = 0L;
 
     public SteeringWheelKeyHandler(Context context, HostCallback callback) {
@@ -81,9 +87,14 @@ public final class SteeringWheelKeyHandler {
                 }
             );
 
-            java.lang.reflect.Method getInstance = managerClass.getMethod("getInstance", Context.class, initListenerClass);
-            mQingganKeyManager = getInstance.invoke(null, mContext, initListener);
-            Log.i(TAG, "Requested Qinggan KeyManager initialization for SWC");
+            try {
+                java.lang.reflect.Method getInstanceFlag = managerClass.getMethod("getInstance", Context.class, initListenerClass, int.class);
+                mQingganKeyManager = getInstanceFlag.invoke(null, mContext, initListener, QG_CB_FLAG_ALWAYS);
+            } catch (NoSuchMethodException ignored) {
+                java.lang.reflect.Method getInstance = managerClass.getMethod("getInstance", Context.class, initListenerClass);
+                mQingganKeyManager = getInstance.invoke(null, mContext, initListener);
+            }
+            Log.i(TAG, "Requested Qinggan KeyManager initialization for SWC (flag=" + QG_CB_FLAG_ALWAYS + ")");
         } catch (Throwable t) {
             Log.w(TAG, "Qinggan KeyManager unavailable: " + t.getMessage());
         }
@@ -106,7 +117,7 @@ public final class SteeringWheelKeyHandler {
                                 return false;
                             }
                             if ("onKeyDown".equals(name)) {
-                                // Clear any lingering seek if a different key starts pressing
+                                // Clear any lingering seek if a new press begins
                                 stopQingganSeek();
                                 return true;
                             } else if ("onKeyShortClick".equals(name)) {
@@ -136,12 +147,22 @@ public final class SteeringWheelKeyHandler {
                 }
             );
 
-            // Register both intercept (receives translated 13/14 LONG & LONG_STOP even when EventListenerSink
-            // wouldn't orient them) and normal listener as backup.
+            // Clear any stale entries in KeyManager's static mKeyEventListenerMap before registering
+            unregisterKeyListenerQuietly(listenerClass, listenerProxy);
+
+            // Register intercept at priority 1000 (> DongfengKeyMaster's 100 and KeyManagerSinkCollector's 99)
+            // so translated keys 13/14 LONG & LONG_STOP are never swallowed before reaching us.
             int resIntercept = -1;
             try {
-                java.lang.reflect.Method regInt = mQingganKeyManager.getClass().getMethod("registerInterceptListener", listenerClass);
-                resIntercept = ((Number) regInt.invoke(mQingganKeyManager, listenerProxy)).intValue();
+                java.lang.reflect.Method regIntPrio = mQingganKeyManager.getClass().getMethod("registerInterceptListener", listenerClass, int.class);
+                resIntercept = ((Number) regIntPrio.invoke(mQingganKeyManager, listenerProxy, QG_INTERCEPT_PRIORITY)).intValue();
+            } catch (NoSuchMethodException nsme) {
+                try {
+                    java.lang.reflect.Method regInt = mQingganKeyManager.getClass().getMethod("registerInterceptListener", listenerClass);
+                    resIntercept = ((Number) regInt.invoke(mQingganKeyManager, listenerProxy)).intValue();
+                } catch (Throwable t2) {
+                    Log.w(TAG, "registerInterceptListener 1-arg note: " + t2.getMessage());
+                }
             } catch (Throwable t) {
                 Log.w(TAG, "registerInterceptListener note: " + t.getMessage());
             }
@@ -149,12 +170,25 @@ public final class SteeringWheelKeyHandler {
             java.lang.reflect.Method reg = mQingganKeyManager.getClass().getMethod("registerKeyEventListener", listenerClass);
             int resNormal = ((Number) reg.invoke(mQingganKeyManager, listenerProxy)).intValue();
             if (resIntercept >= 0 || resNormal >= 0) {
+                mQingganKeyListener = listenerProxy;
                 mQingganKeyRegistered = true;
-                Log.i(TAG, "Qinggan KeyManager registered! intercept=" + resIntercept + " normal=" + resNormal);
+                Log.i(TAG, "Qinggan KeyManager registered! intercept(p=" + QG_INTERCEPT_PRIORITY + ")=" + resIntercept + " normal=" + resNormal);
             }
         } catch (Throwable t) {
             Log.e(TAG, "registerKeyEventListener failed: " + t.getMessage());
         }
+    }
+
+    private void unregisterKeyListenerQuietly(Class<?> listenerClass, Object listener) {
+        if (mQingganKeyManager == null || listener == null) return;
+        try {
+            java.lang.reflect.Method unregInt = mQingganKeyManager.getClass().getMethod("unregisterInterceptListener", listenerClass);
+            unregInt.invoke(mQingganKeyManager, listener);
+        } catch (Throwable ignored) {}
+        try {
+            java.lang.reflect.Method unregNorm = mQingganKeyManager.getClass().getMethod("unregisterKeyEventListener", listenerClass);
+            unregNorm.invoke(mQingganKeyManager, listener);
+        } catch (Throwable ignored) {}
     }
 
     private static boolean isQingganMediaKey(int keyCode) {
@@ -163,14 +197,41 @@ public final class SteeringWheelKeyHandler {
                 || keyCode == QG_KEY_PLAY_PAUSE || keyCode == QG_KEY_MEDIA_OK;
     }
 
+    private void resetSeekWatchdogLocked() {
+        cancelSeekWatchdogLocked();
+        mSeekWatchdogRunnable = new Runnable() {
+            @Override public void run() {
+                mSeekWatchdogRunnable = null;
+                if (mQingganSeekActive) {
+                    Log.w(TAG, "SWC seek watchdog expired; forcing seek stop");
+                    stopQingganSeek();
+                }
+            }
+        };
+        mHandler.postDelayed(mSeekWatchdogRunnable, SWC_SEEK_WATCHDOG_MS);
+    }
+
+    private void cancelSeekWatchdogLocked() {
+        if (mSeekWatchdogRunnable != null) {
+            mHandler.removeCallbacks(mSeekWatchdogRunnable);
+            mSeekWatchdogRunnable = null;
+        }
+    }
+
     private void startQingganSeek(final int dirSign) {
         mHandler.post(new Runnable() {
             @Override public void run() {
-                if (mQingganSeekActive) {
-                    // Already seeking from 500ms HOLD when 1000ms LONG arrives: keep seeking smoothly without re-triggering
+                resetSeekWatchdogLocked();
+                if (mQingganSeekActive && mQingganSeekDir == dirSign) {
+                    // Already seeking from 500ms HOLD when 1000ms LONG arrives in the same direction
                     return;
                 }
+                if (mQingganSeekActive && mQingganSeekDir != dirSign) {
+                    ShineWaveEngine prevSw = mCallback.getShineWaveEngine();
+                    if (prevSw != null) prevSw.stopLongSeek();
+                }
                 mQingganSeekActive = true;
+                mQingganSeekDir = dirSign;
                 final ShineWaveEngine sw = mCallback.getShineWaveEngine();
                 if (sw != null) {
                     sw.setSeekUiCallback(new ShineWaveEngine.SeekUiCallback() {
@@ -194,8 +255,10 @@ public final class SteeringWheelKeyHandler {
     private void stopQingganSeek() {
         mHandler.post(new Runnable() {
             @Override public void run() {
-                if (!mQingganSeekActive) return;
+                cancelSeekWatchdogLocked();
+                if (!mQingganSeekActive && mQingganSeekDir == 0) return;
                 mQingganSeekActive = false;
+                mQingganSeekDir = 0;
                 ShineWaveEngine sw = mCallback.getShineWaveEngine();
                 if (sw != null) {
                     sw.stopLongSeek();
@@ -332,6 +395,17 @@ public final class SteeringWheelKeyHandler {
 
     public void release() {
         cancelSeekTimers();
+        cancelSeekWatchdogLocked();
+        mQingganSeekActive = false;
+        mQingganSeekDir = 0;
+        if (mQingganKeyManager != null && mQingganKeyListener != null) {
+            try {
+                Class<?> keyListenerClass = Class.forName("com.qinggan.system.KeyManager$OnKeyEventListener");
+                unregisterKeyListenerQuietly(keyListenerClass, mQingganKeyListener);
+            } catch (Throwable ignored) {}
+            mQingganKeyListener = null;
+        }
+        mQingganKeyRegistered = false;
         mHandler.removeCallbacksAndMessages(null);
     }
 }

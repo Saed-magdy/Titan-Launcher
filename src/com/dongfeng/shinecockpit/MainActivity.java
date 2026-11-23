@@ -64,6 +64,7 @@ public class MainActivity extends Activity implements CockpitMediaListenerServic
 
     private final Handler mHandler = new Handler(Looper.getMainLooper());
     private final ExecutorService mExecutor = Executors.newSingleThreadExecutor();
+    private final ExecutorService mNetExecutor = Executors.newCachedThreadPool();
     private final ScheduledExecutorService mTelemetryExecutor = Executors.newSingleThreadScheduledExecutor();
 
     private final AudioSpectrumAnalyzer mAudioAnalyzer = new AudioSpectrumAnalyzer();
@@ -527,14 +528,6 @@ public class MainActivity extends Activity implements CockpitMediaListenerServic
         public void playShineWaveQueueIndex(final int index) {
             if (mShineWave == null) return;
             mShineWave.playQueueIndex(index);
-            mHandler.postDelayed(new Runnable() {
-                @Override
-                public void run() {
-                    if (mShineWave != null) {
-                        evalSwJsCallback("onShineWaveQueueData", mShineWave.getActiveQueueJson().toString());
-                    }
-                }
-            }, 120L);
         }
 
         @JavascriptInterface
@@ -588,7 +581,7 @@ public class MainActivity extends Activity implements CockpitMediaListenerServic
         @JavascriptInterface
         public void searchShineWaveInternetRadio(final String tab, final String query) {
             if (mShineWave == null) return;
-            mExecutor.execute(new Runnable() {
+            mNetExecutor.execute(new Runnable() {
                 @Override
                 public void run() {
                     JSONObject data = mShineWave.queryInternetRadio(tab, query);
@@ -1053,6 +1046,7 @@ public class MainActivity extends Activity implements CockpitMediaListenerServic
         mHandler.removeCallbacksAndMessages(null);
         if (!mTelemetryExecutor.isShutdown()) mTelemetryExecutor.shutdown();
         if (!mExecutor.isShutdown()) mExecutor.shutdown();
+        if (!mNetExecutor.isShutdown()) mNetExecutor.shutdownNow();
         unregisterReceiverSafe(mCar3DFreezeReceiver);
         unregisterReceiverSafe(mConnectivityReceiver);
         unregisterReceiverSafe(mMediaBroadcastReceiver);

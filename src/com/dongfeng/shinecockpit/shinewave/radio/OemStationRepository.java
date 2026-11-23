@@ -68,9 +68,6 @@ public final class OemStationRepository {
         mergeInto(merged, loadLocalFavorites(band), true);
 
         List<Station> sorted = new ArrayList<>(merged.values());
-        if (sorted.isEmpty()) {
-            sorted.addAll(getDefaultPresets(isFm));
-        }
         Collections.sort(sorted, new Comparator<Station>() {
             @Override
             public int compare(Station a, Station b) {
@@ -79,26 +76,6 @@ public final class OemStationRepository {
             }
         });
         return sorted;
-    }
-
-    private static List<Station> getDefaultPresets(boolean isFm) {
-        List<Station> list = new ArrayList<>();
-        if (isFm) {
-            list.add(new Station("راديو هيتس 88.2", 88200, false));
-            list.add(new Station("راديو مصر 88.7", 88700, false));
-            list.add(new Station("راديو 9090", 90900, false));
-            list.add(new Station("ميجا إف إم 92.7", 92700, false));
-            list.add(new Station("القرآن الكريم 98.2", 98200, false));
-            list.add(new Station("نجوم إف إم 100.6", 100600, false));
-            list.add(new Station("نغم إف إم 105.3", 105300, false));
-            list.add(new Station("شعبي إف إم 105.8", 105800, false));
-        } else {
-            list.add(new Station("AM 711", 711, false));
-            list.add(new Station("AM 819", 819, false));
-            list.add(new Station("AM 1008", 1008, false));
-            list.add(new Station("AM 1341", 1341, false));
-        }
-        return list;
     }
 
     public boolean toggleLocalFavorite(int band, int frequencyKhz, String name) {

@@ -20,12 +20,7 @@ import android.util.Log;
 import com.dongfeng.shinecockpit.CockpitMediaListenerService;
 
 import java.lang.reflect.Method;
-import java.util.ArrayList;
 import java.util.List;
-
-import android.media.session.MediaSession;
-import org.json.JSONArray;
-import org.json.JSONObject;
 
 /**
  * Monitors Android hidden A2DP_SINK (11) and AVRCP_CONTROLLER (12) profiles to read
@@ -94,18 +89,6 @@ public final class AvrcpMetadataTracker {
     private int heldSeekKey = 0;
     private Runnable pendingReleaseRunnable = null;
     private AvrcpSnapshot currentSnapshot = new AvrcpSnapshot(false, false, "", "", "", "", null, false, 0L, 0L);
-
-    private static final class BtTrackItem {
-        final String title;
-        final String artist;
-        final long durationSec;
-        BtTrackItem(String title, String artist, long durationSec) {
-            this.title = title;
-            this.artist = artist;
-            this.durationSec = durationSec;
-        }
-    }
-    private final List<BtTrackItem> sessionTracks = new ArrayList<>();
 
     private final Runnable pollRunnable = new Runnable() {
         @Override
@@ -217,12 +200,10 @@ public final class AvrcpMetadataTracker {
         return currentSnapshot;
     }
 
-    public static final int REPEAT_MODE_INVALID = -1;
     public static final int REPEAT_MODE_NONE = 0;
     public static final int REPEAT_MODE_ONE = 1;
     public static final int REPEAT_MODE_ALL = 2;
 
-    public static final int SHUFFLE_MODE_INVALID = -1;
     public static final int SHUFFLE_MODE_NONE = 0;
     public static final int SHUFFLE_MODE_ALL = 1;
 
@@ -247,7 +228,6 @@ public final class AvrcpMetadataTracker {
         if (mc != null) {
             try {
                 int current = getRepeatMode();
-                if (current < 0) current = REPEAT_MODE_NONE;
                 int next;
                 if (current == REPEAT_MODE_NONE) {
                     next = REPEAT_MODE_ALL;
@@ -260,7 +240,7 @@ public final class AvrcpMetadataTracker {
                 m.invoke(mc.getTransportControls(), next);
                 return true;
             } catch (Throwable t) {
-                Log.w("AvrcpMetadataTracker", "cycleRepeatMode unsupported on Android 8.1: " + t.getMessage());
+                Log.w("AvrcpMetadataTracker", "cycleRepeatMode failed: " + t.getMessage());
             }
         }
         return false;
@@ -271,13 +251,12 @@ public final class AvrcpMetadataTracker {
         if (mc != null) {
             try {
                 int current = getShuffleMode();
-                if (current < 0) current = SHUFFLE_MODE_NONE;
                 int next = (current == SHUFFLE_MODE_NONE) ? SHUFFLE_MODE_ALL : SHUFFLE_MODE_NONE;
                 Method m = mc.getTransportControls().getClass().getMethod("setShuffleMode", int.class);
                 m.invoke(mc.getTransportControls(), next);
                 return true;
             } catch (Throwable t) {
-                Log.w("AvrcpMetadataTracker", "toggleShuffleMode unsupported on Android 8.1: " + t.getMessage());
+                Log.w("AvrcpMetadataTracker", "toggleShuffleMode failed: " + t.getMessage());
             }
         }
         return false;
@@ -289,10 +268,10 @@ public final class AvrcpMetadataTracker {
             try {
                 Method m = mc.getClass().getMethod("getRepeatMode");
                 Object res = m.invoke(mc);
-                return (res instanceof Number) ? ((Number) res).intValue() : REPEAT_MODE_INVALID;
+                return (res instanceof Number) ? ((Number) res).intValue() : REPEAT_MODE_NONE;
             } catch (Throwable ignored) {}
         }
-        return REPEAT_MODE_INVALID;
+        return REPEAT_MODE_NONE;
     }
 
     public int getShuffleMode() {
@@ -301,99 +280,10 @@ public final class AvrcpMetadataTracker {
             try {
                 Method m = mc.getClass().getMethod("getShuffleMode");
                 Object res = m.invoke(mc);
-                return (res instanceof Number) ? ((Number) res).intValue() : SHUFFLE_MODE_INVALID;
+                return (res instanceof Number) ? ((Number) res).intValue() : SHUFFLE_MODE_NONE;
             } catch (Throwable ignored) {}
         }
-        return SHUFFLE_MODE_INVALID;
-    }
-
-    public synchronized JSONObject getQueueJson() {
-        JSONObject root = new JSONObject();
-        JSONArray arr = new JSONArray();
-        int curIdx = 0;
-        try {
-            MediaController mc = getBluetoothMediaController();
-            if (mc != null) {
-                List<MediaSession.QueueItem> q = mc.getQueue();
-                if (q != null && !q.isEmpty()) {
-                    PlaybackState ps = mc.getPlaybackState();
-                    long activeId = (ps != null) ? ps.getActiveQueueItemId() : -1L;
-                    for (int i = 0; i < q.size(); i++) {
-                        MediaSession.QueueItem qi = q.get(i);
-                        String t = (qi.getDescription() != null && qi.getDescription().getTitle() != null)
-                                ? qi.getDescription().getTitle().toString() : ("Track " + (i + 1));
-                        String sub = (qi.getDescription() != null && qi.getDescription().getSubtitle() != null)
-                                ? qi.getDescription().getSubtitle().toString() : "Bluetooth Audio";
-                        boolean active = (qi.getQueueId() == activeId) || (activeId == -1L && currentSnapshot != null && t.equals(currentSnapshot.title));
-                        if (active) curIdx = i;
-                        arr.put(new JSONObject()
-                                .put("index", i)
-                                .put("id", String.valueOf(qi.getQueueId()))
-                                .put("title", t)
-                                .put("artist", sub)
-                                .put("durationSec", 0)
-                                .put("active", active));
-                    }
-                    root.put("source", "BLUETOOTH");
-                    root.put("currentIndex", curIdx);
-                    root.put("items", arr);
-                    return root;
-                }
-            }
-            String curTitle = currentSnapshot != null ? currentSnapshot.title : "";
-            String curArtist = currentSnapshot != null ? currentSnapshot.artist : "";
-            if (!sessionTracks.isEmpty()) {
-                for (int i = 0; i < sessionTracks.size(); i++) {
-                    BtTrackItem it = sessionTracks.get(i);
-                    boolean active = it.title.equals(curTitle) && it.artist.equals(curArtist);
-                    if (active) curIdx = i;
-                    arr.put(new JSONObject()
-                            .put("index", i)
-                            .put("id", "bt_" + i)
-                            .put("title", it.title)
-                            .put("artist", it.artist.isEmpty() ? "Bluetooth Audio" : it.artist)
-                            .put("durationSec", it.durationSec)
-                            .put("active", active));
-                }
-            } else {
-                arr.put(new JSONObject()
-                        .put("index", 0)
-                        .put("id", "bt_active")
-                        .put("title", curTitle.isEmpty() ? "Bluetooth Audio" : curTitle)
-                        .put("artist", curArtist)
-                        .put("durationSec", currentSnapshot != null ? (currentSnapshot.durationMs / 1000L) : 0)
-                        .put("active", true));
-            }
-            root.put("source", "BLUETOOTH");
-            root.put("currentIndex", curIdx);
-            root.put("items", arr);
-        } catch (Throwable ignored) {}
-        return root;
-    }
-
-    public synchronized int resolveQueueStepOffset(int targetIndex) {
-        MediaController mc = getBluetoothMediaController();
-        if (mc != null) {
-            try {
-                List<MediaSession.QueueItem> q = mc.getQueue();
-                if (q != null && targetIndex >= 0 && targetIndex < q.size()) {
-                    mc.getTransportControls().skipToQueueItem(q.get(targetIndex).getQueueId());
-                    return 0;
-                }
-            } catch (Throwable ignored) {}
-        }
-        String curTitle = currentSnapshot != null ? currentSnapshot.title : "";
-        String curArtist = currentSnapshot != null ? currentSnapshot.artist : "";
-        int curIdx = -1;
-        for (int i = 0; i < sessionTracks.size(); i++) {
-            BtTrackItem it = sessionTracks.get(i);
-            if (it.title.equals(curTitle) && it.artist.equals(curArtist)) {
-                curIdx = i;
-                break;
-            }
-        }
-        if (curIdx < 0 || targetIndex < 0 || targetIndex >= sessionTracks.size()) return 0;
-        return targetIndex - curIdx;
+        return SHUFFLE_MODE_NONE;
     }
 
     public void sendPassThroughFallback(String cmd) {
@@ -669,22 +559,6 @@ public final class AvrcpMetadataTracker {
 
     private void publish(AvrcpSnapshot snapshot) {
         currentSnapshot = snapshot;
-        if (snapshot != null && snapshot.connected && snapshot.title != null && !snapshot.title.isEmpty()
-                && !snapshot.title.equals("Bluetooth Audio") && !snapshot.title.contains("لا يوجد جهاز")) {
-            synchronized (this) {
-                boolean exists = false;
-                for (BtTrackItem it : sessionTracks) {
-                    if (it.title.equalsIgnoreCase(snapshot.title) && it.artist.equalsIgnoreCase(snapshot.artist)) {
-                        exists = true;
-                        break;
-                    }
-                }
-                if (!exists) {
-                    sessionTracks.add(new BtTrackItem(snapshot.title, snapshot.artist, snapshot.durationMs / 1000L));
-                    if (sessionTracks.size() > 30) sessionTracks.remove(0);
-                }
-            }
-        }
         if (callback != null) callback.onAvrcpStateChanged(snapshot);
     }
 

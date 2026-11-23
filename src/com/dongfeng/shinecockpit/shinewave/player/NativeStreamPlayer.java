@@ -89,6 +89,7 @@ public final class NativeStreamPlayer {
     private RepeatMode repeatMode;
     private boolean shuffleEnabled;
 
+    private volatile boolean playbackAllowed = false;
     private volatile boolean prepared = false;
     private volatile boolean playWhenPrepared = false;
     private volatile long pendingSeekMs = 0L;
@@ -148,10 +149,10 @@ public final class NativeStreamPlayer {
             mediaSession = new MediaSession(appContext, "TitanShineWave");
             mediaSession.setFlags(MediaSession.FLAG_HANDLES_MEDIA_BUTTONS | MediaSession.FLAG_HANDLES_TRANSPORT_CONTROLS);
             mediaSession.setCallback(new MediaSession.Callback() {
-                @Override public void onPlay() { play(); }
+                @Override public void onPlay() { if (!playbackAllowed) return; play(); }
                 @Override public void onPause() { pause(); }
-                @Override public void onSkipToNext() { next(); }
-                @Override public void onSkipToPrevious() { previous(); }
+                @Override public void onSkipToNext() { if (!playbackAllowed) return; next(); }
+                @Override public void onSkipToPrevious() { if (!playbackAllowed) return; previous(); }
                 @Override public void onSeekTo(long pos) { seekToMs(pos); }
                 @Override public void onStop() { stopPlayback(); }
             }, mainHandler);
@@ -163,27 +164,25 @@ public final class NativeStreamPlayer {
 
     public synchronized void setQueueAndPlay(List<QueueItem> items, int startIndex, AudioSourceType source) {
         if (items == null || items.isEmpty()) return;
+        playbackAllowed = true;
+        AudioSourceType targetSrc = (source != null) ? source : AudioSourceType.LOCAL_MUSIC;
+        if (targetSrc != AudioSourceType.INTERNET_RADIO) {
+            LocalStreamProxy.getInstance().stopActiveSession();
+        }
         queue.clear();
         queue.addAll(items);
-        queueSource = (source != null) ? source : AudioSourceType.LOCAL_MUSIC;
+        queueSource = targetSrc;
         currentIndex = Math.max(0, Math.min(startIndex, queue.size() - 1));
         saveQueueSnapshot(0L);
         prepareCurrentItem(true, 0L);
     }
 
-    public synchronized void setQueuePaused(List<QueueItem> items, int startIndex, AudioSourceType source) {
-        if (items == null || items.isEmpty()) return;
-        queue.clear();
-        queue.addAll(items);
-        queueSource = (source != null) ? source : AudioSourceType.LOCAL_MUSIC;
-        currentIndex = Math.max(0, Math.min(startIndex, queue.size() - 1));
-        pendingSeekMs = 0L;
-        saveQueueSnapshot(0L);
-        notifyStateChanged();
+    public synchronized boolean resumeSavedQueue(AudioSourceType source) {
+        return resumeSavedQueue(source, true);
     }
 
-    public synchronized boolean resumeSavedQueue(AudioSourceType source) {
-        return restoreQueueSnapshot(source, true);
+    public synchronized boolean resumeSavedQueue(AudioSourceType source, boolean autoPlay) {
+        return restoreQueueSnapshot(source, autoPlay);
     }
 
     public synchronized boolean hasSavedQueue(AudioSourceType source) {
@@ -195,6 +194,7 @@ public final class NativeStreamPlayer {
         if (queue.isEmpty() || currentIndex < 0 || currentIndex >= queue.size()) {
             return;
         }
+        playbackAllowed = true;
         if (!requestAudioFocus()) {
             Log.w(TAG, "Audio focus denied");
         }
@@ -243,10 +243,14 @@ public final class NativeStreamPlayer {
     }
 
     public synchronized void stopPlayback() {
+        playbackAllowed = false;
         playWhenPrepared = false;
         long pos = getCurrentPositionMs();
         saveQueueSnapshot(pos);
         releaseMediaPlayerOnly();
+        if (queueSource == AudioSourceType.INTERNET_RADIO) {
+            LocalStreamProxy.getInstance().stopActiveSession();
+        }
         abandonAudioFocus();
         if (mediaSession != null) {
             try {
@@ -450,6 +454,9 @@ public final class NativeStreamPlayer {
                         if (gen != prepareGeneration || mediaPlayer != player) return true;
                         prepared = false;
                         playWhenPrepared = false;
+                        if (item.isStream) {
+                            LocalStreamProxy.getInstance().stopActiveSession();
+                        }
                         notifyStateChanged();
                     }
                     return true;
@@ -468,6 +475,9 @@ public final class NativeStreamPlayer {
             Log.e(TAG, "prepareCurrentItem failed: " + t.getMessage());
             releaseMediaPlayerOnly();
             playWhenPrepared = false;
+            if (item.isStream) {
+                LocalStreamProxy.getInstance().stopActiveSession();
+            }
             notifyStateChanged();
         }
     }
@@ -718,7 +728,19 @@ public final class NativeStreamPlayer {
             int idx = prefs.getInt("saved_idx_" + source.getKey(), 0);
             currentIndex = Math.max(0, Math.min(idx, queue.size() - 1));
             long pos = Math.max(0L, prefs.getLong("saved_pos_" + source.getKey(), 0L));
-            prepareCurrentItem(autoPlay, pos);
+            if (autoPlay) {
+                playbackAllowed = true;
+                prepareCurrentItem(true, pos);
+            } else {
+                playbackAllowed = false;
+                pendingSeekMs = pos;
+                releaseMediaPlayerOnly();
+                QueueItem cur = getCurrentItem();
+                if (cur != null) {
+                    resolveArtworkAsync(cur);
+                }
+                notifyStateChanged();
+            }
             return true;
         } catch (Throwable t) {
             Log.w(TAG, "restoreQueueSnapshot failed: " + t.getMessage());
@@ -743,6 +765,9 @@ public final class NativeStreamPlayer {
     public synchronized void release() {
         saveQueueSnapshot(getCurrentPositionMs());
         releaseMediaPlayerOnly();
+        if (queueSource == AudioSourceType.INTERNET_RADIO) {
+            LocalStreamProxy.getInstance().stopActiveSession();
+        }
         abandonAudioFocus();
         if (mediaSession != null) {
             try {

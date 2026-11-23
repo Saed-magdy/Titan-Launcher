@@ -25,11 +25,9 @@ import com.dongfeng.shinecockpit.shinewave.radio.RadioAudioPolicyRouter;
 import org.json.JSONArray;
 import org.json.JSONObject;
 
-import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Locale;
-import java.util.Random;
 import java.util.concurrent.CopyOnWriteArraySet;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -59,14 +57,17 @@ public final class ShineWaveEngine {
     private static volatile ShineWaveEngine instance;
 
     public static ShineWaveEngine getInstance(Context context) {
-        if (instance == null) {
+        ShineWaveEngine current = instance;
+        if (current == null || current.bgExecutor.isShutdown()) {
             synchronized (ShineWaveEngine.class) {
-                if (instance == null) {
-                    instance = new ShineWaveEngine(context.getApplicationContext());
+                current = instance;
+                if (current == null || current.bgExecutor.isShutdown()) {
+                    current = new ShineWaveEngine(context.getApplicationContext());
+                    instance = current;
                 }
             }
         }
-        return instance;
+        return current;
     }
 
     private final Context appContext;
@@ -98,11 +99,14 @@ public final class ShineWaveEngine {
     private int longSeekDir = 0;
     private long longSeekStartedAtMs = 0L;
     private SeekUiCallback seekUiCallback = null;
-    private final Random random = new Random();
-    private List<RadioBrowserClient.Station> lastInternetStations = RadioStationStore.getCuratedArabicStations();
-    private long lastManualTrackChangeMs = 0L;
-    private String lastTrackedBtKey = "";
-    private String lastTrackedExtKey = "";
+
+    private void executeBg(Runnable task) {
+        if (task != null && !bgExecutor.isShutdown()) {
+            try {
+                bgExecutor.execute(task);
+            } catch (java.util.concurrent.RejectedExecutionException ignored) {}
+        }
+    }
 
     private final Runnable externalPollRunnable = new Runnable() {
         @Override
@@ -150,10 +154,10 @@ public final class ShineWaveEngine {
             @Override
             public void onPlayerStateChanged(NativeStreamPlayer.QueueItem item, boolean playing, long posMs, long durMs,
                                              RepeatMode repeatMode, boolean shuffle, String artSig, String artDataUrl) {
+                stateModel.setRepeatMode(repeatMode);
+                stateModel.setShuffleEnabled(shuffle);
                 AudioSourceType curSrc = stateModel.getSource();
                 if (curSrc == AudioSourceType.LOCAL_MUSIC || curSrc == AudioSourceType.INTERNET_RADIO) {
-                    stateModel.setRepeatMode(repeatMode);
-                    stateModel.setShuffleEnabled(shuffle);
                     if (item != null) {
                         stateModel.setTrackInfo(item.title, item.artist, item.album, posMs / 1000L, durMs / 1000L, playing);
                         if (artDataUrl != null) {
@@ -165,6 +169,8 @@ public final class ShineWaveEngine {
                         stateModel.setTrackInfo("لا يوجد تشغيل حالي", "", "", 0L, 0L, false);
                         stateModel.clearArtwork();
                     }
+                    emitState();
+                } else {
                     emitState();
                 }
             }
@@ -277,13 +283,6 @@ public final class ShineWaveEngine {
         });
         this.callManager.start();
 
-        List<RadioBrowserClient.Station> savedFavs = this.internetStore.getFavorites();
-        if (savedFavs.isEmpty()) savedFavs = this.internetStore.getRecent();
-        if (!savedFavs.isEmpty()) {
-            this.lastInternetStations = new ArrayList<>(savedFavs);
-        }
-        stateModel.setRepeatMode(streamPlayer.getRepeatMode());
-        stateModel.setShuffleEnabled(streamPlayer.isShuffleEnabled());
         activateSourceInternal(savedSource, false);
     }
 
@@ -348,21 +347,11 @@ public final class ShineWaveEngine {
                 if (src == AudioSourceType.LOCAL_MUSIC || src == AudioSourceType.INTERNET_RADIO) {
                     streamPlayer.cycleRepeatMode();
                 } else if (src == AudioSourceType.BLUETOOTH) {
-                    boolean hwOk = avrcpTracker.cycleRepeatMode();
-                    if (hwOk && avrcpTracker.getRepeatMode() >= 0) {
-                        updateRepeatShuffleFromBluetooth();
-                    } else {
-                        cycleSoftwareRepeatMode();
-                    }
+                    avrcpTracker.cycleRepeatMode();
+                    updateRepeatShuffleFromBluetooth();
                 } else if (src == AudioSourceType.EXTERNAL_APP) {
-                    boolean hwOk = externalRouter.cycleRepeatMode();
-                    if (hwOk && externalRouter.getRepeatMode() >= 0) {
-                        updateRepeatShuffleFromExternal();
-                    } else {
-                        cycleSoftwareRepeatMode();
-                    }
-                } else if (src == AudioSourceType.CAR_RADIO) {
-                    cycleSoftwareRepeatMode();
+                    externalRouter.cycleRepeatMode();
+                    updateRepeatShuffleFromExternal();
                 }
                 break;
             }
@@ -371,37 +360,15 @@ public final class ShineWaveEngine {
                 if (src == AudioSourceType.LOCAL_MUSIC || src == AudioSourceType.INTERNET_RADIO) {
                     streamPlayer.toggleShuffle();
                 } else if (src == AudioSourceType.BLUETOOTH) {
-                    boolean hwOk = avrcpTracker.toggleShuffleMode();
-                    if (hwOk && avrcpTracker.getShuffleMode() >= 0) {
-                        updateRepeatShuffleFromBluetooth();
-                    } else {
-                        stateModel.setShuffleEnabled(!stateModel.isShuffleEnabled());
-                        emitState();
-                    }
+                    avrcpTracker.toggleShuffleMode();
+                    updateRepeatShuffleFromBluetooth();
                 } else if (src == AudioSourceType.EXTERNAL_APP) {
-                    boolean hwOk = externalRouter.toggleShuffleMode();
-                    if (hwOk && externalRouter.getShuffleMode() >= 0) {
-                        updateRepeatShuffleFromExternal();
-                    } else {
-                        stateModel.setShuffleEnabled(!stateModel.isShuffleEnabled());
-                        emitState();
-                    }
-                } else if (src == AudioSourceType.CAR_RADIO) {
-                    stateModel.setShuffleEnabled(!stateModel.isShuffleEnabled());
-                    emitState();
+                    externalRouter.toggleShuffleMode();
+                    updateRepeatShuffleFromExternal();
                 }
                 break;
             }
         }
-    }
-
-    private void cycleSoftwareRepeatMode() {
-        RepeatMode cur = stateModel.getRepeatMode();
-        RepeatMode next = (cur == RepeatMode.OFF)
-                ? RepeatMode.ALL
-                : (cur == RepeatMode.ALL ? RepeatMode.ONE : RepeatMode.OFF);
-        stateModel.setRepeatMode(next);
-        emitState();
     }
 
     public void selectSource(AudioSourceType target, boolean autoResumeIfApplicable) {
@@ -422,8 +389,11 @@ public final class ShineWaveEngine {
         if (prev == AudioSourceType.LOCAL_MUSIC || prev == AudioSourceType.INTERNET_RADIO) {
             streamPlayer.stopPlayback();
         } else if (prev == AudioSourceType.BLUETOOTH) {
-            bgExecutor.execute(new Runnable() {
-                @Override public void run() { qingganBt.pause(); }
+            executeBg(new Runnable() {
+                @Override public void run() {
+                    qingganBt.pause();
+                    avrcpTracker.sendPassThroughFallback("pause");
+                }
             });
         } else if (prev == AudioSourceType.CAR_RADIO) {
             fmAmTuner.setMuteAsync(true);
@@ -439,34 +409,30 @@ public final class ShineWaveEngine {
                 QingganAudioPolicyBridge.getInstance(appContext).routeToMusic();
                 avrcpTracker.setActivePolling(false);
                 mainHandler.removeCallbacks(externalPollRunnable);
-                stateModel.setRepeatMode(streamPlayer.getRepeatMode());
-                stateModel.setShuffleEnabled(streamPlayer.isShuffleEnabled());
                 if (streamPlayer.getQueueSource() != AudioSourceType.LOCAL_MUSIC || streamPlayer.getCurrentItem() == null) {
-                    if (!streamPlayer.resumeSavedQueue(AudioSourceType.LOCAL_MUSIC)) {
-                        if (autoActivate) {
-                            stateModel.setTrackInfo("جاري تجهيز ملفات الفلاشة…", "الملفات المحلية", "", 0L, 0L, false);
-                            stateModel.clearArtwork();
-                            bgExecutor.execute(new Runnable() {
-                                @Override
-                                public void run() {
-                                    final List<NativeStreamPlayer.QueueItem> scanned = localScanner.buildQueue("", "");
-                                    mainHandler.post(new Runnable() {
-                                        @Override
-                                        public void run() {
-                                            if (stateModel.getSource() != AudioSourceType.LOCAL_MUSIC) return;
-                                            if (!scanned.isEmpty()) {
-                                                streamPlayer.setQueueAndPlay(scanned, 0, AudioSourceType.LOCAL_MUSIC);
-                                            } else {
-                                                stateModel.setTrackInfo("اختر ملفاً من الفلاشة أو الذاكرة", "الملفات المحلية", "", 0L, 0L, false);
-                                                emitState();
-                                            }
+                    if (!autoActivate) {
+                        streamPlayer.resumeSavedQueue(AudioSourceType.LOCAL_MUSIC, false);
+                    } else if (!streamPlayer.resumeSavedQueue(AudioSourceType.LOCAL_MUSIC, true)) {
+                        stateModel.setTrackInfo("جاري تجهيز ملفات الفلاشة…", "الملفات المحلية", "", 0L, 0L, false);
+                        stateModel.clearArtwork();
+                        executeBg(new Runnable() {
+                            @Override
+                            public void run() {
+                                final List<NativeStreamPlayer.QueueItem> scanned = localScanner.buildQueue("", "");
+                                mainHandler.post(new Runnable() {
+                                    @Override
+                                    public void run() {
+                                        if (stateModel.getSource() != AudioSourceType.LOCAL_MUSIC) return;
+                                        if (!scanned.isEmpty()) {
+                                            streamPlayer.setQueueAndPlay(scanned, 0, AudioSourceType.LOCAL_MUSIC);
+                                        } else {
+                                            stateModel.setTrackInfo("اختر ملفاً من الفلاشة أو الذاكرة", "الملفات المحلية", "", 0L, 0L, false);
+                                            emitState();
                                         }
-                                    });
-                                }
-                            });
-                        }
-                    } else if (!autoActivate) {
-                        streamPlayer.pause();
+                                    }
+                                });
+                            }
+                        });
                     }
                 } else {
                     if (autoActivate) streamPlayer.play();
@@ -476,15 +442,16 @@ public final class ShineWaveEngine {
             case BLUETOOTH: {
                 mainHandler.removeCallbacks(externalPollRunnable);
                 avrcpTracker.setActivePolling(true);
-                bgExecutor.execute(new Runnable() {
+                executeBg(new Runnable() {
                     @Override
                     public void run() {
                         // Crucial: Route car hardware audio DSP policy to Bluetooth (streamType 4)
                         QingganAudioPolicyBridge.getInstance(appContext).routeToBluetooth();
 
-                        QingganBtController.BtState bt = qingganBt.refresh();
-                        if (autoActivate && bt.connected && !callManager.isCallInProgress()) {
+                        qingganBt.refresh();
+                        if (autoActivate && !callManager.isCallInProgress()) {
                             qingganBt.play();
+                            avrcpTracker.sendPassThroughFallback("play");
                         }
                         mainHandler.post(new Runnable() {
                             @Override
@@ -525,22 +492,19 @@ public final class ShineWaveEngine {
                 avrcpTracker.setActivePolling(false);
                 mainHandler.removeCallbacks(externalPollRunnable);
                 stateModel.clearArtwork();
-                stateModel.setRepeatMode(streamPlayer.getRepeatMode());
-                stateModel.setShuffleEnabled(streamPlayer.isShuffleEnabled());
                 if (streamPlayer.getQueueSource() != AudioSourceType.INTERNET_RADIO || streamPlayer.getCurrentItem() == null) {
-                    if (!streamPlayer.resumeSavedQueue(AudioSourceType.INTERNET_RADIO)) {
-                        List<NativeStreamPlayer.QueueItem> qItems = stationsToQueueItems(getEffectiveInternetStations());
-                        if (!qItems.isEmpty()) {
-                            if (autoActivate) {
-                                streamPlayer.setQueueAndPlay(qItems, 0, AudioSourceType.INTERNET_RADIO);
-                            } else {
-                                streamPlayer.setQueuePaused(qItems, 0, AudioSourceType.INTERNET_RADIO);
-                            }
+                    if (!autoActivate) {
+                        if (!streamPlayer.resumeSavedQueue(AudioSourceType.INTERNET_RADIO, false)) {
+                            stateModel.setTrackInfo("اختر محطة راديو إنترنت", "Internet Radio", "", 0L, 0L, false);
+                        }
+                    } else if (!streamPlayer.resumeSavedQueue(AudioSourceType.INTERNET_RADIO, true)) {
+                        List<RadioBrowserClient.Station> curated = RadioStationStore.getCuratedArabicStations();
+                        if (!curated.isEmpty()) {
+                            RadioBrowserClient.Station first = curated.get(0);
+                            playInternetStation(first.stationUuid, first.name, first.streamUrl, first.countryCode);
                         } else {
                             stateModel.setTrackInfo("اختر محطة راديو إنترنت", "Internet Radio", "", 0L, 0L, false);
                         }
-                    } else if (!autoActivate) {
-                        streamPlayer.pause();
                     }
                 } else {
                     if (autoActivate) streamPlayer.play();
@@ -582,22 +546,7 @@ public final class ShineWaveEngine {
                 break;
 
             case BLUETOOTH:
-                if ("next".equals(cmd) || "previous".equals(cmd)) {
-                    lastManualTrackChangeMs = SystemClock.elapsedRealtime();
-                    if ("next".equals(cmd) && stateModel.isShuffleEnabled() && avrcpTracker.getShuffleMode() < 0) {
-                        JSONObject bq = avrcpTracker.getQueueJson();
-                        JSONArray items = bq != null ? bq.optJSONArray("items") : null;
-                        int len = items != null ? items.length() : 0;
-                        String firstId = (len > 0 && items.optJSONObject(0) != null) ? items.optJSONObject(0).optString("id", "") : "";
-                        boolean isHistory = firstId.startsWith("bt_");
-                        if ((!isHistory && len > 1) || (isHistory && len >= 3)) {
-                            int pick = pickRandomOtherIndex(len, bq.optInt("currentIndex", 0));
-                            playQueueIndex(pick);
-                            return;
-                        }
-                    }
-                }
-                bgExecutor.execute(new Runnable() {
+                executeBg(new Runnable() {
                     @Override
                     public void run() {
                         boolean ok = false;
@@ -626,40 +575,9 @@ public final class ShineWaveEngine {
                     else if ("next".equals(cmd)) dabController.next();
                     else if ("previous".equals(cmd)) dabController.previous();
                 } else {
-                    if ("next".equals(cmd) || "previous".equals(cmd)) {
-                        int band = prefs.getInt(KEY_FM_BAND, FmAmTunerController.BAND_FM);
-                        int curFreq = fmAmTuner.getCurrentFreqKhz() > 0
-                                ? fmAmTuner.getCurrentFreqKhz()
-                                : prefs.getInt(KEY_FM_FREQ, band == FmAmTunerController.BAND_FM ? 87500 : 1000);
-                        List<OemStationRepository.Station> stations = oemStationRepo.loadStations(band, fmAmTuner.getFactoryBridge());
-                        String bStr = (band == FmAmTunerController.BAND_FM) ? "FM" : "AM";
-                        if (stateModel.getRepeatMode() == RepeatMode.ONE) {
-                            tuneCarRadio(bStr, curFreq);
-                        } else if (stateModel.isShuffleEnabled() && stations.size() > 1) {
-                            int curIdx = -1;
-                            for (int i = 0; i < stations.size(); i++) {
-                                if (stations.get(i).frequencyKhz == curFreq) {
-                                    curIdx = i;
-                                    break;
-                                }
-                            }
-                            int pick = pickRandomOtherIndex(stations.size(), curIdx);
-                            tuneCarRadio(bStr, stations.get(pick).frequencyKhz);
-                        } else if (!stations.isEmpty() && stateModel.getRepeatMode() == RepeatMode.ALL) {
-                            int curIdx = -1;
-                            for (int i = 0; i < stations.size(); i++) {
-                                if (stations.get(i).frequencyKhz == curFreq) {
-                                    curIdx = i;
-                                    break;
-                                }
-                            }
-                            int dir = "next".equals(cmd) ? 1 : -1;
-                            int nextIdx = (curIdx < 0) ? 0 : (curIdx + dir + stations.size()) % stations.size();
-                            tuneCarRadio(bStr, stations.get(nextIdx).frequencyKhz);
-                        } else {
-                            fmAmTuner.seekAsync("next".equals(cmd));
-                        }
-                    } else if ("toggle".equals(cmd)) {
+                    if ("next".equals(cmd)) fmAmTuner.seekAsync(true);
+                    else if ("previous".equals(cmd)) fmAmTuner.seekAsync(false);
+                    else if ("toggle".equals(cmd)) {
                         boolean nextMuted = stateModel.isPlaying();
                         fmAmTuner.setMuteAsync(nextMuted);
                         stateModel.setPlaying(!nextMuted);
@@ -669,21 +587,6 @@ public final class ShineWaveEngine {
                 break;
 
             case EXTERNAL_APP:
-                if ("next".equals(cmd) || "previous".equals(cmd)) {
-                    lastManualTrackChangeMs = SystemClock.elapsedRealtime();
-                    if ("next".equals(cmd) && stateModel.isShuffleEnabled() && externalRouter.getShuffleMode() < 0) {
-                        JSONObject eq = externalRouter.getQueueJson();
-                        JSONArray items = eq != null ? eq.optJSONArray("items") : null;
-                        int len = items != null ? items.length() : 0;
-                        String firstId = (len > 0 && items.optJSONObject(0) != null) ? items.optJSONObject(0).optString("id", "") : "";
-                        boolean isHistory = firstId.startsWith("ext_");
-                        if ((!isHistory && len > 1) || (isHistory && len >= 3)) {
-                            int pick = pickRandomOtherIndex(len, eq.optInt("currentIndex", 0));
-                            playQueueIndex(pick);
-                            return;
-                        }
-                    }
-                }
                 externalRouter.dispatchCommand(cmd);
                 mainHandler.postDelayed(new Runnable() {
                     @Override public void run() { syncExternalSession(true); }
@@ -759,23 +662,6 @@ public final class ShineWaveEngine {
         boolean playing = bt.available ? bt.playing : snap.playing;
         stateModel.setBtConnected(connected);
 
-        String btTrackKey = !snap.title.isEmpty() ? (snap.title + "|" + snap.artist) : "";
-        if (!btTrackKey.isEmpty()
-                && !lastTrackedBtKey.isEmpty()
-                && !btTrackKey.equals(lastTrackedBtKey)
-                && playing
-                && stateModel.getRepeatMode() == RepeatMode.ONE
-                && avrcpTracker.getRepeatMode() < 0
-                && (SystemClock.elapsedRealtime() - lastManualTrackChangeMs) > 3500L) {
-            lastManualTrackChangeMs = SystemClock.elapsedRealtime();
-            lastTrackedBtKey = btTrackKey;
-            handleTransport("previous");
-            return;
-        }
-        if (!btTrackKey.isEmpty()) {
-            lastTrackedBtKey = btTrackKey;
-        }
-
         String title = snap.title;
         String artist = snap.artist;
         if (title.isEmpty()) {
@@ -829,24 +715,6 @@ public final class ShineWaveEngine {
     private void syncExternalSession(boolean forceEmit) {
         ExternalPlayerRouter.SessionSnapshot snap = externalRouter.readSelectedSession();
         if (snap == null) return;
-        String extTrackKey = (!snap.title.isEmpty() && !snap.title.contains("اختر تطبيق"))
-                ? (snap.packageName + "|" + snap.title + "|" + snap.artist) : "";
-        if (!extTrackKey.isEmpty()
-                && !lastTrackedExtKey.isEmpty()
-                && !extTrackKey.equals(lastTrackedExtKey)
-                && snap.playing
-                && stateModel.getRepeatMode() == RepeatMode.ONE
-                && externalRouter.getRepeatMode() < 0
-                && (SystemClock.elapsedRealtime() - lastManualTrackChangeMs) > 3500L) {
-            lastManualTrackChangeMs = SystemClock.elapsedRealtime();
-            lastTrackedExtKey = extTrackKey;
-            handleTransport("previous");
-            return;
-        }
-        if (!extTrackKey.isEmpty()) {
-            lastTrackedExtKey = extTrackKey;
-        }
-
         String sig = snap.packageName + "|" + snap.title + "|" + snap.artist + "|" + snap.playing + "|" + snap.positionSec + "|" + snap.durationSec;
         if (!forceEmit && sig.equals(lastExternalSignature)) return;
         lastExternalSignature = sig;
@@ -862,41 +730,29 @@ public final class ShineWaveEngine {
     }
 
     private void updateRepeatShuffleFromBluetooth() {
-        boolean changed = false;
         int rMode = avrcpTracker.getRepeatMode();
-        if (rMode >= 0) {
-            RepeatMode rm = RepeatMode.OFF;
-            if (rMode == AvrcpMetadataTracker.REPEAT_MODE_ALL) rm = RepeatMode.ALL;
-            else if (rMode == AvrcpMetadataTracker.REPEAT_MODE_ONE) rm = RepeatMode.ONE;
-            stateModel.setRepeatMode(rm);
-            changed = true;
-        }
+        RepeatMode rm = RepeatMode.OFF;
+        if (rMode == AvrcpMetadataTracker.REPEAT_MODE_ALL) rm = RepeatMode.ALL;
+        else if (rMode == AvrcpMetadataTracker.REPEAT_MODE_ONE) rm = RepeatMode.ONE;
+        stateModel.setRepeatMode(rm);
+
         int sMode = avrcpTracker.getShuffleMode();
-        if (sMode >= 0) {
-            boolean shuffle = (sMode != AvrcpMetadataTracker.SHUFFLE_MODE_NONE);
-            stateModel.setShuffleEnabled(shuffle);
-            changed = true;
-        }
-        if (changed) emitState();
+        boolean shuffle = (sMode != AvrcpMetadataTracker.SHUFFLE_MODE_NONE);
+        stateModel.setShuffleEnabled(shuffle);
+        emitState();
     }
 
     private void updateRepeatShuffleFromExternal() {
-        boolean changed = false;
         int rMode = externalRouter.getRepeatMode();
-        if (rMode >= 0) {
-            RepeatMode rm = RepeatMode.OFF;
-            if (rMode == ExternalPlayerRouter.REPEAT_MODE_ALL) rm = RepeatMode.ALL;
-            else if (rMode == ExternalPlayerRouter.REPEAT_MODE_ONE) rm = RepeatMode.ONE;
-            stateModel.setRepeatMode(rm);
-            changed = true;
-        }
+        RepeatMode rm = RepeatMode.OFF;
+        if (rMode == ExternalPlayerRouter.REPEAT_MODE_ALL) rm = RepeatMode.ALL;
+        else if (rMode == ExternalPlayerRouter.REPEAT_MODE_ONE) rm = RepeatMode.ONE;
+        stateModel.setRepeatMode(rm);
+
         int sMode = externalRouter.getShuffleMode();
-        if (sMode >= 0) {
-            boolean shuffle = (sMode != ExternalPlayerRouter.SHUFFLE_MODE_NONE);
-            stateModel.setShuffleEnabled(shuffle);
-            changed = true;
-        }
-        if (changed) emitState();
+        boolean shuffle = (sMode != ExternalPlayerRouter.SHUFFLE_MODE_NONE);
+        stateModel.setShuffleEnabled(shuffle);
+        emitState();
     }
 
     // ==================== STUDIO DATA / ACTIONS API ====================
@@ -906,7 +762,7 @@ public final class ShineWaveEngine {
     }
 
     public void playLocalTrack(final String folderPath, final String query, final String trackId) {
-        bgExecutor.execute(new Runnable() {
+        executeBg(new Runnable() {
             @Override
             public void run() {
                 final List<NativeStreamPlayer.QueueItem> queue = localScanner.buildQueue(folderPath, query);
@@ -922,6 +778,11 @@ public final class ShineWaveEngine {
                     @Override
                     public void run() {
                         if (queue.isEmpty()) return;
+                        AudioSourceType prev = stateModel.getSource();
+                        if (prev != AudioSourceType.LOCAL_MUSIC) {
+                            deactivateSource(prev);
+                        }
+                        QingganAudioPolicyBridge.getInstance(appContext).routeToMusic();
                         stateModel.setSource(AudioSourceType.LOCAL_MUSIC);
                         prefs.edit().putString(KEY_SOURCE, AudioSourceType.LOCAL_MUSIC.getKey()).apply();
                         streamPlayer.setQueueAndPlay(queue, startIdx, AudioSourceType.LOCAL_MUSIC);
@@ -929,81 +790,6 @@ public final class ShineWaveEngine {
                 });
             }
         });
-    }
-
-    private int pickRandomOtherIndex(int size, int currentIndex) {
-        if (size <= 1) return 0;
-        int pick = random.nextInt(size);
-        if (pick == currentIndex) {
-            pick = (currentIndex + 1 + random.nextInt(size - 1)) % size;
-        }
-        return pick;
-    }
-
-    private void stepTransportAsync(final boolean isBluetooth, final int offset) {
-        final int steps = Math.min(Math.abs(offset), 15);
-        final String cmd = offset > 0 ? "next" : "previous";
-        bgExecutor.execute(new Runnable() {
-            @Override
-            public void run() {
-                for (int i = 0; i < steps; i++) {
-                    if (isBluetooth) {
-                        if ("next".equals(cmd)) qingganBt.next();
-                        else qingganBt.previous();
-                        avrcpTracker.sendPassThroughFallback(cmd);
-                    } else {
-                        externalRouter.dispatchCommand(cmd);
-                    }
-                    if (i + 1 < steps) {
-                        try {
-                            Thread.sleep(120L);
-                        } catch (InterruptedException ignored) {
-                            break;
-                        }
-                    }
-                }
-                mainHandler.postDelayed(new Runnable() {
-                    @Override
-                    public void run() {
-                        if (isBluetooth) avrcpTracker.refresh();
-                        else syncExternalSession(true);
-                    }
-                }, 220L);
-            }
-        });
-    }
-
-    private List<RadioBrowserClient.Station> getEffectiveInternetStations() {
-        if (lastInternetStations != null && !lastInternetStations.isEmpty()) {
-            return lastInternetStations;
-        }
-        List<RadioBrowserClient.Station> favs = internetStore.getFavorites();
-        if (!favs.isEmpty()) return favs;
-        List<RadioBrowserClient.Station> recent = internetStore.getRecent();
-        if (!recent.isEmpty()) return recent;
-        return RadioStationStore.getCuratedArabicStations();
-    }
-
-    private List<NativeStreamPlayer.QueueItem> stationsToQueueItems(List<RadioBrowserClient.Station> stations) {
-        List<NativeStreamPlayer.QueueItem> items = new ArrayList<>();
-        if (stations == null) return items;
-        for (RadioBrowserClient.Station s : stations) {
-            if (s == null || s.streamUrl == null || s.streamUrl.trim().isEmpty()) continue;
-            String artist = (s.countryCode != null && !s.countryCode.isEmpty())
-                    ? ("Internet Radio · " + s.countryCode)
-                    : "Internet Radio";
-            items.add(new NativeStreamPlayer.QueueItem(
-                    s.stationUuid,
-                    s.streamUrl,
-                    s.name,
-                    artist,
-                    "Internet Radio",
-                    0L,
-                    0L,
-                    true
-            ));
-        }
-        return items;
     }
 
     public void playQueueIndex(int index) {
@@ -1017,14 +803,18 @@ public final class ShineWaveEngine {
                 break;
             }
             case EXTERNAL_APP: {
-                final int offset = externalRouter.resolveQueueStepOffset(index);
-                if (offset != 0) {
-                    lastManualTrackChangeMs = SystemClock.elapsedRealtime();
-                    stepTransportAsync(false, offset);
-                } else {
-                    mainHandler.postDelayed(new Runnable() {
-                        @Override public void run() { syncExternalSession(true); }
-                    }, 180L);
+                JSONObject queueJson = externalRouter.getQueueJson();
+                if (queueJson != null && queueJson.has("items")) {
+                    JSONArray items = queueJson.optJSONArray("items");
+                    if (items != null && index >= 0 && index < items.length()) {
+                        JSONObject it = items.optJSONObject(index);
+                        if (it != null) {
+                            long qId = it.optLong("id", -1L);
+                            if (qId != -1L) {
+                                externalRouter.skipToQueueItem(qId);
+                            }
+                        }
+                    }
                 }
                 break;
             }
@@ -1038,29 +828,22 @@ public final class ShineWaveEngine {
                 break;
             }
             case INTERNET_RADIO: {
-                List<NativeStreamPlayer.QueueItem> q = streamPlayer.getQueueSnapshot();
-                if (index >= 0 && index < q.size()) {
-                    streamPlayer.setQueueAndPlay(q, index, AudioSourceType.INTERNET_RADIO);
-                } else {
-                    List<RadioBrowserClient.Station> stations = getEffectiveInternetStations();
-                    if (index >= 0 && index < stations.size()) {
-                        RadioBrowserClient.Station s = stations.get(index);
-                        playInternetStation(s.stationUuid, s.name, s.streamUrl, s.countryCode);
-                    }
+                List<RadioBrowserClient.Station> favs = internetStore.getFavorites();
+                if (favs.isEmpty()) favs = internetStore.getRecent();
+                if (favs.isEmpty()) favs = RadioStationStore.getCuratedArabicStations();
+                if (index >= 0 && index < favs.size()) {
+                    RadioBrowserClient.Station s = favs.get(index);
+                    playInternetStation(s.stationUuid, s.name, s.streamUrl, s.countryCode);
                 }
                 break;
             }
             case BLUETOOTH: {
-                final int offset = avrcpTracker.resolveQueueStepOffset(index);
-                if (offset != 0) {
-                    lastManualTrackChangeMs = SystemClock.elapsedRealtime();
-                    stepTransportAsync(true, offset);
-                } else {
-                    qingganBt.play();
-                    mainHandler.postDelayed(new Runnable() {
-                        @Override public void run() { avrcpTracker.refresh(); }
-                    }, 180L);
-                }
+                executeBg(new Runnable() {
+                    @Override public void run() {
+                        qingganBt.play();
+                        avrcpTracker.sendPassThroughFallback("play");
+                    }
+                });
                 break;
             }
         }
@@ -1116,10 +899,9 @@ public final class ShineWaveEngine {
                     int band = prefs.getInt(KEY_FM_BAND, FmAmTunerController.BAND_FM);
                     int curFreq = fmAmTuner.getCurrentFreqKhz() > 0 ? fmAmTuner.getCurrentFreqKhz() : prefs.getInt(KEY_FM_FREQ, 87500);
                     List<OemStationRepository.Station> stations = oemStationRepo.loadStations(band, fmAmTuner.getFactoryBridge());
-                    int tol = (band == FmAmTunerController.BAND_FM) ? 50 : 2;
                     for (int i = 0; i < stations.size(); i++) {
                         OemStationRepository.Station s = stations.get(i);
-                        boolean active = Math.abs(s.frequencyKhz - curFreq) <= tol;
+                        boolean active = (s.frequencyKhz == curFreq);
                         if (active) cur = i;
                         arr.put(new JSONObject()
                                 .put("index", i)
@@ -1135,29 +917,13 @@ public final class ShineWaveEngine {
                     return root;
                 }
                 case INTERNET_RADIO: {
-                    List<NativeStreamPlayer.QueueItem> q = streamPlayer.getQueueSnapshot();
-                    if (!q.isEmpty()) {
-                        cur = streamPlayer.getCurrentIndex();
-                        for (int i = 0; i < q.size(); i++) {
-                            NativeStreamPlayer.QueueItem item = q.get(i);
-                            arr.put(new JSONObject()
-                                    .put("index", i)
-                                    .put("id", item.id)
-                                    .put("title", item.title)
-                                    .put("artist", item.artist)
-                                    .put("durationSec", item.durationMs / 1000L)
-                                    .put("active", i == cur));
-                        }
-                        root.put("source", "INTERNET_RADIO");
-                        root.put("currentIndex", cur);
-                        root.put("items", arr);
-                        return root;
-                    }
-                    List<RadioBrowserClient.Station> stations = getEffectiveInternetStations();
+                    List<RadioBrowserClient.Station> favs = internetStore.getFavorites();
+                    if (favs.isEmpty()) favs = internetStore.getRecent();
+                    if (favs.isEmpty()) favs = RadioStationStore.getCuratedArabicStations();
                     NativeStreamPlayer.QueueItem currentItem = streamPlayer.getCurrentItem();
                     String curUuid = currentItem != null ? currentItem.id : "";
-                    for (int i = 0; i < stations.size(); i++) {
-                        RadioBrowserClient.Station s = stations.get(i);
+                    for (int i = 0; i < favs.size(); i++) {
+                        RadioBrowserClient.Station s = favs.get(i);
                         boolean active = s.stationUuid.equals(curUuid);
                         if (active) cur = i;
                         arr.put(new JSONObject()
@@ -1174,11 +940,6 @@ public final class ShineWaveEngine {
                     return root;
                 }
                 case BLUETOOTH: {
-                    JSONObject btQ = avrcpTracker.getQueueJson();
-                    if (btQ != null && btQ.has("items") && btQ.getJSONArray("items").length() > 0) {
-                        btQ.put("source", "BLUETOOTH");
-                        return btQ;
-                    }
                     AvrcpMetadataTracker.AvrcpSnapshot bSnap = avrcpTracker.getSnapshot();
                     arr.put(new JSONObject()
                             .put("index", 0)
@@ -1334,9 +1095,6 @@ public final class ShineWaveEngine {
                     list = internetClient.searchStations(query, false, 40);
                     break;
             }
-            if (list != null && !list.isEmpty()) {
-                lastInternetStations = new ArrayList<>(list);
-            }
             for (RadioBrowserClient.Station s : list) {
                 arr.put(s.toJson(internetStore.isFavorite(s.stationUuid)));
             }
@@ -1357,6 +1115,10 @@ public final class ShineWaveEngine {
 
     public void playInternetStation(String uuid, String name, String url, String country) {
         if (url == null || url.trim().isEmpty()) return;
+        AudioSourceType prev = stateModel.getSource();
+        if (prev != AudioSourceType.INTERNET_RADIO) {
+            deactivateSource(prev);
+        }
         QingganAudioPolicyBridge.getInstance(appContext).routeToMusic();
         RadioBrowserClient.Station station = new RadioBrowserClient.Station(uuid, name, url, country);
         internetStore.addRecent(station);
@@ -1364,29 +1126,13 @@ public final class ShineWaveEngine {
 
         stateModel.setSource(AudioSourceType.INTERNET_RADIO);
         prefs.edit().putString(KEY_SOURCE, AudioSourceType.INTERNET_RADIO.getKey()).apply();
-        stateModel.setRepeatMode(streamPlayer.getRepeatMode());
-        stateModel.setShuffleEnabled(streamPlayer.isShuffleEnabled());
 
-        List<RadioBrowserClient.Station> base = new ArrayList<>(getEffectiveInternetStations());
-        int clickedIndex = -1;
-        for (int i = 0; i < base.size(); i++) {
-            RadioBrowserClient.Station s = base.get(i);
-            if ((uuid != null && !uuid.isEmpty() && uuid.equals(s.stationUuid))
-                    || url.equals(s.streamUrl)) {
-                clickedIndex = i;
-                break;
-            }
-        }
-        if (clickedIndex < 0) {
-            base.add(0, station);
-            clickedIndex = 0;
-        }
-        lastInternetStations = base;
-        List<NativeStreamPlayer.QueueItem> qItems = stationsToQueueItems(base);
-        if (!qItems.isEmpty()) {
-            clickedIndex = Math.max(0, Math.min(clickedIndex, qItems.size() - 1));
-            streamPlayer.setQueueAndPlay(qItems, clickedIndex, AudioSourceType.INTERNET_RADIO);
-        }
+        NativeStreamPlayer.QueueItem item = new NativeStreamPlayer.QueueItem(
+                station.stationUuid, station.streamUrl, station.name,
+                country != null && !country.isEmpty() ? ("Internet Radio · " + country) : "Internet Radio",
+                "Internet Radio", 0L, 0L, true
+        );
+        streamPlayer.setQueueAndPlay(Collections.singletonList(item), 0, AudioSourceType.INTERNET_RADIO);
     }
 
     public boolean toggleInternetFavorite(String uuid, String name, String url, String country) {
@@ -1457,6 +1203,11 @@ public final class ShineWaveEngine {
     }
 
     public void release() {
+        synchronized (ShineWaveEngine.class) {
+            if (instance == this) {
+                instance = null;
+            }
+        }
         callManager.stop();
         mainHandler.removeCallbacksAndMessages(null);
         streamPlayer.release();
