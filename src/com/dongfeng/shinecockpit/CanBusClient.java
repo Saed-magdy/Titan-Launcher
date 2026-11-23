@@ -1089,19 +1089,61 @@ public class CanBusClient {
     }
 
     /**
-     * Dispatch UI commands directly to the matching VehicleState or AirConditionState
+     * SAFETY: the trunk may only be opened from the screen when the car is standing still.
+     * Above this speed (km/h) the trunk button on the screen is refused.
+     * 5 km/h rather than 0 because the speed reading can flicker between 0 and 1-3 km/h
+     * while parked or creeping in a parking space.
      */
-    public void dispatchCommand(String command, int value) {
+    public static final int TRUNK_MAX_SPEED_KMH = 5;
+
+    // Possible answers of dispatchCommand(): what happened to the button press.
+    /** The command was sent to the car. */
+    public static final int COMMAND_SENT = 0;
+    /** Refused for safety: the car is moving faster than TRUNK_MAX_SPEED_KMH. */
+    public static final int COMMAND_REFUSED_MOVING = 1;
+    /**
+     * Refused for safety: the car's speed could not be read, so we cannot tell whether it is
+     * moving. Usually temporary, e.g. in the first seconds after starting the car, before the
+     * car's computer service is ready.
+     */
+    public static final int COMMAND_REFUSED_SPEED_UNKNOWN = 2;
+
+    /**
+     * Dispatch UI commands directly to the matching VehicleState or AirConditionState.
+     *
+     * @return COMMAND_SENT, or one of the COMMAND_REFUSED_... values when the command was
+     *         refused for safety. The caller uses this to tell the driver WHY nothing happened,
+     *         with a different message for "car is moving" and "speed unknown".
+     */
+    public int dispatchCommand(String command, int value) {
         try {
             if ("OPEN_CAMERA".equalsIgnoreCase(command) || "CAMERA".equalsIgnoreCase(command) || "AVM".equalsIgnoreCase(command) || "CAMERA360".equalsIgnoreCase(command)) {
                 openCamera360();
-                return;
+                return COMMAND_SENT;
             }
             if ("VEHICLE_TUNK_CONTROL".equalsIgnoreCase(command) || "TRUNK_CONTROL".equalsIgnoreCase(command) || "TAILGATE_CONTROL".equalsIgnoreCase(command)) {
+                // SAFETY CHECK FIRST: read the live speed from the car.
+                // getSpeed() gives km/h, or -1 when the car's computer cannot be reached.
+                // If we cannot tell whether the car is moving, we play safe and refuse too:
+                // the key fob and the trunk button on the car still work as normal.
+                int speedKmh = getSpeed();
+                if (speedKmh < 0) {
+                    Log.w(TAG, "SAFETY: trunk command refused, speed unknown (car computer not reachable)");
+                    return COMMAND_REFUSED_SPEED_UNKNOWN;
+                }
+                if (speedKmh > TRUNK_MAX_SPEED_KMH) {
+                    Log.w(TAG, "SAFETY: trunk command refused, speed=" + speedKmh + " km/h (limit " + TRUNK_MAX_SPEED_KMH + ")");
+                    return COMMAND_REFUSED_MOVING;
+                }
+
                 // Dongfeng Aeolus C65 sedan uses TAILGATE_OPEN_CTRL_REQ (bz.Z -> 0x365 bit 29..31, dataType 67)
                 // In C65 0x365 (VehicleSettingComponentImpl.g), 2 = Open request, 1 = Close/Trigger request, 0 = Inactive
-                final int reqVal = (value == 2 || value == 1) ? value : 2;
-                Log.i(TAG, "Triggering Dongfeng C65 Trunk pulse via TAILGATE_OPEN_CTRL_REQ = " + reqVal);
+                // The car expects a short "button press" made of three steps, always in this order:
+                //   2 (open request) -> after 0.22 s: 1 (trigger) -> after 0.55 s: 0 (release).
+                // Note: there used to be a variable here that looked like it chose between open and
+                // close, but it was never used (the sequence above was always sent). It was removed
+                // so the code no longer suggests a "close trunk" option that does not exist.
+                Log.i(TAG, "Triggering Dongfeng C65 Trunk pulse via TAILGATE_OPEN_CTRL_REQ (2 -> 1 -> 0), speed=" + speedKmh + " km/h");
                 setVehicleState(VehicleState.TAILGATE_OPEN_CTRL_REQ, 2);
                 Handler h = new Handler(Looper.getMainLooper());
                 h.postDelayed(new Runnable() {
@@ -1273,5 +1315,6 @@ public class CanBusClient {
         } catch (Exception e) {
             Log.e(TAG, "Failed to dispatch CAN command: " + command, e);
         }
+        return COMMAND_SENT;
     }
 }
