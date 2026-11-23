@@ -33,11 +33,24 @@
 #>
 param(
     # Folder of the Android SDK (contains build-tools\ and platforms\).
-    [string]$SdkDir = $(if ($env:ANDROID_SDK_ROOT) { $env:ANDROID_SDK_ROOT } else { $env:ANDROID_HOME }),
+    [string]$SdkDir = $(
+        if ($env:ANDROID_SDK_ROOT -and (Test-Path $env:ANDROID_SDK_ROOT)) { $env:ANDROID_SDK_ROOT }
+        elseif ($env:ANDROID_HOME -and (Test-Path $env:ANDROID_HOME)) { $env:ANDROID_HOME }
+        elseif (Test-Path "$PSScriptRoot\..\android-tools") { (Resolve-Path "$PSScriptRoot\..\android-tools").Path }
+        else { $null }
+    ),
     [string]$BuildToolsVersion = "28.0.3",
     # Car platform signing key and certificate (never commit these to git).
-    [string]$PlatformKey = $env:TITAN_PLATFORM_KEY,
-    [string]$PlatformCert = $env:TITAN_PLATFORM_CERT,
+    [string]$PlatformKey = $(
+        if ($env:TITAN_PLATFORM_KEY -and (Test-Path $env:TITAN_PLATFORM_KEY)) { $env:TITAN_PLATFORM_KEY }
+        elseif (Test-Path "$PSScriptRoot\..\shine wave\shine wave\shine wave\app\platform\platform.pk8") { (Resolve-Path "$PSScriptRoot\..\shine wave\shine wave\shine wave\app\platform\platform.pk8").Path }
+        else { $null }
+    ),
+    [string]$PlatformCert = $(
+        if ($env:TITAN_PLATFORM_CERT -and (Test-Path $env:TITAN_PLATFORM_CERT)) { $env:TITAN_PLATFORM_CERT }
+        elseif (Test-Path "$PSScriptRoot\..\shine wave\shine wave\shine wave\app\platform\platform.x509.pem") { (Resolve-Path "$PSScriptRoot\..\shine wave\shine wave\shine wave\app\platform\platform.x509.pem").Path }
+        else { $null }
+    ),
     # Sign with a throwaway test key instead of the platform key.
     [switch]$TestSign,
     # Optional extra folders to copy the finished APK into.
@@ -103,6 +116,10 @@ $binDir = Join-Path $projDir "bin"
 $genDir = Join-Path $binDir "gen"           # R.java goes here, so the src folder stays clean
 $classesDir = Join-Path $binDir "classes"
 $stubsClassesDir = Join-Path $binDir "stubs_classes"
+
+# Remove legacy R.java in src/ if present from older builds to avoid duplicate class errors
+$legacyR = Join-Path $srcDir "com\dongfeng\shinecockpit\R.java"
+if (Test-Path $legacyR) { Remove-Item $legacyR -Force }
 
 foreach ($dir in @($genDir, $classesDir, $stubsClassesDir)) {
     if (Test-Path $dir) { Remove-Item $dir -Recurse -Force }
@@ -201,6 +218,15 @@ foreach ($dest in $CopyTo) {
     Copy-Item $finalApk $dest -Force
     Write-Host "Copied to: $dest" -ForegroundColor Green
 }
+
+# Auto-sync to READY_FOR_CAR and project roots if available
+$readyDir = Join-Path $projDir "..\READY_FOR_CAR"
+if (Test-Path $readyDir) {
+    Copy-Item $finalApk (Join-Path $readyDir "1_Titan_launcher_v$verName.apk") -Force
+    Copy-Item $finalApk (Join-Path $readyDir "1_Titan_launcher_v $verName.apk") -Force
+    Write-Host "Auto-copied to READY_FOR_CAR for vehicle update." -ForegroundColor Green
+}
+Copy-Item $finalApk (Join-Path $projDir "Titan_launcher_v $verName.apk") -Force
 
 Write-Host "==========================================" -ForegroundColor Green
 Write-Host "BUILD SUCCESSFUL" -ForegroundColor Green
