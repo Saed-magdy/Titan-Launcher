@@ -38,11 +38,26 @@ public class GitHubUpdateChecker {
             @Override
             public void run() {
                 try {
-                    String currentVersion = "2.1.3";
+                    // The installed version is read from the app itself (it comes from
+                    // android:versionName in AndroidManifest.xml). There used to be a typed-in
+                    // copy of the number here as a backup; every release someone had to remember
+                    // to change it, and when they forgot, the updater compared against the wrong
+                    // number. Now the manifest is the ONLY place the version is written.
+                    String currentVersion = null;
                     try {
                         PackageInfo pInfo = context.getPackageManager().getPackageInfo(context.getPackageName(), 0);
                         currentVersion = pInfo.versionName;
-                    } catch (PackageManager.NameNotFoundException ignored) {}
+                    } catch (PackageManager.NameNotFoundException e) {
+                        Log.e(TAG, "Could not read the installed version: " + e.getMessage());
+                    }
+                    if (currentVersion == null || currentVersion.trim().isEmpty()) {
+                        // Without knowing our own version we cannot compare safely, so we do not
+                        // offer an update at all (better than offering the same version forever).
+                        if (!silentIfUpToDate) {
+                            showToast(context, "تعذر معرفة إصدار اللانشر الحالي.");
+                        }
+                        return;
+                    }
 
                     URL url = new URL(REPO_API);
                     HttpURLConnection conn = (HttpURLConnection) url.openConnection();

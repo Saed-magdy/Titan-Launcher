@@ -1502,8 +1502,10 @@ function toggleDoor(key) {
       if (window.AndroidBridge && typeof window.AndroidBridge.checkForUpdates === 'function') {
         window.AndroidBridge.checkForUpdates(false);
       } else {
+        // Desktop preview only (no car connected, so no real update check happens).
+        // No version number here on purpose: the real number lives only in AndroidManifest.xml.
         setTimeout(() => {
-          showLauncherToast(isAr ? '✓ أنت تستخدم أحدث إصدار v2.1.3' : (isRu ? '✓ У вас установлена актуальная версия v2.1.3' : '✓ You are on the latest version v2.1.3'), 2500);
+          showLauncherToast(isAr ? '✓ أنت تستخدم أحدث إصدار (معاينة)' : (isRu ? '✓ У вас актуальная версия (предпросмотр)' : '✓ You are on the latest version (preview)'), 2500);
         }, 1200);
       }
     }
