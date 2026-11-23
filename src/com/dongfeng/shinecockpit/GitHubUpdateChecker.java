@@ -104,12 +104,14 @@ public class GitHubUpdateChecker {
                         new Handler(Looper.getMainLooper()).post(new Runnable() {
                             @Override
                             public void run() {
-                                if (finalDownloadUrl != null && isNewerVersion(finalCurVer, latestTag)) {
-                                    showUpdateDialog(context, latestTag, releaseNotes, finalDownloadUrl);
-                                } else {
-                                    if (!silentIfUpToDate) {
-                                        Toast.makeText(context, "اللانشر على أحدث إصدار بالفعل (v" + finalCurVer + ")", Toast.LENGTH_SHORT).show();
+                                if (isNewerVersion(finalCurVer, latestTag)) {
+                                    if (finalDownloadUrl != null) {
+                                        showUpdateDialog(context, latestTag, releaseNotes, finalDownloadUrl);
+                                    } else if (!silentIfUpToDate) {
+                                        Toast.makeText(context, "يتوفر إصدار جديد (v" + latestTag + ") على GitHub ولكن ملف التثبيت غير مرفق بعد.", Toast.LENGTH_LONG).show();
                                     }
+                                } else if (!silentIfUpToDate) {
+                                    Toast.makeText(context, "اللانشر على أحدث إصدار بالفعل (v" + finalCurVer + ")", Toast.LENGTH_SHORT).show();
                                 }
                             }
                         });
@@ -146,6 +148,12 @@ public class GitHubUpdateChecker {
     }
 
     private static void showUpdateDialog(final Context context, final String newVersion, final String notes, final String downloadUrl) {
+        if (context instanceof android.app.Activity) {
+            android.app.Activity act = (android.app.Activity) context;
+            if (act.isFinishing() || (Build.VERSION.SDK_INT >= Build.VERSION_CODES.JELLY_BEAN_MR1 && act.isDestroyed())) {
+                return;
+            }
+        }
         new AlertDialog.Builder(context)
                 .setTitle("🚀 تحديث جديد متاح (v" + newVersion + ")")
                 .setMessage("ملاحظات الإصدار الجديد:\n\n" + notes + "\n\nهل تريد تنزيل التحديث وتثبيته الآن؟")

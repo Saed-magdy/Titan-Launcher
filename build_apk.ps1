@@ -145,13 +145,18 @@ if ($LASTEXITCODE -ne 0) { Fail "AAPT could not generate R.java" }
 #    unit; they let the code compile here and are NOT packed into the APK.
 # ---------------------------------------------------------------------------
 Write-Host "--- Step 2: Compiling Java sources (Java 8 bytecode) ---" -ForegroundColor Cyan
-$stubFiles = Get-ChildItem -Path (Join-Path $projDir "compile_stubs") -Filter "*.java" -Recurse | ForEach-Object { $_.FullName }
-& javac -encoding UTF-8 --release 8 -g:none -nowarn -XDstringConcat=inline -cp "$androidJar" -d $stubsClassesDir $stubFiles
-if ($LASTEXITCODE -ne 0) { Fail "javac could not compile the stubs" }
+$stubsSrcDir = Join-Path $projDir "compile_stubs"
+$stubFiles = if (Test-Path $stubsSrcDir) { @(Get-ChildItem -Path $stubsSrcDir -Filter "*.java" -Recurse | ForEach-Object { $_.FullName }) } else { @() }
+$cp = "$androidJar"
+if ($stubFiles.Count -gt 0) {
+    & javac -encoding UTF-8 --release 8 -g:none -nowarn -XDstringConcat=inline -cp "$androidJar" -d $stubsClassesDir $stubFiles
+    if ($LASTEXITCODE -ne 0) { Fail "javac could not compile the stubs" }
+    $cp = "$androidJar;$stubsClassesDir"
+}
 
 $javaFiles = @(Get-ChildItem -Path $srcDir -Filter "*.java" -Recurse | ForEach-Object { $_.FullName })
 $javaFiles += @(Get-ChildItem -Path $genDir -Filter "*.java" -Recurse | ForEach-Object { $_.FullName })
-& javac -encoding UTF-8 --release 8 -g:none -Xlint:-options -XDstringConcat=inline -cp "$androidJar;$stubsClassesDir" -d $classesDir $javaFiles
+& javac -encoding UTF-8 --release 8 -g:none -Xlint:-options -XDstringConcat=inline -cp $cp -d $classesDir $javaFiles
 if ($LASTEXITCODE -ne 0) { Fail "javac compilation failed (see the errors above)" }
 
 # ---------------------------------------------------------------------------
@@ -169,7 +174,7 @@ if ($LASTEXITCODE -ne 0) { Fail "dx could not create classes.dex" }
 Write-Host "--- Step 4: Packaging resources and assets with AAPT ---" -ForegroundColor Cyan
 $unsignedApk = Join-Path $binDir "app.unsigned.apk"
 if (Test-Path $unsignedApk) { Remove-Item $unsignedApk -Force }
-& $aapt package -f -0 woff2 -M $manifest -S $resDir -A $assetsDir -I $androidJar -F $unsignedApk
+& $aapt package -f -0 woff2 -0 glb -M $manifest -S $resDir -A $assetsDir -I $androidJar -F $unsignedApk
 if ($LASTEXITCODE -ne 0) { Fail "AAPT could not package the APK" }
 
 Write-Host "--- Step 5: Adding classes.dex to the APK ---" -ForegroundColor Cyan
@@ -191,7 +196,7 @@ if ($LASTEXITCODE -ne 0) { Fail "zipalign failed" }
 # ---------------------------------------------------------------------------
 # 6. Sign
 # ---------------------------------------------------------------------------
-$finalApk = Join-Path $binDir "Titan_Launcher_v$verName.apk"
+$finalApk = Join-Path $binDir "Titan_Launcher_v${verName}_Optimized.apk"
 if (Test-Path $finalApk) { Remove-Item $finalApk -Force }
 
 if ($TestSign) {
@@ -219,14 +224,13 @@ foreach ($dest in $CopyTo) {
     Write-Host "Copied to: $dest" -ForegroundColor Green
 }
 
-# Auto-sync to READY_FOR_CAR and project roots if available
+# Auto-sync Optimized build to READY_FOR_CAR as #2 (never overwrites original 1_Titan_launcher_v...)
 $readyDir = Join-Path $projDir "..\READY_FOR_CAR"
 if (Test-Path $readyDir) {
-    Copy-Item $finalApk (Join-Path $readyDir "1_Titan_launcher_v$verName.apk") -Force
-    Copy-Item $finalApk (Join-Path $readyDir "1_Titan_launcher_v $verName.apk") -Force
-    Write-Host "Auto-copied to READY_FOR_CAR for vehicle update." -ForegroundColor Green
+    Copy-Item $finalApk (Join-Path $readyDir "2_Titan_Launcher_v${verName}_Optimized.apk") -Force
+    Write-Host "Auto-copied to READY_FOR_CAR\2_Titan_Launcher_v${verName}_Optimized.apk" -ForegroundColor Green
 }
-Copy-Item $finalApk (Join-Path $projDir "Titan_launcher_v $verName.apk") -Force
+Copy-Item $finalApk (Join-Path $projDir "Titan_Launcher_v${verName}_Optimized.apk") -Force
 
 Write-Host "==========================================" -ForegroundColor Green
 Write-Host "BUILD SUCCESSFUL" -ForegroundColor Green

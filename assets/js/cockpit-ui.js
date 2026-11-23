@@ -1,4 +1,4 @@
-﻿/**
+/**
  * ============================================================================
  * COCKPIT UI — Instant 0ms HUD, Controls, Modals, Apps & CAN Telemetry (Phase 1)
  * ============================================================================
@@ -22,9 +22,6 @@
         { id: 'btn-side-sunroof', fn: openSunroofModal },
         { id: 'btn-save-settings', fn: saveAllSettings },
         { id: 'tpms-badge', fn: openTpmsModal },
-        { id: 'btn-media-prev', fn: () => controlShineWave('prev') },
-        { id: 'btn-media-play', fn: () => controlShineWave('play_pause') },
-        { id: 'btn-media-next', fn: () => controlShineWave('next') },
         { id: 'nav-radar-widget', fn: cycleNavRadarDemo }
       ];
 
@@ -166,10 +163,6 @@
       if (typeof updateCarPaint === 'function') updateCarPaint();
     }
     window.setSeatOption = setSeatOption;
-
-function toggleDoor(key) {
-      // Door opening via touch on screen is disabled per user specification
-    }
 
     function toggleTrunk() {
       // Trunk opens; button triggers momentary pulse glow
@@ -698,224 +691,6 @@ function toggleDoor(key) {
       const p = NAV_RADAR_PRESETS[currentNavRadarIdx];
       showLauncherToast('Mode: ' + p.brand + ' - ' + p.title, 1200);
     }
-
-    /* ========================================================
-       7. SHINEWAVE HI-FI MUSIC PLAYER & STEERING WHEEL CONTROLS (SWC)
-       Seamless Launcher Integration with com.shine.wave
-       ======================================================== */
-    function launchShineWaveApp() {
-      if (window.AndroidBridge && typeof window.AndroidBridge.launchApp === 'function') {
-        const launched = window.AndroidBridge.launchApp('com.shine.wave');
-        if (launched) return;
-      }
-      showLauncherToast(state.lang === 'ar' ? '\u062C\u0627\u0631\u064A \u0641\u062A\u062D \u0645\u0634\u063A\u0644 \u0627\u0644\u0645\u0648\u0633\u064A\u0642\u0649...' : 'Opening Audio Player...', 1600);
-    }
-
-    function stripMediaExtension(str) {
-      if (!str || typeof str !== 'string') return str || '';
-      return str.replace(/\.(mp3|m4a|flac|wav|aac|ogg|wma|ape|alac|opus|mp4)$/i, '').trim();
-    }
-
-    function updateShineWaveTrackDisplay() {
-      const srcData = MEDIA_SOURCES[state.media.source] || MEDIA_SOURCES.shinewave || MEDIA_SOURCES.radio;
-      const track = srcData.tracks[state.media.trackIndex % srcData.tracks.length];
-      const tEl = document.getElementById('shinewave-track-title');
-      const aEl = document.getElementById('shinewave-track-artist');
-      const pIcon = document.getElementById('sw-play-icon');
-      const disc = document.getElementById('sw-disc');
-      const viz = document.getElementById('sw-visualizer');
-
-      if (tEl) tEl.innerText = stripMediaExtension(track.title);
-      if (aEl) aEl.innerText = track.artist;
-
-      if (pIcon) {
-        if (state.media.playing) {
-          // Pause icon (two vertical bars)
-          pIcon.innerHTML = '<path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/>';
-        } else {
-          // Play icon (triangle)
-          pIcon.innerHTML = '<path d="M8 5v14l11-7z"/>';
-        }
-      }
-
-      if (disc) {
-        disc.classList.toggle('playing', !!state.media.playing);
-      }
-      if (viz) {
-        viz.classList.toggle('playing', !!state.media.playing);
-      }
-    }
-
-    function controlShineWave(cmd) {
-      const srcData = MEDIA_SOURCES[state.media.source] || MEDIA_SOURCES.shinewave || MEDIA_SOURCES.radio;
-      if (cmd === 'play_pause') {
-        state.media.playing = !state.media.playing;
-      } else if (cmd === 'next') {
-        state.media.trackIndex = (state.media.trackIndex + 1) % srcData.tracks.length;
-        state.media.elapsedSec = 0;
-        state.media.playing = true;
-      } else if (cmd === 'prev') {
-        state.media.trackIndex = (state.media.trackIndex - 1 + srcData.tracks.length) % srcData.tracks.length;
-        state.media.elapsedSec = 0;
-        state.media.playing = true;
-      }
-
-      updateShineWaveTrackDisplay();
-      updateShineWaveProgressDom();
-
-      // Dispatch to Android CockpitMediaListenerService & AudioManager
-      if (window.AndroidBridge && typeof window.AndroidBridge.controlMedia === 'function') {
-        window.AndroidBridge.controlMedia(cmd);
-      } else if (window.AndroidBridge && typeof window.AndroidBridge.dispatchMediaKey === 'function') {
-        window.AndroidBridge.dispatchMediaKey(cmd);
-      }
-    }
-
-    function seekShineWaveProgress(e) {
-      const bar = e.currentTarget;
-      if (!bar) return;
-      const rect = bar.getBoundingClientRect();
-      const pct = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
-      const targetSec = Math.round(pct * state.media.totalSec);
-      state.media.elapsedSec = targetSec;
-      updateShineWaveProgressDom();
-
-      // Dispatch seekTo to Android active MediaController
-      if (window.AndroidBridge && typeof window.AndroidBridge.seekMediaTo === 'function') {
-        window.AndroidBridge.seekMediaTo(targetSec);
-      }
-    }
-
-    function formatTimeSec(sec) {
-      const m = Math.floor(sec / 60);
-      const s = Math.floor(sec % 60);
-      return String(m).padStart(2, '0') + ':' + String(s).padStart(2, '0');
-    }
-
-    function updateShineWaveProgressDom() {
-      const total = state.media.totalSec || 225;
-      const pct = Math.min(100, Math.round((state.media.elapsedSec / total) * 100));
-      const fill = document.getElementById('shinewave-progress-fill');
-      const cur = document.getElementById('shinewave-time-cur');
-      const tot = document.getElementById('shinewave-time-tot');
-      if (fill) fill.style.width = pct + '%';
-      if (cur) cur.innerText = formatTimeSec(state.media.elapsedSec);
-      if (tot) tot.innerText = formatTimeSec(total);
-    }
-
-    function startMediaProgressTicker() {
-      setInterval(() => {
-        if (state.media.playing) {
-          state.media.elapsedSec++;
-          if (state.media.elapsedSec >= (state.media.totalSec || 225)) {
-            state.media.elapsedSec = 0;
-          }
-          updateShineWaveProgressDom();
-        }
-      }, 1000);
-    }
-
-    // ----------------------------------------------------
-    // Steering Wheel Control (SWC) Callbacks from Java
-    // ----------------------------------------------------
-    let swcSeekBadgeTimer = null;
-
-    window.onSwcSeek = function(dir, deltaMs) {
-      const stepSec = Math.max(1, Math.round(deltaMs / 1000));
-      const total = state.media.totalSec || 225;
-
-      if (dir === 'forward') {
-        state.media.elapsedSec = Math.min(total, state.media.elapsedSec + stepSec);
-      } else {
-        state.media.elapsedSec = Math.max(0, state.media.elapsedSec - stepSec);
-      }
-      updateShineWaveProgressDom();
-
-      // Show animated seek badge overlay
-      const badge = document.getElementById('sw-seek-indicator');
-      if (badge) {
-        const symbol = (dir === 'forward' ? 'Ã¢ÂÂ© +' : 'Ã¢ÂÂª -');
-        badge.textContent = symbol + stepSec + 's (' + formatTimeSec(state.media.elapsedSec) + ')';
-        badge.classList.add('active');
-        if (swcSeekBadgeTimer) clearTimeout(swcSeekBadgeTimer);
-        swcSeekBadgeTimer = setTimeout(() => {
-          badge.classList.remove('active');
-        }, 1100);
-      }
-    };
-
-    window.onSwcSeekEnd = function() {
-      const badge = document.getElementById('sw-seek-indicator');
-      if (badge) {
-        setTimeout(() => badge.classList.remove('active'), 500);
-      }
-    };
-
-    window._legacyOnSwcMediaKey = function(cmd) {
-      if (cmd === 'next' || cmd === 'prev' || cmd === 'play_pause') {
-        controlShineWave(cmd);
-        const isAr = state.lang === 'ar';
-        const label = (cmd === 'next' ? (isAr ? '\u0627\u0644\u062A\u0627\u0644\u064A' : 'NEXT') : (cmd === 'prev' ? (isAr ? '\u0627\u0644\u0633\u0627\u0628\u0642' : 'PREV') : (isAr ? '\u062A\u0634\u063A\u064A\u0644/\u0625\u064A\u0642\u0627\u0641' : 'PLAY/PAUSE')));
-        showLauncherToast((isAr ? '\u0632\u0631 \u0639\u062C\u0644\u0629 \u0627\u0644\u0642\u064A\u0627\u062F\u0629: ' : 'Steering Wheel Key: ') + label, 1200);
-      }
-    };
-
-    // ----------------------------------------------------
-    // Live MediaSession & Album Art Callback from Java
-    // ----------------------------------------------------
-    window._legacyOnMediaStateChanged = function(data) {
-      if (!data) return;
-
-      if (data.title) {
-        const tEl = document.getElementById('shinewave-track-title');
-        if (tEl) tEl.innerText = stripMediaExtension(data.title);
-      }
-      if (data.artist) {
-        const aEl = document.getElementById('shinewave-track-artist');
-        if (aEl) aEl.innerText = data.artist;
-      }
-      if (typeof data.duration === 'number' && data.duration > 0) {
-        state.media.totalSec = Math.floor(data.duration);
-        const tot = document.getElementById('shinewave-time-tot');
-        if (tot) tot.innerText = formatTimeSec(state.media.totalSec);
-      }
-      if (typeof data.position === 'number') {
-        state.media.elapsedSec = Math.floor(data.position);
-        updateShineWaveProgressDom();
-      }
-      if (typeof data.playing === 'boolean') {
-        state.media.playing = data.playing;
-        const pIcon = document.getElementById('sw-play-icon');
-        const disc = document.getElementById('sw-disc');
-        const viz = document.getElementById('sw-visualizer');
-        if (pIcon) {
-          pIcon.innerHTML = data.playing
-            ? '<path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/>'
-            : '<path d="M8 5v14l11-7z"/>';
-        }
-        if (disc) disc.classList.toggle('playing', !!data.playing);
-        if (viz) viz.classList.toggle('playing', !!data.playing);
-      }
-
-      // Handle Rotating Album Art
-      const artImg = document.getElementById('sw-album-art-img');
-      const defIcon = document.getElementById('sw-disc-default-icon');
-      if (artImg && defIcon) {
-        if (data.albumArt && data.albumArt.length > 30) {
-          artImg.src = data.albumArt;
-          artImg.style.display = 'block';
-          defIcon.style.display = 'none';
-        } else {
-          artImg.style.display = 'none';
-          defIcon.style.display = 'block';
-        }
-      }
-    };
-
-    // Aliases for backward compatibility
-    window.controlMedia = controlShineWave;
-    window.updateMediaTrackDisplay = updateShineWaveTrackDisplay;
-    window.updateMediaProgressDom = updateShineWaveProgressDom;
 
     /* ========================================================
        8 & 9. QUICK APP DOCK, APP DRAWER & RAM CLEANER
@@ -1526,10 +1301,6 @@ function toggleDoor(key) {
     }
     window.setDefaultPageOption = setDefaultPageOption;
 
-    window.goToDefaultHomePage = function(silent) {
-      // Widgets page removed; always stays on main cockpit page
-    };
-
     function setDefaultLauncher() {
       if (window.AndroidBridge && typeof window.AndroidBridge.setDefaultLauncher === 'function') {
         window.AndroidBridge.setDefaultLauncher();
@@ -1645,10 +1416,6 @@ function toggleDoor(key) {
           ? (isAr ? '\u0627\u0644\u0634\u0628\u0643\u0629: \u0645\u0641\u0639\u0644' : 'CAN: ACTIVE')
           : (isAr ? '\u0627\u0644\u0634\u0628\u0643\u0629: \u0645\u0639\u0637\u0644' : 'CAN: OFF');
       }
-    }
-
-    function manualCanReconnect() {
-      // CAN status badge removed per user explicit request
     }
 
     let cachedCanConnected = false;

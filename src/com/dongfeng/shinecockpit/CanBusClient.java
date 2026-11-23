@@ -56,16 +56,16 @@ public class CanBusClient {
 
     private IBinder mServiceBinder = null;
     private volatile boolean mIsConnected = false;
+    private volatile boolean mRunning = true;
+    private Thread mReconnectThread = null;
     private Context mContext = null;
     private boolean mIsBound = false;
 
-    // Live CAN UEvent tracking for physical Left/Right turn signals (CAN frame 71 / 0x47)
-    private Object mCanUEventObserver = null;
+    // Live turn signal latch (used by 1200ms blinker persistence)
     private volatile boolean mStalkLeft = false;
     private volatile boolean mStalkRight = false;
     private volatile long mLastTurnLeftOnMs = 0L;
     private volatile long mLastTurnRightOnMs = 0L;
-    private volatile boolean mUEventHazard = false;
 
     // Live CAN speed & fuel tracking for responsive Instantaneous Fuel Consumption
     private float mLastValidAvgFuel = 6.3f;
@@ -109,128 +109,17 @@ public class CanBusClient {
     public CanBusClient(Context context) {
         this.mContext = context;
         connectService();
-        // Disabled UEventObserver(21, ':') because bind() fails with EPERM under non-system UID,
-        // leaving socket_fd=0 and starving CPU in a native poll() loop in libqg_runtime.so.
         startAutoReconnectLoop();
     }
 
-    private void processStalkByte(int dataByte) {
-        if (dataByte < 0) return;
-        // Bit 3 = Left turn (clightleft)
-        boolean leftBit = ((dataByte >> 3) & 1) == 1;
-        // Bit 1 = Right turn (clightright)
-        boolean rightBit = ((dataByte >> 1) & 1) == 1;
-        // Bit 6 = Hazard / Caution light
-        boolean hazardBit = ((dataByte >> 6) & 1) == 1;
-
-        long now = System.currentTimeMillis();
-        if (leftBit) {
-            mStalkLeft = true;
-            mLastTurnLeftOnMs = now;
-            if (!rightBit) {
-                mStalkRight = false;
-                mLastTurnRightOnMs = 0L;
-            }
-        } else {
-            mStalkLeft = false;
-            mLastTurnLeftOnMs = 0L;
-        }
-
-        if (rightBit) {
-            mStalkRight = true;
-            mLastTurnRightOnMs = now;
-            if (!leftBit) {
-                mStalkLeft = false;
-                mLastTurnLeftOnMs = 0L;
-            }
-        } else {
-            mStalkRight = false;
-            mLastTurnRightOnMs = 0L;
-        }
-        mUEventHazard = hazardBit;
-
-        Log.i(TAG, "CAN Stalk 0x92/0x47 UEvent: raw=0x" + Integer.toHexString(dataByte)
-                + " (" + dataByte + ") L=" + leftBit + " R=" + rightBit + " Haz=" + hazardBit);
-    }
-
-    private void processUEventInts(int[] buf) {
-        if (buf == null || buf.length < 3) return;
-        // Case 1: Look for 0x92 (146), cmd 0x10 (16), dataByte (from dls_reverse_svr stalk handler at 0x224F4)
-        for (int i = 0; i <= buf.length - 3; i++) {
-            int b0 = buf[i] & 0xFF;
-            int b1 = buf[i + 1] & 0xFF;
-            if ((b0 == 0x92 || b0 == 146) && (b1 == 0x10 || b1 == 16)) {
-                processStalkByte(buf[i + 2] & 0xFF);
-                return;
-            }
-        }
-        // Case 2: Packet starts with 0x92 (146) directly
-        if ((buf[0] & 0xFF) == 0x92 || (buf[0] & 0xFF) == 146) {
-            processStalkByte(buf[2] & 0xFF);
-            return;
-        }
-        // Case 3: Packet starts with 0x47 (71) legacy CAN frame ID
-        if ((buf[0] & 0xFF) == 71 || (buf[0] & 0xFF) == 0x47) {
-            processStalkByte(buf[2] & 0xFF);
-            return;
-        }
-        // Case 4: Any packet containing 0x92 in the first 2 bytes
-        if (buf.length >= 4 && ((buf[1] & 0xFF) == 0x92 || (buf[1] & 0xFF) == 146)) {
-            processStalkByte(buf[3] & 0xFF);
-            return;
-        }
-    }
-
-    private void processUEventString(String msg) {
-        if (msg == null || msg.isEmpty()) return;
-        try {
-            int idx = msg.indexOf("0x92");
-            if (idx == -1) idx = msg.indexOf("92-");
-            if (idx == -1) idx = msg.indexOf("92:");
-            if (idx != -1) {
-                String sub = msg.substring(idx).replaceAll("[^0-9a-fA-FxX]", " ");
-                String[] tokens = sub.trim().split("\\s+");
-                if (tokens.length >= 3) {
-                    int b0 = parseHexOrDec(tokens[0]);
-                    int b1 = parseHexOrDec(tokens[1]);
-                    if ((b0 == 0x92 || b0 == 146) && (b1 == 0x10 || b1 == 16)) {
-                        int dataByte = parseHexOrDec(tokens[2]);
-                        processStalkByte(dataByte);
-                    }
-                }
-            }
-        } catch (Throwable ignored) {}
-    }
-
-    private static int parseHexOrDec(String s) {
-        try {
-            if (s.startsWith("0x") || s.startsWith("0X")) {
-                return Integer.parseInt(s.substring(2), 16);
-            }
-            return Integer.parseInt(s, 16);
-        } catch (Exception e) {
-            try {
-                return Integer.parseInt(s);
-            } catch (Exception ex) {
-                return -1;
-            }
-        }
-    }
-
-    private void startCanUEventObserver() {
-        // Intentionally disabled: Qinggan native UEventObserver(21, ':') fails bind() with errno=1
-        // (Operation not permitted) for third-party/platform-signed app UIDs and falls back to polling
-        // socket_fd=0 in an infinite ~98% CPU loop inside libqg_runtime.so (PateoUEventObserver).
-    }
-
     private void startAutoReconnectLoop() {
-        Thread thread = new Thread(new Runnable() {
+        mReconnectThread = new Thread(new Runnable() {
             @Override
             public void run() {
-                while (true) {
+                while (mRunning && !Thread.currentThread().isInterrupted()) {
                     try {
                         Thread.sleep(2500);
-                        if (!isConnected()) {
+                        if (mRunning && !isConnected()) {
                             connectService();
                         }
                     } catch (InterruptedException e) {
@@ -239,8 +128,24 @@ public class CanBusClient {
                 }
             }
         }, "CanBusReconnectThread");
-        thread.setDaemon(true);
-        thread.start();
+        mReconnectThread.setDaemon(true);
+        mReconnectThread.start();
+    }
+
+    public synchronized void release() {
+        mRunning = false;
+        if (mReconnectThread != null) {
+            mReconnectThread.interrupt();
+            mReconnectThread = null;
+        }
+        if (mContext != null && mIsBound) {
+            try {
+                mContext.unbindService(mServiceConnection);
+            } catch (Exception ignored) {}
+            mIsBound = false;
+        }
+        mServiceBinder = null;
+        mIsConnected = false;
     }
 
     public synchronized boolean manualReconnect() {

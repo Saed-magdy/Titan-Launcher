@@ -77,29 +77,10 @@
   };
 
   function bridge() { return window.AndroidBridge || null; }
-  function isAr() {
-    try {
-      if (typeof state !== 'undefined' && state && state.lang) return state.lang === 'ar';
-      return (localStorage.getItem('shine_cockpit_lang') || '') === 'ar';
-    } catch (e) { return false; }
-  }
-  function isRu() {
-    try {
-      if (typeof state !== 'undefined' && state && state.lang) return state.lang === 'ru';
-      return (localStorage.getItem('shine_cockpit_lang') || '') === 'ru';
-    } catch (e) { return false; }
-  }
-  function fmtTime(sec) {
-    sec = Math.max(0, Math.floor(sec || 0));
-    var m = Math.floor(sec / 60), s = sec % 60;
-    var txt = (m < 10 ? '0' + m : m) + ':' + (s < 10 ? '0' + s : s);
-    return (window.toLangDigits) ? window.toLangDigits(txt) : txt;
-  }
-  function escHtml(str) {
-    return String(str || '').replace(/[&<>"']/g, function (c) {
-      return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
-    });
-  }
+  function isAr() { return window.isArabicLang ? window.isArabicLang() : false; }
+  function isRu() { return window.isRussianLang ? window.isRussianLang() : false; }
+  function fmtTime(sec) { return window.formatTimeSec ? window.formatTimeSec(sec, true) : '00:00'; }
+  function escHtml(str) { return window.escapeHtml ? window.escapeHtml(str) : String(str || ''); }
 
   /* ---------- Simulation Helpers when no AndroidBridge ---------- */
   window.simSwitchShineWaveSource = function (key) {
@@ -252,6 +233,7 @@
         toast.style.transform = 'translateX(-50%) translateY(0)';
       }, 700);
     }
+    window.showShineWaveStudioToast = showStudioToast;
 
     function bindStudioTrackBtnLongPress(btn, isNext) {
       if (!btn) return;

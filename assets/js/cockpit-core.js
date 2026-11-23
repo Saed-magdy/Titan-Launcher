@@ -23,6 +23,36 @@ window.escapeHtml = function (text) {
     .replace(/'/g, '&#39;');
 };
 
+window.isArabicLang = function () {
+  try {
+    if (typeof state !== 'undefined' && state && state.lang) return state.lang === 'ar';
+    return (localStorage.getItem('shine_cockpit_lang') || '') === 'ar';
+  } catch (e) { return false; }
+};
+
+window.isRussianLang = function () {
+  try {
+    if (typeof state !== 'undefined' && state && state.lang) return state.lang === 'ru';
+    return (localStorage.getItem('shine_cockpit_lang') || '') === 'ru';
+  } catch (e) { return false; }
+};
+
+window.stripMediaExtension = function (str) {
+  if (!str || typeof str !== 'string') return str || '';
+  return str.replace(/\.(mp3|m4a|flac|wav|aac|ogg|wma|ape|alac|opus|mp4)$/i, '').trim();
+};
+
+window.formatTimeSec = function (sec, localizeDigits) {
+  if (!sec || isNaN(sec) || sec < 0) sec = 0;
+  var mm = Math.floor(sec / 60);
+  var ss = Math.floor(sec % 60);
+  var res = (mm < 10 ? '0' + mm : String(mm)) + ':' + (ss < 10 ? '0' + ss : String(ss));
+  if (localizeDigits && window.isArabicLang() && typeof window.toLangDigits === 'function') {
+    return window.toLangDigits(res);
+  }
+  return res;
+};
+
 /* --- Deferred 3D Engine Shared Handles (populated by cockpit-3d.js) --- */
 let clock = null;
 let scene = null;
@@ -36,18 +66,10 @@ let leftLightMaterials = [];
 let rightLightMaterials = [];
 let trunkMaterial = null;
 let lightTextures = {};
-let maskedEmissiveTextures = {
-  left_jinguang: null,
-  left_yuanguang: null,
-  right_jinguang: null,
-  right_yuanguang: null
-};
 let wheelPivots = { flSteer: null, flRoll: null, frSteer: null, frRoll: null, rlRoll: null, rrRoll: null };
 let wheelRollAngle = 0;
 let currentSteerRad = 0;
 let headlightBeamsGroup = null;
-let groundBeamMesh = null;
-let groundBeamMaterial = null;
 let volumetricBeamMeshes = [];
 let volumetricBeamMaterial = null;
 let plateTexture = null;
@@ -163,14 +185,6 @@ const state = {
   lang: 'en',
   defaultPage: 'main',
   tpmsWarnings: { fl: false, fr: false, rl: false, rr: false },
-  media: {
-    source: 'shinewave',
-    playing: true,
-    progressPct: 42,
-    elapsedSec: 84,
-    totalSec: 225,
-    trackIndex: 0
-  },
   telemetry: {
     speed: 0,
     coolant: 90,
@@ -178,43 +192,6 @@ const state = {
     fuelCons: 6.2,
     range: 290,
     fuelPct: 31
-  }
-};
-
-const MEDIA_SOURCES = {
-  shinewave: {
-    tracks: [
-      { title: 'ShineWave Audio', artist: 'Lossless Hi-Fi Cockpit Sound' },
-      { title: 'Cyber Pulse (Drive Mix)', artist: 'Aeolus Digital Acoustics \u2022 96kHz' },
-      { title: 'Neon Horizon', artist: 'Dongfeng Sound Engineering' },
-      { title: 'Velocity SoundStage', artist: 'ShineWave Dolby Atmos EQ' }
-    ]
-  },
-  radio: {
-    tracks: [
-      { title: 'FM 100.6 MHz \u2022 Nogoum FM', artist: 'RDS Live Broadcast \u2022 Stereo HD' },
-      { title: 'FM 92.7 MHz \u2022 Mega FM', artist: 'Cairo Radio Stream \u2022 RDS Active' },
-      { title: 'FM 104.2 MHz \u2022 Nile FM', artist: 'Hit Music Station \u2022 SWC Ready' }
-    ]
-  },
-  bt: {
-    tracks: [
-      { title: 'Bluetooth Audio \u2022 Cyber Drive', artist: 'Connected Phone \u2022 A2DP High-Bitrate' },
-      { title: 'Midnight Horizon (Original Mix)', artist: 'Bluetooth Media Stream \u2022 AVRCP' },
-      { title: 'Aeolus Acoustic Master', artist: 'Wireless Smartphone Audio' }
-    ]
-  },
-  storage: {
-    tracks: [
-      { title: 'Internal Storage \u2022 Track 01', artist: 'Lossless Car Audio \u2022 /sdcard/Music' },
-      { title: 'Desert Highway (Remastered)', artist: 'Local Head-Unit Storage \u2022 24-Bit' }
-    ]
-  },
-  usb: {
-    tracks: [
-      { title: 'USB Drive \u2022 Folder 01 / Track 04', artist: 'External USB Media \u2022 MP3 320kbps' },
-      { title: 'Synthwave Night Cruiser', artist: 'USB OTG Media Player' }
-    ]
   }
 };
 
@@ -469,20 +446,12 @@ const I18N = {
     'tab-lbl-launcher': 'Лаунчер и система',
     'tab-lbl-vehicle': '3D персонализация авто',
     'm-sec-lang': 'Язык интерфейса',
-    'lang-en': 'English',
-        'lang-ar': 'العربية',
-    'lang-ru': 'الروسية',
-    'm-sec-num-format': 'شكل الأرقام',
-    'num-fmt-western': '1, 2, 3',
-    'num-fmt-eastern': '١، ٢، ٣',
-    'lbl-donate-title': '☕ لدعم استمرار وتطوير البرنامج',
-    'lbl-donate-desc': 'امسح الرمز بكاميرا الهاتف للدعم عبر Buy Me a Coffee أو InstaPay',
+    'lang-en': 'Английский',
+    'lang-ar': 'Арабский',
     'lang-ru': 'Русский',
     'm-sec-num-format': 'Формат чисел',
     'num-fmt-western': '1, 2, 3',
     'num-fmt-eastern': '١، ٢، ٣',
-    'lbl-donate-title': '☕ لدعم استمرار وتطوير البرنامج',
-    'lbl-donate-desc': 'امسح الرمز بكاميرا الهاتف للدعم عبر Buy Me a Coffee أو InstaPay',
     'm-sec-color': 'Цвет кузова',
     'm-sec-roof': 'Цвет крыши',
     'roof-btn-black': 'Двухцветный',

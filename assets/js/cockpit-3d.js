@@ -12,53 +12,9 @@ CAM_TARGET = new THREE.Vector3(0, 16, 0);
 var seatPaintCanvas = null;
 var seatPaintCtx = null;
 var seatPaintTexture = null;
-var seatImages = { sport: null, black: null, yellow: null };
+var seatImages = { sport: null };
 var seatMaterials = [];
-
-    function generateHeadlightMask(img) {
-      try {
-        const c = document.createElement('canvas');
-        c.width = img.width || 256;
-        c.height = img.height || 256;
-        const ctx = c.getContext('2d');
-        ctx.drawImage(img, 0, 0);
-        const idata = ctx.getImageData(0, 0, c.width, c.height);
-        const d = idata.data;
-        const sx = c.width / 256.0;
-        const sy = c.height / 256.0;
-
-        for (let y = 0; y < c.height; y++) {
-          const oy = y / sy;
-          for (let x = 0; x < c.width; x++) {
-            const ox = x / sx;
-            const idx = (y * c.width + x) * 4;
-
-            // Turn signal chevron in headlight: oy >= 170 and ox > 172
-            // Mask out to pure black so steady headlight glow NEVER encroaches on amber turn signal:
-            if (oy >= 168 && ox > 172) {
-              d[idx] = 0;
-              d[idx + 1] = 0;
-              d[idx + 2] = 0;
-            }
-            // Mirror flasher strip: oy 8..45, ox 120..250
-            if (oy >= 8 && oy <= 45 && ox >= 120 && ox <= 250) {
-              d[idx] = 0;
-              d[idx + 1] = 0;
-              d[idx + 2] = 0;
-            }
-          }
-        }
-        ctx.putImageData(idata, 0, 0);
-        const tex = new THREE.CanvasTexture(c);
-        tex.flipY = false;
-        tex.generateMipmaps = false;
-        tex.minFilter = THREE.LinearFilter;
-        tex.magFilter = THREE.LinearFilter;
-        return tex;
-      } catch (e) {
-        return null;
-      }
-    }
+var _paintQueued = false;
 
     function getCurrentCamAzimuth() {
       if (!camera) return HERO_CAM_ANGLE;
@@ -294,28 +250,47 @@ var seatMaterials = [];
       // Initialize System Clock
     }
 
+    function loadSingleLightTexture(key) {
+      if (lightTextures[key]) return;
+      const img = new Image();
+      img.onload = function() {
+        const tex = new THREE.Texture(img);
+        tex.flipY = false;
+        tex.generateMipmaps = false;
+        tex.minFilter = THREE.LinearFilter;
+        tex.magFilter = THREE.LinearFilter;
+        tex.needsUpdate = true;
+        lightTextures[key] = tex;
+        if (key === 'C65_zuodeng.png' && leftLightMaterials.length) {
+          applyLightState(leftLightMaterials, tex, false);
+        } else if (key === 'C65_youdeng.png' && rightLightMaterials.length) {
+          applyLightState(rightLightMaterials, tex, false);
+        }
+        if (carModel && (state.lights.dipped || state.lights.main || state.lights.position || state.lights.fog || state.flashers.left || state.flashers.right || state.flashers.hazard)) {
+          updateLights();
+        }
+        requestRender();
+      };
+      img.src = 'textures/lights/' + key;
+    }
+
     function preloadHeadlightTextures() {
-      for (let key in EMBEDDED_LIGHT_TEXTURES) {
-        const img = new Image();
-        img.onload = function() {
-          const tex = new THREE.Texture(img);
-          tex.flipY = false;
-          tex.needsUpdate = true;
-          lightTextures[key] = tex;
-          if (key === 'C65_zuodeng_jinguang.png') maskedEmissiveTextures.left_jinguang = generateHeadlightMask(img);
-          if (key === 'C65_zuodeng_yuanguang.png') maskedEmissiveTextures.left_yuanguang = generateHeadlightMask(img);
-          if (key === 'C65_youdeng_jinguang.png') maskedEmissiveTextures.right_jinguang = generateHeadlightMask(img);
-          if (key === 'C65_youdeng_yuanguang.png') maskedEmissiveTextures.right_yuanguang = generateHeadlightMask(img);
-          if (key === 'C65_zuodeng.png' && leftLightMaterials.length) {
-            applyLightState(leftLightMaterials, tex, false);
-          }
-          if (key === 'C65_youdeng.png' && rightLightMaterials.length) {
-            applyLightState(rightLightMaterials, tex, false);
-          }
-          requestRender();
-        };
-        img.src = EMBEDDED_LIGHT_TEXTURES[key];
-      }
+      // Load resting neutral headlight textures immediately
+      loadSingleLightTexture('C65_zuodeng.png');
+      loadSingleLightTexture('C65_youdeng.png');
+
+      // Defer active/flasher textures until after first car paint & render
+      const deferredKeys = [
+        'C65_zuodeng_jinguang.png', 'C65_zuodeng_yuanguang.png',
+        'C65_zuodeng_01.png', 'C65_zuodeng_jinguang_01.png', 'C65_zuodeng_yuanguang_01.png',
+        'C65_youdeng_jinguang.png', 'C65_youdeng_yuanguang.png',
+        'C65_youdeng_01.png', 'C65_youdeng_jinguang_01.png', 'C65_youdeng_yuanguang_01.png'
+      ];
+      setTimeout(function() {
+        for (let i = 0; i < deferredKeys.length; i++) {
+          loadSingleLightTexture(deferredKeys[i]);
+        }
+      }, 180);
     }
 
     function initPlateTexture() {
@@ -384,9 +359,9 @@ var seatMaterials = [];
 
       rawCheqiImg = new Image();
       rawCheqiImg.onload = function() {
-        updateCarPaint();
+        if (carModel) updateCarPaint();
       };
-      rawCheqiImg.src = EMBEDDED_CHEQI_B64;
+      rawCheqiImg.src = 'textures/cheqi_base.png';
 
       seatPaintCanvas = document.createElement('canvas');
       seatPaintCanvas.width = 256;
@@ -398,20 +373,12 @@ var seatMaterials = [];
       seatPaintTexture.minFilter = THREE.LinearFilter;
       seatPaintTexture.magFilter = THREE.LinearFilter;
 
-      const loadSeatImg = function(key, b64) {
-        if (!b64) return;
-        const img = new Image();
-        img.onload = function() {
-          seatImages[key] = img;
-          if ((state.seatOption || 'sport') === key) {
-            updateSeatUpholstery();
-          }
-        };
-        img.src = b64;
+      const seatImg = new Image();
+      seatImg.onload = function() {
+        seatImages.sport = seatImg;
+        if (carModel) updateSeatUpholstery();
       };
-      if (typeof EMBEDDED_ZUOYI_ORIG_B64 !== 'undefined') loadSeatImg('sport', EMBEDDED_ZUOYI_ORIG_B64);
-      if (typeof EMBEDDED_ZUOYI_BLACK_B64 !== 'undefined') loadSeatImg('black', EMBEDDED_ZUOYI_BLACK_B64);
-      if (typeof EMBEDDED_ZUOYI_YELLOW_B64 !== 'undefined') loadSeatImg('yellow', EMBEDDED_ZUOYI_YELLOW_B64);
+      seatImg.src = 'textures/zuoyi_orig.png';
     }
 
     function updateSeatUpholstery() {
@@ -527,60 +494,69 @@ var seatMaterials = [];
       const roofOpt = state.roofOption || 'black';
       const lipOpt = state.lipOption || 'orange';
 
+      // Precompute 256-entry RGB Lookup Tables (eliminates 262k Math.pow calls per repaint)
+      const bodyLutR = new Uint8Array(256), bodyLutG = new Uint8Array(256), bodyLutB = new Uint8Array(256);
+      const darkLutR = new Uint8Array(256), darkLutG = new Uint8Array(256), darkLutB = new Uint8Array(256);
+      const lipLutR  = new Uint8Array(256), lipLutG  = new Uint8Array(256), lipLutB  = new Uint8Array(256);
+      for (let l = 0; l < 256; l++) {
+        const lum = l / 255.0;
+        const cLum = 0.98 * Math.pow(Math.min(lum, 0.96), 1.06);
+        bodyLutR[l] = Math.min(255, Math.round(bodyRgb.r * cLum));
+        bodyLutG[l] = Math.min(255, Math.round(bodyRgb.g * cLum));
+        bodyLutB[l] = Math.min(255, Math.round(bodyRgb.b * cLum));
+        darkLutR[l] = Math.round(9 * lum);
+        darkLutG[l] = Math.round(10 * lum);
+        darkLutB[l] = Math.round(12 * lum);
+        if (lipOpt === 'orange') {
+          lipLutR[l] = Math.min(255, Math.round(145 * (0.24 + 0.76 * lum)));
+          lipLutG[l] = Math.min(255, Math.round(24 * (0.24 + 0.76 * lum)));
+          lipLutB[l] = Math.min(255, Math.round(1 * lum));
+        } else if (lipOpt === 'yellow') {
+          lipLutR[l] = Math.min(255, Math.round(170 * (0.28 + 0.72 * lum)));
+          lipLutG[l] = Math.min(255, Math.round(142 * (0.28 + 0.72 * lum)));
+          lipLutB[l] = 0;
+        } else {
+          lipLutR[l] = bodyLutR[l];
+          lipLutG[l] = bodyLutG[l];
+          lipLutB[l] = bodyLutB[l];
+        }
+      }
+      const useDarkRoof = (roofOpt === 'black');
+
       for (let y = 0; y < 512; y++) {
         const rowOffset = y * 512 * 4;
+        const inRoofBand = (y >= 260 && y <= 383);
+        const inAntennaY = (y >= 304 && y <= 339);
+        const inLipBand = (y >= 262 && y <= 291);
         for (let x = 0; x < 512; x++) {
           const idx = rowOffset + x * 4;
-          const a = data[idx + 3];
-          if (a < 15) continue;
+          if (data[idx + 3] < 15) continue;
 
-          const r = data[idx], g = data[idx + 1], b = data[idx + 2];
-          const lum = (r * 0.299 + g * 0.587 + b * 0.114) / 255.0;
+          const l = (data[idx] * 77 + data[idx + 1] * 150 + data[idx + 2] * 29) >> 8;
 
-          const isAntenna = (x >= 235 && x <= 286 && y >= 304 && y <= 339);
-          const isRoof = (x >= 0 && x <= 185 && y >= 260 && y <= 383);
-          const isLip = (x >= 194 && x <= 380 && y >= 262 && y <= 291);
-          const cLum = 0.98 * Math.pow(Math.min(lum, 0.96), 1.06);
-
-          let outR, outG, outB;
-
-          if (isAntenna) {
-            outR = Math.round(9 * lum);
-            outG = Math.round(10 * lum);
-            outB = Math.round(12 * lum);
-          } else if (isRoof) {
-            if (roofOpt === 'black') {
-              outR = Math.round(9 * lum);
-              outG = Math.round(10 * lum);
-              outB = Math.round(12 * lum);
+          if (inAntennaY && x >= 235 && x <= 286) {
+            data[idx] = darkLutR[l];
+            data[idx + 1] = darkLutG[l];
+            data[idx + 2] = darkLutB[l];
+          } else if (inRoofBand && x <= 185) {
+            if (useDarkRoof) {
+              data[idx] = darkLutR[l];
+              data[idx + 1] = darkLutG[l];
+              data[idx + 2] = darkLutB[l];
             } else {
-              outR = Math.min(255, Math.round(bodyRgb.r * cLum));
-              outG = Math.min(255, Math.round(bodyRgb.g * cLum));
-              outB = Math.min(255, Math.round(bodyRgb.b * cLum));
+              data[idx] = bodyLutR[l];
+              data[idx + 1] = bodyLutG[l];
+              data[idx + 2] = bodyLutB[l];
             }
-          } else if (isLip) {
-            if (lipOpt === 'orange') {
-              outR = Math.min(255, Math.round(145 * (0.24 + 0.76 * lum)));
-              outG = Math.min(255, Math.round(24 * (0.24 + 0.76 * lum)));
-              outB = Math.min(255, Math.round(1 * lum));
-            } else if (lipOpt === 'yellow') {
-              outR = Math.min(255, Math.round(170 * (0.28 + 0.72 * lum)));
-              outG = Math.min(255, Math.round(142 * (0.28 + 0.72 * lum)));
-              outB = Math.min(255, Math.round(0 * lum));
-            } else {
-              outR = Math.min(255, Math.round(bodyRgb.r * cLum));
-              outG = Math.min(255, Math.round(bodyRgb.g * cLum));
-              outB = Math.min(255, Math.round(bodyRgb.b * cLum));
-            }
+          } else if (inLipBand && x >= 194 && x <= 380) {
+            data[idx] = lipLutR[l];
+            data[idx + 1] = lipLutG[l];
+            data[idx + 2] = lipLutB[l];
           } else {
-            outR = Math.min(255, Math.round(bodyRgb.r * cLum));
-            outG = Math.min(255, Math.round(bodyRgb.g * cLum));
-            outB = Math.min(255, Math.round(bodyRgb.b * cLum));
+            data[idx] = bodyLutR[l];
+            data[idx + 1] = bodyLutG[l];
+            data[idx + 2] = bodyLutB[l];
           }
-
-          data[idx] = outR;
-          data[idx + 1] = outG;
-          data[idx + 2] = outB;
         }
       }
 
@@ -629,16 +605,24 @@ var seatMaterials = [];
     window.updateCarPaint = updateCarPaint;
 
     function loadCarModel() {
-      const decodeFallback = function() {
-        const binStr = atob(EMBEDDED_GLB_B64);
-        const bytes = new Uint8Array(binStr.length);
-        for (let i = 0; i < binStr.length; i++) bytes[i] = binStr.charCodeAt(i);
-        return Promise.resolve(bytes.buffer);
+      const fetchGlbFallback = function() {
+        return new Promise(function(resolve, reject) {
+          const xhr = new XMLHttpRequest();
+          xhr.open('GET', 'models/c65_car.glb', true);
+          xhr.responseType = 'arraybuffer';
+          xhr.onload = function() {
+            if ((xhr.status === 200 || xhr.status === 0) && xhr.response && xhr.response.byteLength > 0) {
+              resolve(xhr.response);
+            } else {
+              reject(new Error('GLB XHR failed: ' + xhr.status));
+            }
+          };
+          xhr.onerror = reject;
+          xhr.send();
+        });
       };
 
-      const bufferPromise = (typeof fetch === 'function')
-        ? fetch('data:application/octet-stream;base64,' + EMBEDDED_GLB_B64).then(r => r.arrayBuffer()).catch(decodeFallback)
-        : decodeFallback();
+      const bufferPromise = window.__carGlbBufferPromise || fetchGlbFallback();
 
       bufferPromise.then(function(arrayBuffer) {
         const loader = new THREE.GLTFLoader();
@@ -648,11 +632,36 @@ var seatMaterials = [];
           if (typeof applySunroofVisualState === 'function') applySunroofVisualState(state.sunroof, false);
           if (typeof updateLights === 'function') updateLights();
           window.__cockpit3DReady = true;
+          window.__carGlbBufferPromise = null;
         }, function(err) {
           console.error('[Cockpit3D] GLTF parser error:', err);
         });
       }).catch(function(e) {
-        console.error('[Cockpit3D] GLTF decode exception:', e);
+        console.error('[Cockpit3D] GLTF load exception:', e);
+      });
+    }
+
+    function freezeStaticCarMatrices() {
+      if (!carModel) return;
+      carModel.updateMatrixWorld(true);
+      const dynamicNodes = new Set([
+        carModel,
+        hinges.fl, hinges.fr, hinges.rl, hinges.rr, hinges.trunk,
+        sunroofPivot,
+        wheelPivots.flSteer, wheelPivots.flRoll,
+        wheelPivots.frSteer, wheelPivots.frRoll,
+        wheelPivots.rlRoll, wheelPivots.rrRoll,
+        windowMeshes.fl, windowMeshes.fr, windowMeshes.rl, windowMeshes.rr
+      ]);
+      carModel.traverse(function(obj) {
+        if (dynamicNodes.has(obj)) return;
+        let p = obj;
+        while (p) {
+          if (p === headlightBeamsGroup) return;
+          p = p.parent;
+        }
+        obj.updateMatrix();
+        obj.matrixAutoUpdate = false;
       });
     }
 
@@ -669,6 +678,20 @@ var seatMaterials = [];
       seatMaterials = [];
       trunkMaterial = null;
 
+      // Shared singleton materials for antenna and license plate
+      const sharedAntennaMat = new THREE.MeshStandardMaterial({
+        color: 0x060708,
+        roughness: 0.25,
+        metalness: 0.35,
+        side: THREE.DoubleSide
+      });
+      const sharedPlateMat = new THREE.MeshBasicMaterial({
+        map: plateTexture,
+        color: 0xd8e0ea,
+        side: THREE.DoubleSide,
+        toneMapped: false
+      });
+
       carModel.traverse((child) => {
         if (child.name) nodes[child.name] = child;
         if (child.isMesh) {
@@ -677,21 +700,11 @@ var seatMaterials = [];
           // Keep shark-fin roof antenna always glossy black regardless of body/roof color
           const cNameLower = (child.name || '').toLowerCase();
           if (cNameLower.includes('tianxian') || cNameLower.includes('shark') || cNameLower.includes('antenna') || cNameLower.includes('yuqi')) {
-            child.material = new THREE.MeshStandardMaterial({
-              color: 0x060708,
-              roughness: 0.25,
-              metalness: 0.35,
-              side: THREE.DoubleSide
-            });
+            child.material = sharedAntennaMat;
             return;
           }
           if (child.name === 'C65_qianchepai' || child.name === 'C65_qianchepai_1' || child.name === 'C65_houchepai') {
-            child.material = new THREE.MeshBasicMaterial({
-              map: plateTexture,
-              color: 0xd8e0ea,
-              side: THREE.DoubleSide,
-              toneMapped: false
-            });
+            child.material = sharedPlateMat;
             return;
           }
 
@@ -809,8 +822,12 @@ var seatMaterials = [];
         wheelPivots.rrRoll = rollG;
       }
 
-      // Initialize Light Beams & Road Projection
-      initHeadlightBeams();
+      // Initialize Ground Shadow immediately; defer Headlight Beams unless lights are already active
+      if (state.lights.main || state.lights.dipped) {
+        initHeadlightBeams();
+      } else {
+        setTimeout(initHeadlightBeams, 150);
+      }
       initCarGroundShadow();
 
       // Setup specialized automotive glass materials:
@@ -991,7 +1008,12 @@ var seatMaterials = [];
       windowMeshes.rr = setupDoorWindow(nodes['C65_youhoumen'], 'rr', true);
 
       setupHinges();
-      updateCarPaint();
+      freezeStaticCarMatrices();
+      if (rawCheqiImg && rawCheqiImg.complete) {
+        updateCarPaint();
+      } else if (seatImages.sport && seatImages.sport.complete) {
+        updateSeatUpholstery();
+      }
 
       if (lightTextures['C65_zuodeng.png']) {
         applyLightState(leftLightMaterials, lightTextures['C65_zuodeng.png'], false);
@@ -1047,7 +1069,7 @@ var seatMaterials = [];
           } else if (state.lights.dipped || state.lights.fog) {
             mat.emissiveIntensity = 1.35; // Standard solid low beam
           } else if (state.lights.position) {
-            mat.emissiveIntensity = 0.45; // Soft/dim dashboard/position light ("Ø²ÙŠ Ø§Ù„ low beam Ø¨Ø³ Ø®ÙÙŠÙ Ù…Ø´ Ø¹Ø§Ù„ÙŠ")
+            mat.emissiveIntensity = 0.45; // Soft/dim dashboard/position light (gentler than low beam)
           } else {
             mat.emissiveIntensity = 1.25; // Turn signal active
           }
@@ -1097,8 +1119,8 @@ var seatMaterials = [];
       const texR = resolveTexture('right', isRightFlashing);
 
       const isLightOn = state.lights.dipped || state.lights.main || state.lights.position || state.lights.fog;
-      applyLightState(leftLightMaterials, texL, isLightOn || isLeftFlashing, isLeftFlashing, 'left');
-      applyLightState(rightLightMaterials, texR, isLightOn || isRightFlashing, isRightFlashing, 'right');
+      applyLightState(leftLightMaterials, texL, isLightOn || isLeftFlashing);
+      applyLightState(rightLightMaterials, texR, isLightOn || isRightFlashing);
       applyTrunkState();
       updateHeadlightBeamsVisual();
 
@@ -1323,12 +1345,17 @@ var seatMaterials = [];
     }
 
     function updateHeadlightBeamsVisual() {
-      if (!headlightBeamsGroup) return;
-
-      // Beam is ONLY for Low Beam (واطي) and High Beam (عالي).
-      // Position / Dashboard light (نور التابلوه) uses the headlight housing emissive glow only.
       const isMain = !!state.lights.main;
       const isDipped = !!state.lights.dipped;
+
+      if (!headlightBeamsGroup) {
+        if (!isMain && !isDipped) return;
+        initHeadlightBeams();
+        if (!headlightBeamsGroup) return;
+      }
+
+      // Beam is ONLY for Low Beam and High Beam.
+      // Position / Dashboard light uses the headlight housing emissive glow only.
 
       if (!isMain && !isDipped) {
         headlightBeamsGroup.visible = false;
@@ -1386,7 +1413,6 @@ var seatMaterials = [];
       const intersects = raycaster.intersectObjects(carModel.children, true);
       if (intersects.length > 0) {
         // Ignore taps directly on window glass per user explicit request
-        // ("ÙØªØ­ Ø§Ù„Ø´Ø¨Ø§Ø¨ÙŠÙƒ ÙÙ‚Ø· Ø¨Ø§Ù„Ø¶ØºØ· Ø¹Ù„Ù‰ Ù…Ù†Ø·Ù‚Ø© Ø§Ù„Ø§Ø¨ÙˆØ§Ø¨ ÙÙ‚Ø· Ø¨Ø§Ù„Ù…Ø¬Ø³Ù… Ùˆ Ù„ÙŠØ³ Ø§Ù„Ø´Ø¨Ø§Ø¨ÙŠÙƒ")
         if (intersects[0].object.userData && intersects[0].object.userData.isWindow) {
           return;
         }

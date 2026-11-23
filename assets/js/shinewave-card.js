@@ -37,24 +37,10 @@
   window.ShineWaveCardState = m;
 
   function bridge() { return window.AndroidBridge || null; }
-  function isAr() {
-    try {
-      if (typeof state !== 'undefined' && state && state.lang) return state.lang === 'ar';
-      if (window.state && window.state.lang) return window.state.lang === 'ar';
-      return (localStorage.getItem('shine_cockpit_lang') || '') === 'ar';
-    } catch (e) { return false; }
-  }
+  function isAr() { return window.isArabicLang ? window.isArabicLang() : false; }
   function srcByKey(k) { for (var i = 0; i < SOURCES.length; i++) if (SOURCES[i].key === k) return SOURCES[i]; return SOURCES[1]; }
   function svg(path, cls) { return '<svg viewBox="0 0 24 24"' + (cls ? ' class="' + cls + '"' : '') + '><path d="' + path + '"/></svg>'; }
-
-  function formatTime(sec) {
-    if (!sec || isNaN(sec) || sec < 0) sec = 0;
-    var mm = Math.floor(sec / 60);
-    var ss = Math.floor(sec % 60);
-    var res = (mm < 10 ? '0' + mm : mm) + ':' + (ss < 10 ? '0' + ss : ss);
-    if (isAr() && typeof window.toLangDigits === 'function') return window.toLangDigits(res);
-    return res;
-  }
+  function formatTime(sec) { return window.formatTimeSec ? window.formatTimeSec(sec, true) : '00:00'; }
 
   function build() {
     if (document.getElementById('swcard')) return;
@@ -191,6 +177,7 @@
       toast.style.transform = 'translateX(-50%) translateY(0)';
     }, 700);
   }
+  window.showShineWaveCardToast = showCardToast;
 
   function bindTrackBtnLongPress(btn, cmd) {
     var timer = null;
@@ -540,8 +527,7 @@
   }
 
   function stripMediaExtension(str) {
-    if (!str || typeof str !== 'string') return str || '';
-    return str.replace(/\.(mp3|m4a|flac|wav|aac|ogg|wma|ape|alac|opus|mp4)$/i, '').trim();
+    return window.stripMediaExtension ? window.stripMediaExtension(str) : (str || '');
   }
 
   function render() {
@@ -627,8 +613,37 @@
     } catch (e) { console.error('swcard state error', e); }
   };
 
+  window.onSwcSeek = function (dir, deltaMs) {
+    try {
+      var stepSec = Math.max(1, Math.round((deltaMs || 10000) / 1000));
+      var effDur = m.dur > 0 ? m.dur : 225;
+      if (dir === 'forward') {
+        m.pos = Math.min(effDur, (m.pos || 0) + stepSec);
+      } else {
+        m.pos = Math.max(0, (m.pos || 0) - stepSec);
+      }
+      render();
+      kick();
+      var badgeText = (dir === 'forward' ? ('+' + stepSec + 's ▶▶') : ('◀◀ -' + stepSec + 's'));
+      showCardToast(badgeText);
+      if (typeof window.showShineWaveStudioToast === 'function') {
+        var ov = document.getElementById('sw-studio-overlay');
+        if (ov && ov.classList.contains('active')) {
+          window.showShineWaveStudioToast(badgeText);
+        }
+      }
+      if (typeof window.syncShineWaveStudioTime === 'function') {
+        window.syncShineWaveStudioTime(m.pos, effDur);
+      }
+    } catch (e) {}
+  };
+
+  window.onSwcSeekEnd = function () {};
+
   window.onSwcMediaKey = function (cmd) {
     try {
+      // Only optimistically toggle in browser preview; on the car, ShineWaveEngine emits authoritative onShineWaveState.
+      if (window.AndroidBridge) return;
       if (cmd === 'play_pause') {
         m.playing = !m.playing;
         render();
