@@ -459,10 +459,16 @@
     return { beat: beat, energy: energy, bands: bands || [] };
   };
 
+  var _cardFrameSkip = 0;
   function frame(t) {
     rafId = 0;
     if (isAudioCardInactive()) {
       lastFrame = 0;
+      return;
+    }
+    var carActive = !!(window.isUserInteracting || window.isCanvasTouched || window.camTween);
+    if (carActive && (++_cardFrameSkip & 1)) {
+      rafId = requestAnimationFrame(frame);
       return;
     }
     var dt = lastFrame ? Math.min(0.05, (t - lastFrame) / 1000) : 0;

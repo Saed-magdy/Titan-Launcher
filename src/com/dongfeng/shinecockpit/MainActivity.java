@@ -357,7 +357,7 @@ public class MainActivity extends Activity implements CockpitMediaListenerServic
     }
 
     private void setupWebView() {
-        mWebView.setLayerType(View.LAYER_TYPE_NONE, null);
+        mWebView.setLayerType(View.LAYER_TYPE_HARDWARE, null);
         mWebView.setBackgroundColor(0xFF061014);
         WebSettings settings = mWebView.getSettings();
         settings.setJavaScriptEnabled(true);
@@ -766,6 +766,7 @@ public class MainActivity extends Activity implements CockpitMediaListenerServic
                             runOnUiThread(new Runnable() {
                                 @Override
                                 public void run() {
+                                    evalWebViewJs("if (typeof window.__onTrunkRefused === 'function') window.__onTrunkRefused();");
                                     Toast.makeText(MainActivity.this, message, Toast.LENGTH_LONG).show();
                                 }
                             });

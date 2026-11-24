@@ -952,7 +952,6 @@
 					case STATE.TOUCH_ROTATE:
 						if ( scope.enableRotate === false ) return;
 						handleTouchMoveRotate( event );
-						scope.update();
 						break;
 
 					case STATE.TOUCH_PAN:
@@ -998,17 +997,20 @@
 
 
 			scope.domElement.addEventListener( 'contextmenu', onContextMenu );
-			scope.domElement.addEventListener( 'pointerdown', onPointerDown );
-			scope.domElement.addEventListener( 'wheel', onMouseWheel, {
-				passive: false
-			} );
-			scope.domElement.addEventListener( 'touchstart', onTouchStart, {
-				passive: false
-			} );
-			scope.domElement.addEventListener( 'touchend', onTouchEnd );
-			scope.domElement.addEventListener( 'touchmove', onTouchMove, {
-				passive: false
-			} ); // force an update at start
+			if ( typeof window !== 'undefined' && 'ontouchstart' in window ) {
+				scope.domElement.addEventListener( 'touchstart', onTouchStart, {
+					passive: false
+				} );
+				scope.domElement.addEventListener( 'touchend', onTouchEnd );
+				scope.domElement.addEventListener( 'touchmove', onTouchMove, {
+					passive: false
+				} );
+			} else {
+				scope.domElement.addEventListener( 'pointerdown', onPointerDown );
+				scope.domElement.addEventListener( 'wheel', onMouseWheel, {
+					passive: false
+				} );
+			} // force an update at start
 
 			this.update();
 

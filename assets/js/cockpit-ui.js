@@ -174,6 +174,12 @@
     window.setSeatOption = setSeatOption;
 
     function toggleTrunk() {
+      // SAFETY GUARD: match CanBusClient.TRUNK_MAX_SPEED_KMH (5 km/h) so the 3D trunk NEVER animates open while moving!
+      const liveSpeed = Number((state.telemetry && state.telemetry.speed) || 0);
+      if (liveSpeed > 5) {
+        sendCanCommand('VEHICLE_TUNK_CONTROL', 2); // Let Java trigger the bilingual safety toast
+        return;
+      }
       // Trunk opens; button triggers momentary pulse glow
       manualDoorLockUntil.trunk = Date.now() + 15000;
       state.targetDoors.trunk = 1;
@@ -187,6 +193,15 @@
       requestRender();
       sendCanCommand('VEHICLE_TUNK_CONTROL', 2);
     }
+
+    window.__onTrunkRefused = function () {
+      manualDoorLockUntil.trunk = 0;
+      state.targetDoors.trunk = (lastCanDoors && lastCanDoors.trunk) ? 1 : 0;
+      const btn = document.getElementById('btn-side-trunk');
+      if (btn) btn.classList.remove('pulse-active', 'active');
+      if (typeof smoothReturnToHeroAngle === 'function') smoothReturnToHeroAngle();
+      requestRender();
+    };
 
                 
     function resetSunroofInactivityTimer() {

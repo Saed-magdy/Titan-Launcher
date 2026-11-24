@@ -129,7 +129,7 @@ var _paintQueued = false;
       camera.position.set(4500, 2100, 5200);
 
       try {
-        renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, powerPreference: 'default' });
+        renderer = new THREE.WebGLRenderer({ antialias: false, alpha: true, powerPreference: 'high-performance' });
       } catch (e1) {
         console.warn('WebGL init attempt 1 failed, trying fallback', e1);
         try {
@@ -140,11 +140,12 @@ var _paintQueued = false;
       }
 
       if (renderer) {
-        renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.25));
+        renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 0.92));
         renderer.setSize(w, h);
-        renderer.toneMapping = THREE.ACESFilmicToneMapping;
-        renderer.toneMappingExposure = 1.22;
+        renderer.toneMapping = THREE.NoToneMapping;
         renderer.shadowMap.enabled = false;
+        renderer.domElement.style.willChange = 'transform';
+        renderer.domElement.style.transform = 'translateZ(0)';
         container.appendChild(renderer.domElement);
 
         renderer.domElement.addEventListener('webglcontextlost', function(e) {
@@ -194,13 +195,9 @@ var _paintQueued = false;
       };
 
       renderer.domElement.addEventListener('pointerdown', onCanvasTouchStart, { passive: true });
-      renderer.domElement.addEventListener('touchstart', onCanvasTouchStart, { passive: true });
       renderer.domElement.addEventListener('pointermove', onCanvasTouchMove, { passive: true });
-      renderer.domElement.addEventListener('touchmove', onCanvasTouchMove, { passive: true });
       window.addEventListener('pointerup', onCanvasTouchEnd, { passive: true });
       window.addEventListener('pointercancel', onCanvasTouchEnd, { passive: true });
-      window.addEventListener('touchend', onCanvasTouchEnd, { passive: true });
-      window.addEventListener('touchcancel', onCanvasTouchEnd, { passive: true });
       window.addEventListener('blur', onCanvasTouchEnd, { passive: true });
 
       controls.addEventListener('start', () => {
@@ -223,29 +220,21 @@ var _paintQueued = false;
         requestRender();
       });
 
-      // Enhanced 360 Daytime Studio Lighting (High Visibility & Vivid Contours in Sunlight)
-      const ambLight = new THREE.AmbientLight(0xffffff, 1.35);
+      // High-efficiency Adreno 506 Studio Lighting (2 sculpted directional lights + hemisphere + ambient)
+      const ambLight = new THREE.AmbientLight(0xffffff, 0.58);
       scene.add(ambLight);
 
-      const hemiLight = new THREE.HemisphereLight(0xffffff, 0xbae6fd, 1.65);
+      const hemiLight = new THREE.HemisphereLight(0xffffff, 0xbae6fd, 0.95);
       hemiLight.position.set(0, 4000, 0);
       scene.add(hemiLight);
 
-      const dirLightFront = new THREE.DirectionalLight(0xffffff, 0.78);
-      dirLightFront.position.set(4200, 1400, 4200);
+      const dirLightFront = new THREE.DirectionalLight(0xffffff, 1.25);
+      dirLightFront.position.set(4200, 1550, 4200);
       scene.add(dirLightFront);
 
-      const dirLightRear = new THREE.DirectionalLight(0xffffff, 0.62);
-      dirLightRear.position.set(-4200, 1200, -4200);
+      const dirLightRear = new THREE.DirectionalLight(0xe0f2fe, 0.95);
+      dirLightRear.position.set(-4200, 1450, -3800);
       scene.add(dirLightRear);
-
-      const dirLightSide = new THREE.DirectionalLight(0xe0f2fe, 0.58);
-      dirLightSide.position.set(-3000, 2000, 3000);
-      scene.add(dirLightSide);
-
-      const dirLightSideR = new THREE.DirectionalLight(0xffffff, 0.52);
-      dirLightSideR.position.set(3200, 2200, 2600);
-      scene.add(dirLightSideR);
 
       // Initialize System Clock
     }
@@ -394,12 +383,26 @@ var _paintQueued = false;
         const isLightGrey = (!isOrange && r > 105 && g > 105 && b > 105 && Math.abs(r - g) < 30 && Math.abs(g - b) < 30);
 
         if (sOpt === 'black') {
-          // All seat surfaces deep rich black (4 shades darker)
+          // Midpoint sculpted dark black leather: deeper than last build, clearer than pure pitch-black
           const lumByte = (r * 77 + g * 150 + b * 29) >> 8;
-          const v = 2 + ((lumByte * 6) >> 8);
-          d[i]     = v;
-          d[i + 1] = v;
-          d[i + 2] = 3 + ((lumByte * 7) >> 8);
+          if (isOrange) {
+            // Dark charcoal piping on the sport accent strips
+            d[i]     = 26;
+            d[i + 1] = 28;
+            d[i + 2] = 32;
+          } else if (isLightGrey) {
+            // Subtle dark-slate shoulder bolsters
+            const v = 16 + ((lumByte * 15) >> 8);
+            d[i]     = v;
+            d[i + 1] = v + 1;
+            d[i + 2] = v + 3;
+          } else {
+            // Rich deep black leather with gentle contour visibility
+            const v = 7 + ((lumByte * 14) >> 8);
+            d[i]     = v;
+            d[i + 1] = v + 1;
+            d[i + 2] = v + 2;
+          }
         } else if (sOpt === 'yellow') {
           if (isOrange) {
             // Vibrant yellow matching the Sport front bumper lip
@@ -432,19 +435,22 @@ var _paintQueued = false;
       seatPaintCtx.putImageData(imgData, 0, 0);
       seatPaintTexture.needsUpdate = true;
 
+      const softCabinEmissive = (sOpt === 'black') ? 0x0a0d11 : 0x050709;
       seatMaterials.forEach(function(mat) {
         mat.map = seatPaintTexture;
         mat.color.set('#ffffff');
-        mat.metalness = 0.24;
-        mat.roughness = 0.56;
+        if (mat.emissive) mat.emissive.setHex(softCabinEmissive);
         mat.needsUpdate = true;
       });
       if (nodes['C65_zuoyi'] && nodes['C65_zuoyi'].material) {
         nodes['C65_zuoyi'].material.map = seatPaintTexture;
         nodes['C65_zuoyi'].material.color.set('#ffffff');
-        nodes['C65_zuoyi'].material.metalness = 0.24;
-        nodes['C65_zuoyi'].material.roughness = 0.56;
+        if (nodes['C65_zuoyi'].material.emissive) nodes['C65_zuoyi'].material.emissive.setHex(softCabinEmissive);
         nodes['C65_zuoyi'].material.needsUpdate = true;
+      }
+      if (nodes['C65_zhongkong'] && nodes['C65_zhongkong'].material && nodes['C65_zhongkong'].material.emissive) {
+        nodes['C65_zhongkong'].material.emissive.setHex(0x06080b);
+        nodes['C65_zhongkong'].material.needsUpdate = true;
       }
       idleRenderCountdown = 120;
       requestRender();
@@ -479,9 +485,9 @@ var _paintQueued = false;
       if (isPureGlossyBlack) {
         bodyRgb = { r: 6, g: 7, b: 8 };
       } else if (isDarkerGrey) {
-        bodyRgb = { r: 16, g: 18, b: 22 };
+        bodyRgb = { r: 22, g: 25, b: 30 };
       } else if (isDarkGrey) {
-        bodyRgb = { r: 52, g: 58, b: 66 };
+        bodyRgb = { r: 55, g: 61, b: 70 };
       } else if (isLightGrey) {
         bodyRgb = { r: 96, g: 106, b: 120 };
       }
@@ -560,29 +566,20 @@ var _paintQueued = false;
       if (nodes['C65_cheqi'] && nodes['C65_cheqi'].material) {
         nodes['C65_cheqi'].material.map = carPaintTexture;
         nodes['C65_cheqi'].material.color.set('#ffffff');
-        if (isPureGlossyBlack) {
-          nodes['C65_cheqi'].material.metalness = 0.35;
-          nodes['C65_cheqi'].material.roughness = 0.22;
-        } else if (isDarkerGrey) {
-          nodes['C65_cheqi'].material.metalness = 0.18;
-          nodes['C65_cheqi'].material.roughness = 0.55;
-        } else if (isDarkGrey) {
-          nodes['C65_cheqi'].material.metalness = 0.14;
-          nodes['C65_cheqi'].material.roughness = 0.58;
-        } else {
-          nodes['C65_cheqi'].material.metalness = 0.08;
-          nodes['C65_cheqi'].material.roughness = 0.65;
+        if (nodes['C65_cheqi'].material.reflectivity !== undefined) {
+          nodes['C65_cheqi'].material.reflectivity = isPureGlossyBlack ? 0.24 : (isDarkerGrey ? 0.19 : (isDarkGrey ? 0.16 : 0.13));
         }
         nodes['C65_cheqi'].material.needsUpdate = true;
       }
       if (nodes['C65_chejia'] && nodes['C65_chejia'].material) {
         let frameHex = '#6c7684';
         if (isPureGlossyBlack) frameHex = '#080808';
-        else if (isDarkerGrey) frameHex = '#101216';
-        else if (isDarkGrey) frameHex = '#343a42';
+        else if (isDarkerGrey) frameHex = '#16191e';
+        else if (isDarkGrey) frameHex = '#373d46';
         nodes['C65_chejia'].material.color.set(frameHex);
-        nodes['C65_chejia'].material.metalness = isPureGlossyBlack ? 0.35 : (isDarkerGrey ? 0.18 : 0.08);
-        nodes['C65_chejia'].material.roughness = isPureGlossyBlack ? 0.22 : (isDarkerGrey ? 0.55 : 0.65);
+        if (nodes['C65_chejia'].material.reflectivity !== undefined) {
+          nodes['C65_chejia'].material.reflectivity = isPureGlossyBlack ? 0.22 : (isDarkerGrey ? 0.16 : 0.12);
+        }
         nodes['C65_chejia'].material.needsUpdate = true;
       }
 
@@ -672,17 +669,57 @@ var _paintQueued = false;
       seatMaterials = [];
       trunkMaterial = null;
 
+      // Procedural Studio Reflection EnvMap (256x128) — delivers luxury showroom gloss at ~4x the speed of PBR on Adreno 506
+      const envCanvas = document.createElement('canvas');
+      envCanvas.width = 256; envCanvas.height = 128;
+      const envCtx = envCanvas.getContext('2d');
+      const envGrad = envCtx.createLinearGradient(0, 0, 0, 128);
+      envGrad.addColorStop(0.00, '#ffffff');
+      envGrad.addColorStop(0.18, '#e0f2fe');
+      envGrad.addColorStop(0.35, '#64748b');
+      envGrad.addColorStop(0.49, '#0f172a');
+      envGrad.addColorStop(0.54, '#020617');
+      envGrad.addColorStop(1.00, '#000000');
+      envCtx.fillStyle = envGrad;
+      envCtx.fillRect(0, 0, 256, 128);
+      envCtx.fillStyle = '#ffffff';
+      envCtx.fillRect(16, 14, 96, 16);
+      envCtx.fillRect(144, 16, 96, 16);
+      const studioEnvTex = new THREE.CanvasTexture(envCanvas);
+      studioEnvTex.mapping = THREE.EquirectangularReflectionMapping;
+
+      // Convert GLTF MeshStandardMaterials (preserving exact material sharing across body & doors!) to ultra-fast MeshLambertMaterial
+      const lambertByUuid = {};
+      function toFastLambert(stdMat) {
+        if (!stdMat || stdMat.isMeshLambertMaterial || stdMat.isMeshBasicMaterial) return stdMat;
+        if (lambertByUuid[stdMat.uuid]) return lambertByUuid[stdMat.uuid];
+        const mName = stdMat.name || '';
+        const isPaintOrFrame = (mName === 'C65_cheqi' || mName === 'C65_chejia');
+        const lam = new THREE.MeshLambertMaterial({
+          name: mName,
+          color: stdMat.color ? stdMat.color.clone() : new THREE.Color(0xffffff),
+          map: stdMat.map || null,
+          envMap: isPaintOrFrame ? studioEnvTex : null,
+          combine: THREE.AddOperation,
+          reflectivity: isPaintOrFrame ? 0.18 : 0.0,
+          side: THREE.FrontSide
+        });
+        lambertByUuid[stdMat.uuid] = lam;
+        return lam;
+      }
+
       // Shared singleton materials for antenna and license plate
-      const sharedAntennaMat = new THREE.MeshStandardMaterial({
+      const sharedAntennaMat = new THREE.MeshLambertMaterial({
         color: 0x060708,
-        roughness: 0.25,
-        metalness: 0.35,
-        side: THREE.DoubleSide
+        envMap: studioEnvTex,
+        combine: THREE.AddOperation,
+        reflectivity: 0.14,
+        side: THREE.FrontSide
       });
       const sharedPlateMat = new THREE.MeshBasicMaterial({
         map: plateTexture,
         color: 0xd8e0ea,
-        side: THREE.DoubleSide,
+        side: THREE.FrontSide,
         toneMapped: false
       });
 
@@ -704,36 +741,31 @@ var _paintQueued = false;
 
           if (child.name === 'C65_weixiang' || child.name === 'C65_weixiang_1') {
             if (Array.isArray(child.material)) {
+              child.material = child.material.map(toFastLambert);
               child.material[0] = child.material[0].clone();
               child.material[0].name = 'C65_weixiang_light';
-              child.material[0].roughness = 0.16;
-              child.material[0].metalness = 0.08;
               trunkMaterial = child.material[0];
             } else {
-              child.material = child.material.clone();
+              child.material = toFastLambert(child.material).clone();
               child.material.name = 'C65_weixiang_light';
-              child.material.roughness = 0.16;
-              child.material.metalness = 0.08;
               trunkMaterial = child.material;
             }
             return;
           }
 
+          if (Array.isArray(child.material)) {
+            child.material = child.material.map(toFastLambert);
+          } else {
+            child.material = toFastLambert(child.material);
+          }
+
           const mats = Array.isArray(child.material) ? child.material : [child.material];
           mats.forEach((m) => {
             if (!m) return;
-            m.side = THREE.DoubleSide;
-            // Eliminate harsh specular glare on roof, sunroof glass, windshield, and body panels
-            if (m.metalness !== undefined) m.metalness = Math.min(m.metalness, 0.04);
-            if (m.roughness !== undefined) m.roughness = Math.max(m.roughness, 0.92);
             if (m.name === 'C65_zuodeng' || child.name === 'C65_zuodeng_1' || child.name === 'C65_zuodeng') {
-              m.roughness = 0.16;
-              m.metalness = 0.08;
               if (!leftLightMaterials.includes(m)) leftLightMaterials.push(m);
             }
             if (m.name === 'C65_youdeng' || child.name === 'C65_youdeng_1' || child.name === 'C65_youdeng') {
-              m.roughness = 0.16;
-              m.metalness = 0.08;
               if (!rightLightMaterials.includes(m)) rightLightMaterials.push(m);
             }
             if (m.name === 'C65_zuoyi' || child.name === 'C65_zuoyi' || child.name === 'C65_zuoyi_1') {
@@ -744,14 +776,7 @@ var _paintQueued = false;
       });
 
       if (nodes['C65_dipan']) {
-        // Keep full C65_dipan as a single unified mesh (4 wheel arch liners + trunk cavity + complete rear diffuser & exhaust tips)
         nodes['C65_dipan'].visible = true;
-        if (nodes['C65_dipan'].material) {
-          nodes['C65_dipan'].material.side = THREE.DoubleSide;
-          nodes['C65_dipan'].material.roughness = 0.90;
-          nodes['C65_dipan'].material.metalness = 0.08;
-          nodes['C65_dipan'].material.needsUpdate = true;
-        }
       }
 
       // 4-Wheel Axle Pivots Setup (Front Steering + 4-Wheel Rolling around intrinsic centers)
@@ -824,47 +849,51 @@ var _paintQueued = false;
       }
       initCarGroundShadow();
 
-      // Setup specialized automotive glass materials:
-      // 1. Front windshield: slightly transparent to reveal interior cabin/dash
-      const frontGlassMaterial = new THREE.MeshStandardMaterial({
-        color: 0x05070a,
-        roughness: 0.08,
-        metalness: 0.70,
+      // Setup specialized automotive glass materials (ultra-fast MeshLambertMaterial + Studio Reflection):
+      // 1. Front windshield: slightly transparent with bottom ceramic frit band
+      const frontGlassMaterial = new THREE.MeshLambertMaterial({
+        color: 0x030508,
+        envMap: studioEnvTex,
+        combine: THREE.AddOperation,
+        reflectivity: 0.16,
         transparent: true,
-        opacity: 0.72,
+        opacity: 0.75,
         side: THREE.DoubleSide,
         depthWrite: false
       });
 
       // 2. Rear windshield, rear fixed glass & rear door windows: 100% opaque deep black privacy tint
-      const rearDarkGlassMaterial = new THREE.MeshStandardMaterial({
-        color: 0x020305,
-        roughness: 0.05,
-        metalness: 0.85,
+      const rearDarkGlassMaterial = new THREE.MeshLambertMaterial({
+        color: 0x010203,
+        envMap: studioEnvTex,
+        combine: THREE.AddOperation,
+        reflectivity: 0.06,
         transparent: false,
         opacity: 1.0,
-        side: THREE.DoubleSide
+        side: THREE.FrontSide
       });
 
       // 3. Front door windows: slightly tinted
-      const frontDoorGlassMaterial = new THREE.MeshStandardMaterial({
-        color: 0x05070a,
-        roughness: 0.08,
-        metalness: 0.70,
+      const frontDoorGlassMaterial = new THREE.MeshLambertMaterial({
+        color: 0x030508,
+        envMap: studioEnvTex,
+        combine: THREE.AddOperation,
+        reflectivity: 0.15,
         transparent: true,
-        opacity: 0.72,
+        opacity: 0.74,
         side: THREE.DoubleSide,
         depthWrite: false
       });
 
       // 4. Sunroof: completely dark opaque glossy glass (non-transparent per user request)
-      const sunroofOpaqueDarkMaterial = new THREE.MeshStandardMaterial({
+      const sunroofOpaqueDarkMaterial = new THREE.MeshLambertMaterial({
         color: 0x010203,
-        roughness: 0.05,
-        metalness: 0.90,
+        envMap: studioEnvTex,
+        combine: THREE.AddOperation,
+        reflectivity: 0.06,
         transparent: false,
         opacity: 1.0,
-        side: THREE.DoubleSide
+        side: THREE.FrontSide
       });
 
       // Split C65_boli: keep front windshield in origGeom, rear glass in rearGeom, extract sunroof to sunroofMesh
@@ -910,7 +939,7 @@ var _paintQueued = false;
           }
           if (frontMinY === Infinity) { frontMinY = 500; frontMaxY = 800; }
 
-          // Front windshield shader: lower 20% is 100% opaque black, smooth transition between 20% and 35%, upper part 0.72 transparent
+          // Front windshield shader: balanced midpoint lower 16% ceramic frit black edge, smooth transition 16%..28%, upper part 0.73 transparent
           frontGlassMaterial.onBeforeCompile = function(shader) {
             shader.uniforms.uGlassMinY = { value: frontMinY };
             shader.uniforms.uGlassMaxY = { value: frontMaxY };
@@ -926,16 +955,16 @@ var _paintQueued = false;
               '#include <dithering_fragment>',
               `#include <dithering_fragment>
                float hNorm = clamp((vCustomGlassY - uGlassMinY) / max(uGlassMaxY - uGlassMinY, 0.001), 0.0, 1.0);
-               float glassAlpha = 0.72;
-               if (hNorm <= 0.20) {
+               float glassAlpha = 0.73;
+               if (hNorm <= 0.16) {
                  glassAlpha = 1.0;
                  gl_FragColor.rgb = mix(gl_FragColor.rgb, vec3(0.005, 0.008, 0.012), 0.96);
-               } else if (hNorm < 0.35) {
-                 float t = smoothstep(0.20, 0.35, hNorm);
-                 glassAlpha = mix(1.0, 0.72, t);
+               } else if (hNorm < 0.28) {
+                 float t = smoothstep(0.16, 0.28, hNorm);
+                 glassAlpha = mix(1.0, 0.73, t);
                  gl_FragColor.rgb = mix(gl_FragColor.rgb, vec3(0.005, 0.008, 0.012), (1.0 - t) * 0.96);
                } else {
-                 glassAlpha = 0.72;
+                 glassAlpha = 0.73;
                }
                gl_FragColor.a = glassAlpha;
               `
@@ -1706,6 +1735,7 @@ var _paintQueued = false;
           }
         }
       } else if (controls) {
+        controls.dampingFactor = Math.min(0.65, Math.max(0.14, 1.0 - Math.pow(1.0 - 0.24, delta * 60.0)));
         controls.update();
       }
 
