@@ -196,7 +196,7 @@ if ($LASTEXITCODE -ne 0) { Fail "zipalign failed" }
 # ---------------------------------------------------------------------------
 # 6. Sign
 # ---------------------------------------------------------------------------
-$finalApk = Join-Path $binDir "Titan_Launcher_v${verName}_Optimized.apk"
+$finalApk = Join-Path $binDir "Titan_Launcher_v${verName}.apk"
 if (Test-Path $finalApk) { Remove-Item $finalApk -Force }
 
 if ($TestSign) {
@@ -224,13 +224,13 @@ foreach ($dest in $CopyTo) {
     Write-Host "Copied to: $dest" -ForegroundColor Green
 }
 
-# Auto-sync Optimized build to READY_FOR_CAR as #2 (never overwrites original 1_Titan_launcher_v...)
+# Auto-sync build to READY_FOR_CAR as #2 (never overwrites original 1_Titan_launcher_v...)
 $readyDir = Join-Path $projDir "..\READY_FOR_CAR"
 if (Test-Path $readyDir) {
-    Copy-Item $finalApk (Join-Path $readyDir "2_Titan_Launcher_v${verName}_Optimized.apk") -Force
-    Write-Host "Auto-copied to READY_FOR_CAR\2_Titan_Launcher_v${verName}_Optimized.apk" -ForegroundColor Green
+    Copy-Item $finalApk (Join-Path $readyDir "2_Titan_Launcher_v${verName}.apk") -Force
+    Write-Host "Auto-copied to READY_FOR_CAR\2_Titan_Launcher_v${verName}.apk" -ForegroundColor Green
 }
-Copy-Item $finalApk (Join-Path $projDir "Titan_Launcher_v${verName}_Optimized.apk") -Force
+Copy-Item $finalApk (Join-Path $projDir "Titan_Launcher_v${verName}.apk") -Force
 
 Write-Host "==========================================" -ForegroundColor Green
 Write-Host "BUILD SUCCESSFUL" -ForegroundColor Green
