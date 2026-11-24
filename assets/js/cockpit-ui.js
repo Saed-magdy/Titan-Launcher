@@ -955,17 +955,30 @@
     }
 
     function cleanAllAppsMemory() {
-      let freedMb = 86;
+      // Shows only what really happened: the real amount freed, no number when it is 0,
+      // and an honest message when the cleanup could not run. Music and maps apps are kept open.
+      const ar = state.lang === 'ar';
+      let ok = false;
+      let freedMb = 0;
       if (window.AndroidBridge && typeof window.AndroidBridge.cleanMemory === 'function') {
         try {
-          const resStr = window.AndroidBridge.cleanMemory();
-          const res = JSON.parse(resStr);
-          if (res && res.freedMb) freedMb = res.freedMb;
+          const res = JSON.parse(window.AndroidBridge.cleanMemory());
+          ok = !!(res && res.ok);
+          freedMb = (res && res.freedMb > 0) ? Math.round(res.freedMb) : 0;
         } catch (e) {}
       }
-      const msg = state.lang === 'ar'
-        ? ('\u2713 \u062A\u0645 \u0625\u063A\u0644\u0627\u0642 \u062A\u0637\u0628\u064A\u0642\u0627\u062A \u0627\u0644\u062E\u0644\u0641\u064A\u0629 \u0648\u062A\u062D\u0631\u064A\u0631 ' + window.toLangDigits(freedMb) + ' \u0645\u064A\u062C\u0627\u0628\u0627\u064A\u062A')
-        : ('\u2713 Background Apps Closed \u2022 Freed ' + freedMb + ' MB RAM');
+      let msg;
+      if (!window.AndroidBridge) {
+        msg = ar ? '\u2713 \u062A\u0645 \u0625\u063A\u0644\u0627\u0642 \u062A\u0637\u0628\u064A\u0642\u0627\u062A \u0627\u0644\u062E\u0644\u0641\u064A\u0629 (\u0645\u0639\u0627\u064A\u0646\u0629)' : '\u2713 Background Apps Closed (preview)';
+      } else if (!ok) {
+        msg = ar ? '\u062A\u0639\u0630\u0651\u0631 \u062A\u0646\u0638\u064A\u0641 \u0627\u0644\u0630\u0627\u0643\u0631\u0629 \u0627\u0644\u0622\u0646' : "Couldn't free memory right now";
+      } else if (freedMb > 0) {
+        msg = ar
+          ? ('\u2713 \u062A\u0645 \u0625\u063A\u0644\u0627\u0642 \u062A\u0637\u0628\u064A\u0642\u0627\u062A \u0627\u0644\u062E\u0644\u0641\u064A\u0629 \u0648\u062A\u062D\u0631\u064A\u0631 ' + window.toLangDigits(freedMb) + ' \u0645\u064A\u062C\u0627\u0628\u0627\u064A\u062A')
+          : ('\u2713 Background Apps Closed \u2022 Freed ' + freedMb + ' MB RAM');
+      } else {
+        msg = ar ? '\u2713 \u062A\u0645 \u0625\u063A\u0644\u0627\u0642 \u062A\u0637\u0628\u064A\u0642\u0627\u062A \u0627\u0644\u062E\u0644\u0641\u064A\u0629' : '\u2713 Background Apps Closed';
+      }
       showLauncherToast(msg, 2600);
     }
 
