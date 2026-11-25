@@ -54,17 +54,47 @@ The launcher builds without Gradle using standard Android SDK Build-Tools (`aapt
 
 ---
 
-## Releasing a new version
+## Version numbers
 
-The in-app updater compares the version installed in the car with the newest GitHub Release. For that to work, three things must carry **the same number**:
+Every build has two numbers, both in `AndroidManifest.xml`:
 
-1. **`AndroidManifest.xml`**: raise `android:versionName` (for example `2.1.3` → `2.1.4`) **and** add 1 to `android:versionCode` (Android refuses an update whose code is not higher).
-2. **The GitHub Release tag**: `v` + the same versionName, for example `v2.1.4`.
-3. **The APK attached to that Release**: built *after* step 1, so it really contains the new number.
+- **`android:versionName`**: the number people see, written `MAJOR.MINOR.PATCH`, for example `2.1.6`.
+- **`android:versionCode`**: a plain counter that only Android looks at. Android refuses to install an update whose code is not higher than the one already in the car.
 
-If the tag says `v2.2.1` but the APK inside still says `2.1.3`, every car will be offered the "new" update again and again, because after installing it still reports `2.1.3`.
+### Which part of the version to raise
 
-Also add a section for the new version at the top of [CHANGELOG.md](CHANGELOG.md), with the same number, describing what changed. (The changelog is history, so older version numbers in it are expected and correct.)
+| Change | Raise | Example |
+|---|---|---|
+| Bug fixes only, nothing new for the driver | **PATCH** | `2.1.6` → `2.1.7` |
+| New features (a new screen, a new audio source, the mascot...) | **MINOR**, and PATCH goes back to 0 | `2.1.7` → `2.2.0` |
+| A big redesign, or anything that changes how people use the launcher | **MAJOR**, and the others go back to 0 | `2.2.0` → `3.0.0` |
+
+Rules that always apply:
+
+- **versionCode goes up by 1 for every build that leaves this PC**, test builds included. It is never reused and never lowered.
+- **The versionName never goes backwards.** If a number was set by mistake (for example `2.2.1` instead of `2.1.2`), the next release continues *above* it. Going back would make the car refuse the update, and the updater would think the car is already newer.
+
+### Releasing a new version (from `dev` to `main`)
+
+The number is raised **only in this final step**, never inside a feature or fix PR:
+
+1. On `dev`, raise `versionName` and `versionCode` in `AndroidManifest.xml` as described above. Commit it on its own: `Release v2.1.7`.
+2. Add a section for the new version at the **top** of [CHANGELOG.md](CHANGELOG.md) and keep the older sections below it: the changelog is the full history.
+3. Open a PR from `dev` into `main` and merge it.
+4. Build the APK from `main`, *after* step 1, so it really contains the new number.
+5. On GitHub, create a Release with the tag `v` + the same number (for example `v2.1.7`), from `main`, and attach the APK.
+
+The in-app updater compares the version in the car with the newest GitHub Release. If the tag says `v2.1.7` but the APK inside still says `2.1.6`, every car will be offered the "new" update again and again.
+
+### Test builds (pre-releases from `dev`)
+
+A test build is named after the **last release**, plus `-dev.` and a counter: the first test build after `2.1.6` is `2.1.6-dev.1`, then `2.1.6-dev.2`, and so on.
+
+- Give each test build its own higher `versionCode`.
+- Publish it on GitHub as a **pre-release** with the tag `v2.1.6-dev.1`, from `dev`. Cars never receive pre-releases through the updater.
+- When the real `2.1.7` comes out, a test car on `2.1.6-dev.2` is offered it normally, because 2.1.7 is higher.
+
+Do **not** name a test build after the coming version (`2.1.7-dev`): the updater would treat it as already being 2.1.7, and the test car would never be offered the real 2.1.7.
 
 ---
 
