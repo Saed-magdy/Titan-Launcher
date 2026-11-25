@@ -20,3 +20,6 @@ desktop.ini
 *.log
 .vscode/
 .idea/
+
+# Private build settings for one PC (copy build.local.example.ps1 to create it)
+build.local.ps1

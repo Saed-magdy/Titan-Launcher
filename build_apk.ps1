@@ -41,16 +41,10 @@ param(
     ),
     [string]$BuildToolsVersion = "28.0.3",
     # Car platform signing key and certificate (never commit these to git).
-    [string]$PlatformKey = $(
-        if ($env:TITAN_PLATFORM_KEY -and (Test-Path $env:TITAN_PLATFORM_KEY)) { $env:TITAN_PLATFORM_KEY }
-        elseif (Test-Path "$PSScriptRoot\..\shine wave\shine wave\shine wave\app\platform\platform.pk8") { (Resolve-Path "$PSScriptRoot\..\shine wave\shine wave\shine wave\app\platform\platform.pk8").Path }
-        else { $null }
-    ),
-    [string]$PlatformCert = $(
-        if ($env:TITAN_PLATFORM_CERT -and (Test-Path $env:TITAN_PLATFORM_CERT)) { $env:TITAN_PLATFORM_CERT }
-        elseif (Test-Path "$PSScriptRoot\..\shine wave\shine wave\shine wave\app\platform\platform.x509.pem") { (Resolve-Path "$PSScriptRoot\..\shine wave\shine wave\shine wave\app\platform\platform.x509.pem").Path }
-        else { $null }
-    ),
+    # If not given here, they come from TITAN_PLATFORM_KEY / TITAN_PLATFORM_CERT, or from your
+    # private build.local.ps1 file (see step 0 below).
+    [string]$PlatformKey = $env:TITAN_PLATFORM_KEY,
+    [string]$PlatformCert = $env:TITAN_PLATFORM_CERT,
     # Sign with a throwaway test key instead of the platform key.
     [switch]$TestSign,
     # Optional extra folders to copy the finished APK into.
@@ -69,6 +63,20 @@ function Fail([string]$message) {
 # 0. Find everything we need, and explain clearly what is missing.
 # ---------------------------------------------------------------------------
 $projDir = $PSScriptRoot
+
+# Private settings for THIS computer only (for example where the car's signing key is kept).
+# build.local.ps1 is ignored by git, so personal folders and key locations never reach GitHub.
+# To create it: copy build.local.example.ps1 to build.local.ps1 and fill in your own paths.
+# Anything given on the command line or in environment variables still wins.
+$localSettings = Join-Path $projDir "build.local.ps1"
+if (Test-Path $localSettings) {
+    $LocalPlatformKey = $null; $LocalPlatformCert = $null; $LocalSdkDir = $null
+    . $localSettings
+    if (-not $PlatformKey -and $LocalPlatformKey) { $PlatformKey = $LocalPlatformKey }
+    if (-not $PlatformCert -and $LocalPlatformCert) { $PlatformCert = $LocalPlatformCert }
+    if (-not $SdkDir -and $LocalSdkDir) { $SdkDir = $LocalSdkDir }
+    Write-Host "Using private settings from build.local.ps1" -ForegroundColor DarkGray
+}
 
 if (-not $SdkDir -or -not (Test-Path $SdkDir)) {
     Fail "Android SDK folder not found. Pass -SdkDir <folder> or set the ANDROID_SDK_ROOT environment variable."
@@ -104,7 +112,7 @@ foreach ($exe in @("java", "javac")) {
 
 if (-not $TestSign) {
     if (-not $PlatformKey -or -not (Test-Path $PlatformKey) -or -not $PlatformCert -or -not (Test-Path $PlatformCert)) {
-        Fail "Platform signing key not found. Pass -PlatformKey and -PlatformCert (or set TITAN_PLATFORM_KEY / TITAN_PLATFORM_CERT).`n  To only check that the build works, run again with -TestSign."
+        Fail "Platform signing key not found. Pass -PlatformKey and -PlatformCert (or set TITAN_PLATFORM_KEY / TITAN_PLATFORM_CERT, or put them in build.local.ps1).`n  To only check that the build works, run again with -TestSign."
     }
 }
 
