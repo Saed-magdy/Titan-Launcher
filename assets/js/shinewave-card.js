@@ -488,7 +488,13 @@
       lastFrame = 0;
       return;
     }
-    var carActive = !!(window.isUserInteracting || window.isCanvasTouched || window.camTween);
+    // These three are declared with `let` in cockpit-core.js. `let` values are shared between
+    // the page's scripts by name, but they are NOT copies on `window`, so `window.isUserInteracting`
+    // was always undefined and this frame skip never ran. Read them by name instead; `typeof`
+    // keeps it safe if cockpit-core.js has not loaded yet.
+    var carActive = !!((typeof isUserInteracting !== 'undefined' && isUserInteracting) ||
+                       (typeof isCanvasTouched !== 'undefined' && isCanvasTouched) ||
+                       (typeof camTween !== 'undefined' && camTween));
     if (carActive && (++_cardFrameSkip & 1)) {
       rafId = requestAnimationFrame(frame);
       return;
