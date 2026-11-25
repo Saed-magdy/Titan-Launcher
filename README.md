@@ -1,6 +1,8 @@
 # Titan Cockpit Launcher
 
-> The current version number is written in one place only: `android:versionName` in [AndroidManifest.xml](AndroidManifest.xml). See [Releasing a new version](#releasing-a-new-version).
+> The current version number is written in one place only: `android:versionName` in [AndroidManifest.xml](AndroidManifest.xml). See [Version numbers](#version-numbers).
+>
+> **Developers and AI coding tools:** before changing anything, read [Working on this project](#working-on-this-project) and [Version numbers](#version-numbers).
 
 **Titan Cockpit Launcher** (`com.dongfeng.shinecockpit`) is a custom portrait (`960×1080`) head-unit launcher and integrated media cockpit built for Dongfeng Aeolus Shine / Qinggan Android head units (`Android 8.1+` / API 27+ WebView + Three.js WebGL + native CAN-Bus & audio integration).
 
@@ -10,7 +12,7 @@ Since version `2.1.0` the launcher fully merges the **Shine Wave** audio engine 
 
 ## Key Features
 
-- **Integrated Shine Wave Engine (`19` modular Java classes):**
+- **Integrated Shine Wave Engine (`21` modular Java classes):**
   - **5 Audio Sources:** USB/Local Files (`LOCAL_MUSIC`), Bluetooth A2DP/AVRCP (`BLUETOOTH`), OEM Car Radio FM/AM/DAB+ (`CAR_RADIO`), Internet Radio (`INTERNET_RADIO`), and External Media Apps (`EXTERNAL_APP`, filtered to downloaded media apps + stock Music).
   - **Transport & Queue Controls:** Shuffle, Repeat (`OFF` / `ALL` / `ONE`), Active Queue viewer, call interruption auto-duck/pause/resume, and named Car Radio quick favorites (`OemStationRepository`).
   - **Borderless Smoked-Glass UI:** Compact card (`#swcard`) with instant source switching and pulsing pastel aura + full driver-reach glass studio (`Shine Wave Player`) with live pastel waveform visualizer, dual card-style squiggle time scrubber, and tap-outside-panel dismissal.
@@ -19,7 +21,7 @@ Since version `2.1.0` the launcher fully merges the **Shine Wave** audio engine 
   - Automatically pauses 3D WebGL rendering (`window.setCar3DFrozen(true)`) while full-screen overlays (such as the Shine Wave Studio) are open to maximize responsiveness.
 - **Native Hardware Bridges:**
   - Direct Qinggan CAN-Bus telemetry (`CanBusClient.java`) and vehicle controls (doors, lights, sunroof, locks, TPMS, temperatures).
-  - Unified Steering-Wheel Control (SWC) handling, notification `MediaSession` listener (`CockpitMediaListenerService.java`), and boot watchdog (`BootReceiver.java`).
+  - Unified Steering-Wheel Control (SWC) handling, notification `MediaSession` listener (`CockpitMediaListenerService.java`), start-on-boot (`BootReceiver.java`), and a crash watchdog (`LauncherWatchdog.java`) that restarts the launcher after a crash and falls back to the car's original launcher if it keeps crashing.
 - **Desktop Browser Simulation Mode:**
   - Opening `assets/app.html` over any local static HTTP server automatically runs interactive frontend simulations for telemetry and all 5 Shine Wave audio sources when `window.AndroidBridge` is absent.
 
@@ -51,6 +53,39 @@ The launcher builds without Gradle using standard Android SDK Build-Tools (`aapt
    ```
 5. The result is a single file: `bin\Titan_Launcher_v<version>.apk`. Add `-CopyTo "E:\"` (for example a USB stick) to also copy it elsewhere.
 6. For UI preview & testing on desktop without a head unit, serve `assets/` with any HTTP server (e.g. `jwebserver`) and open `/app.html` at a `960×1080` viewport.
+
+---
+
+## Working on this project
+
+These rules are for everyone who changes the code: the author, other developers working from a fork, and AI coding tools.
+
+### Branches
+
+| Branch | What it holds |
+|---|---|
+| `main` | Only versions that were tested in the car. Releases are made from `main` only. |
+| `dev` | The testing branch. Every change goes here first. |
+| `fix/<name>`, `feature/<name>`, `security/<name>`, `docs/<name>` | One short-lived branch per change, always started from the latest `dev`. |
+
+### How a change reaches the car
+
+1. Start a new branch from the latest `dev`, with **one change per branch**, so each one can be accepted, rejected or undone on its own.
+2. Open a pull request (PR) into **`dev`**. Developers working from a fork open it from their fork into `dev` of this repository.
+3. Merge it with **"Create a merge commit"**. If the feature has to go later, the **Revert** button on that PR undoes the whole thing in one click.
+4. Test `dev` in the car.
+5. When `dev` is good, release it to `main` as described in [Releasing a new version](#releasing-a-new-version-from-dev-to-main).
+
+**Urgent car bug:** a `hotfix/<name>` branch from `main`, a PR into `main`, a release, then merge `main` back into `dev` so both stay the same.
+
+### Rules
+
+- Never commit or push directly to `main` or `dev`, and never force-push them or rewrite their history.
+- Do not raise the version number inside a fix or feature PR; that happens only in the release step.
+- Write commit messages and PR descriptions in plain words: **what was wrong, what changed, and how to test it in the car.**
+- Before opening a PR, make sure it builds: `build_apk.ps1 -TestSign` (see [Building from Source](#building-from-source)).
+- Never commit signing keys (`*.pk8`, `*.pem`, `*.jks`, `*.keystore`) or APK files. `.gitignore` already blocks them.
+- The screen (`assets/`) is a web page that can control the car through `AndroidBridge`. Show any text that comes from outside (app names, station names, song titles) with `escapeHtml()`, never as raw HTML.
 
 ---
 
