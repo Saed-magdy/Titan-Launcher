@@ -119,6 +119,13 @@ public class MainActivity extends Activity implements CockpitMediaListenerServic
                 evalWebViewJs("if (typeof window.onShineWaveState === 'function') { window.onShineWaveState(" + stateJson.toString() + "); }");
             }
         }
+
+        @Override
+        public void onRadioDataChanged(final JSONObject radioJson) {
+            if (mWebView != null && radioJson != null) {
+                evalSwJsCallback("onShineWaveRadioData", radioJson.toString());
+            }
+        }
     };
 
     @Override
@@ -546,14 +553,18 @@ public class MainActivity extends Activity implements CockpitMediaListenerServic
         public void tuneShineWaveRadio(final String band, final int freqKhz) {
             if (mShineWave == null) return;
             mShineWave.tuneCarRadio(band, freqKhz);
-            getShineWaveRadioState();
+        }
+
+        @JavascriptInterface
+        public void selectShineWaveRadioBand(final String band) {
+            if (mShineWave == null) return;
+            mShineWave.selectCarRadioBand(band);
         }
 
         @JavascriptInterface
         public void stepShineWaveRadio(final int deltaKhz) {
             if (mShineWave == null) return;
             mShineWave.stepCarRadio(deltaKhz);
-            getShineWaveRadioState();
         }
 
         @JavascriptInterface
@@ -570,6 +581,13 @@ public class MainActivity extends Activity implements CockpitMediaListenerServic
         public void saveShineWaveRadioFavorite(final int freqKhz, final String name) {
             if (mShineWave == null) return;
             mShineWave.saveCarRadioFavorite(freqKhz, name);
+            getShineWaveRadioState();
+        }
+
+        @JavascriptInterface
+        public void toggleShineWaveRadioFav(final int freqKhz, final String name) {
+            if (mShineWave == null) return;
+            mShineWave.toggleCarRadioFavorite(freqKhz, name);
             getShineWaveRadioState();
         }
 

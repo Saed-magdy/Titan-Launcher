@@ -15,6 +15,7 @@ import android.media.session.MediaSessionManager;
 import android.media.session.PlaybackState;
 import android.os.Handler;
 import android.os.Looper;
+import android.os.SystemClock;
 import android.util.Log;
 
 import com.dongfeng.shinecockpit.CockpitMediaListenerService;
@@ -38,8 +39,6 @@ public final class AvrcpMetadataTracker {
 
     private static final int KEY_PLAY = 0x44;
     private static final int KEY_PAUSE = 0x46;
-    private static final int KEY_FAST_FORWARD = 0x49;
-    private static final int KEY_REWIND = 0x48;
     private static final int KEY_FORWARD = 0x4B;
     private static final int KEY_BACKWARD = 0x4C;
     private static final int KEY_STATE_PRESSED = 0;
@@ -86,8 +85,10 @@ public final class AvrcpMetadataTracker {
     private BluetoothDevice activeDevice;
     private boolean pollingActive = false;
     private boolean receiverRegistered = false;
-    private int heldSeekKey = 0;
     private Runnable pendingReleaseRunnable = null;
+    private long lastRawPosMs = -1L;
+    private long lastRawPosAtElapsedMs = 0L;
+    private String lastTrackKey = "";
     private AvrcpSnapshot currentSnapshot = new AvrcpSnapshot(false, false, "", "", "", "", null, false, 0L, 0L);
 
     private final Runnable pollRunnable = new Runnable() {
@@ -172,6 +173,27 @@ public final class AvrcpMetadataTracker {
 
         MediaMetadata meta = queryMetadata(remote);
         PlaybackState ps = queryPlaybackState(remote);
+        MediaController btMc = getBluetoothMediaController();
+        if (btMc != null) {
+            try {
+                MediaMetadata mcMeta = btMc.getMetadata();
+                if (mcMeta != null) {
+                    if (meta == null) {
+                        meta = mcMeta;
+                    } else {
+                        String mTitle = trimOrEmpty(meta.getString(MediaMetadata.METADATA_KEY_TITLE));
+                        long mDur = Math.max(0L, meta.getLong(MediaMetadata.METADATA_KEY_DURATION));
+                        if (mTitle.isEmpty() || mDur <= 0L) {
+                            meta = mcMeta;
+                        }
+                    }
+                }
+                PlaybackState mcPs = btMc.getPlaybackState();
+                if (mcPs != null && (ps == null || mcPs.getLastPositionUpdateTime() > ps.getLastPositionUpdateTime())) {
+                    ps = mcPs;
+                }
+            } catch (Throwable ignored) {}
+        }
         String devName = safeName(remote);
 
         AvrcpSnapshot prev = currentSnapshot;
@@ -190,7 +212,45 @@ public final class AvrcpMetadataTracker {
         boolean sameTrack = sameDevice && (title.isEmpty() || title.equals(prev.title));
         Bitmap finalArt = (art != null) ? art : (sameTrack ? prev.artwork : null);
         boolean playing = ps != null ? isPlaybackActive(ps) : (sameDevice && prev.playing);
-        long posMs = ps != null ? Math.max(0L, ps.getPosition()) : (sameDevice ? prev.positionMs : 0L);
+
+        long posMs;
+        long nowElapsed = SystemClock.elapsedRealtime();
+        String trackKey = finalTitle + "|" + finalArtist + "|" + finalDur;
+        if (ps != null) {
+            long rawPos = Math.max(0L, ps.getPosition());
+            if (!trackKey.equals(lastTrackKey)) {
+                lastTrackKey = trackKey;
+                lastRawPosMs = rawPos;
+                lastRawPosAtElapsedMs = nowElapsed;
+            }
+            if (isPlaybackActive(ps) && ps.getLastPositionUpdateTime() > 0L) {
+                float spd = ps.getPlaybackSpeed() > 0f ? ps.getPlaybackSpeed() : 1.0f;
+                long elapsed = nowElapsed - ps.getLastPositionUpdateTime();
+                posMs = (elapsed > 0L && elapsed < 3_600_000L) ? (rawPos + (long) (elapsed * spd)) : rawPos;
+            } else if (playing) {
+                if (rawPos != lastRawPosMs) {
+                    lastRawPosMs = rawPos;
+                    lastRawPosAtElapsedMs = nowElapsed;
+                    posMs = rawPos;
+                } else {
+                    posMs = lastRawPosMs + Math.max(0L, nowElapsed - lastRawPosAtElapsedMs);
+                }
+            } else {
+                lastRawPosMs = rawPos;
+                lastRawPosAtElapsedMs = nowElapsed;
+                posMs = rawPos;
+            }
+        } else {
+            posMs = sameTrack ? prev.positionMs : 0L;
+            if (!trackKey.equals(lastTrackKey)) {
+                lastTrackKey = trackKey;
+                lastRawPosMs = posMs;
+                lastRawPosAtElapsedMs = nowElapsed;
+            }
+        }
+        if (finalDur > 0L && posMs > finalDur) {
+            posMs = finalDur;
+        }
 
         publish(new AvrcpSnapshot(true, true, devName, finalTitle, finalArtist, finalAlbum,
                 finalArt, playing, posMs, finalDur));
@@ -199,13 +259,6 @@ public final class AvrcpMetadataTracker {
     public AvrcpSnapshot getSnapshot() {
         return currentSnapshot;
     }
-
-    public static final int REPEAT_MODE_NONE = 0;
-    public static final int REPEAT_MODE_ONE = 1;
-    public static final int REPEAT_MODE_ALL = 2;
-
-    public static final int SHUFFLE_MODE_NONE = 0;
-    public static final int SHUFFLE_MODE_ALL = 1;
 
     public MediaController getBluetoothMediaController() {
         try {
@@ -221,69 +274,6 @@ public final class AvrcpMetadataTracker {
             }
         } catch (Throwable ignored) {}
         return null;
-    }
-
-    public boolean cycleRepeatMode() {
-        MediaController mc = getBluetoothMediaController();
-        if (mc != null) {
-            try {
-                int current = getRepeatMode();
-                int next;
-                if (current == REPEAT_MODE_NONE) {
-                    next = REPEAT_MODE_ALL;
-                } else if (current == REPEAT_MODE_ALL) {
-                    next = REPEAT_MODE_ONE;
-                } else {
-                    next = REPEAT_MODE_NONE;
-                }
-                Method m = mc.getTransportControls().getClass().getMethod("setRepeatMode", int.class);
-                m.invoke(mc.getTransportControls(), next);
-                return true;
-            } catch (Throwable t) {
-                Log.w("AvrcpMetadataTracker", "cycleRepeatMode failed: " + t.getMessage());
-            }
-        }
-        return false;
-    }
-
-    public boolean toggleShuffleMode() {
-        MediaController mc = getBluetoothMediaController();
-        if (mc != null) {
-            try {
-                int current = getShuffleMode();
-                int next = (current == SHUFFLE_MODE_NONE) ? SHUFFLE_MODE_ALL : SHUFFLE_MODE_NONE;
-                Method m = mc.getTransportControls().getClass().getMethod("setShuffleMode", int.class);
-                m.invoke(mc.getTransportControls(), next);
-                return true;
-            } catch (Throwable t) {
-                Log.w("AvrcpMetadataTracker", "toggleShuffleMode failed: " + t.getMessage());
-            }
-        }
-        return false;
-    }
-
-    public int getRepeatMode() {
-        MediaController mc = getBluetoothMediaController();
-        if (mc != null) {
-            try {
-                Method m = mc.getClass().getMethod("getRepeatMode");
-                Object res = m.invoke(mc);
-                return (res instanceof Number) ? ((Number) res).intValue() : REPEAT_MODE_NONE;
-            } catch (Throwable ignored) {}
-        }
-        return REPEAT_MODE_NONE;
-    }
-
-    public int getShuffleMode() {
-        MediaController mc = getBluetoothMediaController();
-        if (mc != null) {
-            try {
-                Method m = mc.getClass().getMethod("getShuffleMode");
-                Object res = m.invoke(mc);
-                return (res instanceof Number) ? ((Number) res).intValue() : SHUFFLE_MODE_NONE;
-            } catch (Throwable ignored) {}
-        }
-        return SHUFFLE_MODE_NONE;
     }
 
     public void sendPassThroughFallback(String cmd) {
@@ -318,91 +308,9 @@ public final class AvrcpMetadataTracker {
                 case "toggle":
                     code = currentSnapshot.playing ? KEY_PAUSE : KEY_PLAY;
                     break;
-                case "seek_forward": code = KEY_FAST_FORWARD; break;
-                case "seek_back": code = KEY_REWIND; break;
                 default: return;
             }
-            sendPassThrough(dev, code, KEY_STATE_PRESSED, (code == KEY_FAST_FORWARD || code == KEY_REWIND) ? 650L : 45L);
-        }
-    }
-
-    public void beginSeekHold(boolean forward) {
-        BluetoothDevice dev = activeDevice != null ? activeDevice : firstConnectedDevice(avrcpController);
-        if (dev == null || avrcpController == null) return;
-        heldSeekKey = forward ? KEY_FAST_FORWARD : KEY_REWIND;
-        sendPassThrough(dev, heldSeekKey, KEY_STATE_PRESSED, null);
-    }
-
-    public void seekToMs(final long posMs) {
-        final long target = Math.max(0L, posMs);
-        boolean handled = false;
-        MediaController mc = getBluetoothMediaController();
-        if (mc != null) {
-            try {
-                mc.getTransportControls().seekTo(target);
-                handled = true;
-            } catch (Throwable t) {
-                Log.w("AvrcpMetadataTracker", "seekToMs failed on Bluetooth MediaController: " + t.getMessage());
-            }
-        }
-        if (!handled) {
-            handled = CockpitMediaListenerService.seekTo(appContext, target);
-        }
-        if (currentSnapshot != null) {
-            currentSnapshot = new AvrcpSnapshot(
-                currentSnapshot.enabled, currentSnapshot.connected, currentSnapshot.deviceName,
-                currentSnapshot.title, currentSnapshot.artist, currentSnapshot.album,
-                currentSnapshot.artwork, currentSnapshot.playing, target, currentSnapshot.durationMs
-            );
-            publish(currentSnapshot);
-        }
-    }
-
-    public void seekByMs(final long deltaMs) {
-        long curPos = currentSnapshot != null ? currentSnapshot.positionMs : 0L;
-        long target = Math.max(0L, curPos + deltaMs);
-        if (currentSnapshot != null && currentSnapshot.durationMs > 0L) {
-            target = Math.min(target, currentSnapshot.durationMs);
-        }
-        boolean handled = false;
-        MediaController mc = getBluetoothMediaController();
-        if (mc != null) {
-            try {
-                mc.getTransportControls().seekTo(target);
-                handled = true;
-            } catch (Throwable t) {
-                Log.w("AvrcpMetadataTracker", "seekByMs failed on Bluetooth MediaController: " + t.getMessage());
-            }
-        }
-        if (!handled) {
-            handled = CockpitMediaListenerService.seekBy(appContext, deltaMs);
-        }
-        BluetoothDevice dev = activeDevice != null ? activeDevice : firstConnectedDevice(avrcpController);
-        if (!handled && heldSeekKey == 0 && dev != null && avrcpController != null) {
-            int code = (deltaMs > 0) ? KEY_FAST_FORWARD : KEY_REWIND;
-            sendPassThrough(dev, code, KEY_STATE_PRESSED, 400L);
-        }
-        if (currentSnapshot != null) {
-            currentSnapshot = new AvrcpSnapshot(
-                currentSnapshot.enabled, currentSnapshot.connected, currentSnapshot.deviceName,
-                currentSnapshot.title, currentSnapshot.artist, currentSnapshot.album,
-                currentSnapshot.artwork, currentSnapshot.playing, target, currentSnapshot.durationMs
-            );
-            publish(currentSnapshot);
-        }
-    }
-
-    public void endSeekHold() {
-        if (pendingReleaseRunnable != null) {
-            handler.removeCallbacks(pendingReleaseRunnable);
-            pendingReleaseRunnable = null;
-        }
-        int key = heldSeekKey;
-        if (key == 0) return;
-        heldSeekKey = 0;
-        BluetoothDevice dev = activeDevice != null ? activeDevice : firstConnectedDevice(avrcpController);
-        if (dev != null) {
-            sendPassThrough(dev, key, KEY_STATE_RELEASED, null);
+            sendPassThrough(dev, code, KEY_STATE_PRESSED, 45L);
         }
     }
 
@@ -419,6 +327,10 @@ public final class AvrcpMetadataTracker {
             Bitmap art = extractArtwork(meta);
             boolean playing = ps != null ? isPlaybackActive(ps) : prev.playing;
             long posMs = ps != null ? Math.max(0L, ps.getPosition()) : prev.positionMs;
+            if (ps != null) {
+                lastRawPosMs = posMs;
+                lastRawPosAtElapsedMs = SystemClock.elapsedRealtime();
+            }
 
             publish(new AvrcpSnapshot(
                     prev.enabled, true, prev.deviceName,

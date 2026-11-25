@@ -15,7 +15,7 @@
   flex-direction: column;
   align-items: center;
   justify-content: flex-start;
-  padding: 68px 32px 28px 32px;
+  padding: 16px 24px 14px 24px;
   background: rgba(3, 9, 15, 0.80);
   backdrop-filter: blur(22px);
   -webkit-backdrop-filter: blur(22px);
@@ -39,21 +39,22 @@
 
 /* Top-Left Clear Driver Branding Header with Vertical Comfort Offset Below */
 .swst-top-brand-bar {
-  width: 896px;
+  width: 100%;
+  max-width: 912px;
   display: flex;
   align-items: center;
   justify-content: flex-start;
   direction: ltr !important;
-  gap: 14px;
-  padding: 6px 8px;
-  margin-bottom: 54px;
+  gap: 12px;
+  padding: 4px 6px;
+  margin-bottom: 10px;
   flex-shrink: 0;
   cursor: pointer;
 }
 .swst-brand-emblem {
-  width: 44px;
-  height: 44px;
-  border-radius: 14px;
+  width: 40px;
+  height: 40px;
+  border-radius: 12px;
   background: linear-gradient(135deg, rgba(186, 230, 253, 0.24), rgba(167, 243, 208, 0.22));
   box-shadow: 0 0 22px rgba(147, 197, 253, 0.30);
   display: inline-flex;
@@ -62,12 +63,12 @@
   flex-shrink: 0;
 }
 .swst-brand-emblem svg {
-  width: 24px;
-  height: 24px;
+  width: 22px;
+  height: 22px;
   fill: #bae6fd;
 }
 .swst-brand-title {
-  font-size: 32px;
+  font-size: 28px;
   font-weight: 800;
   letter-spacing: 0.8px;
   color: #f8fafc;
@@ -76,9 +77,10 @@
 
 .swst-panel {
   position: relative;
-  width: 896px;
-  height: 822px;
-  border-radius: 32px;
+  width: 100%;
+  max-width: 912px;
+  height: 974px;
+  border-radius: 28px;
   background: linear-gradient(158deg, rgba(12, 29, 40, 0.88) 0%, rgba(6, 15, 22, 0.94) 100%);
   box-shadow:
     0 32px 90px rgba(0, 0, 0, 0.82),
@@ -101,39 +103,40 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 10px;
-  padding: 16px 22px 12px 22px;
+  gap: 8px;
+  padding: 12px 18px 10px 18px;
   background: rgba(255, 255, 255, 0.025);
   flex-shrink: 0;
 }
 .swst-tabs {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 7px;
   flex: 1;
   overflow-x: auto;
 }
 .swst-tabs::-webkit-scrollbar { display: none; }
 .swst-tab {
   flex: 1;
-  height: 54px;
-  padding: 0 14px;
-  border-radius: 27px;
+  min-width: 0;
+  height: 48px;
+  padding: 0 10px;
+  border-radius: 24px;
   background: rgba(255, 255, 255, 0.055);
   color: #94a3b8;
-  font-size: 17px;
+  font-size: 15.5px;
   font-weight: 700;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 8px;
+  gap: 6px;
   cursor: pointer;
   white-space: nowrap;
   transition: background 0.2s, color 0.2s, transform 0.14s, box-shadow 0.2s;
 }
 .swst-tab svg {
-  width: 21px;
-  height: 21px;
+  width: 19px;
+  height: 19px;
   fill: currentColor;
   flex-shrink: 0;
 }
@@ -164,39 +167,40 @@
   box-shadow: 0 0 18px rgba(251, 207, 232, 0.22);
 }
 
-/* Now-Playing Compact Smoked-Glass Bar with Live Pastel Waveform */
+/* Now-Playing Compact Smoked-Glass Bar with Live Pastel Equalizer */
 .swst-player-card {
-  margin: 10px 22px 8px 22px;
-  padding: 16px 20px;
-  border-radius: 26px;
+  margin: 6px 18px 6px 18px;
+  padding: 14px 18px;
+  border-radius: 24px;
   background: linear-gradient(135deg, rgba(255, 255, 255, 0.06) 0%, rgba(147, 197, 253, 0.06) 100%);
   box-shadow: 0 12px 32px rgba(0, 0, 0, 0.35), inset 0 1px 0 rgba(255, 255, 255, 0.12);
   display: flex;
   flex-direction: column;
-  gap: 14px;
+  gap: 10px;
   flex-shrink: 0;
 }
 .swst-player-top {
   display: flex;
   align-items: center;
-  gap: 18px;
+  justify-content: space-between;
+  gap: 16px;
 }
 .swst-cover-wrap {
   position: relative;
-  width: 106px;
-  height: 106px;
-  border-radius: 22px;
+  width: 248px;
+  height: 248px;
+  border-radius: 26px;
   overflow: hidden;
   background: radial-gradient(circle, rgba(147, 197, 253, 0.22), rgba(15, 23, 42, 0.9));
   display: flex;
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
-  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.55), 0 0 22px rgba(147, 197, 253, 0.20);
+  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.55), 0 0 26px rgba(147, 197, 253, 0.22);
 }
 .swst-cover-wrap svg {
-  width: 38px;
-  height: 38px;
+  width: 84px;
+  height: 84px;
   fill: #bae6fd;
 }
 .swst-cover-img {
@@ -212,20 +216,20 @@
 
 .swst-mascot-wrap {
   position: relative;
-  width: 104px;
-  height: 104px;
-  border-radius: 22px;
+  width: 248px;
+  height: 248px;
+  border-radius: 26px;
   background: radial-gradient(circle, rgba(147, 197, 253, 0.16) 0%, rgba(15, 23, 42, 0.7) 100%);
   display: flex;
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
-  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.55), inset 0 1px 0 rgba(255, 255, 255, 0.14);
+  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.55), inset 0 1px 0 rgba(255, 255, 255, 0.14);
   overflow: hidden;
 }
 .swst-mascot-canvas {
-  width: 104px;
-  height: 104px;
+  width: 248px;
+  height: 248px;
   display: block;
 }
 
@@ -234,28 +238,48 @@
   min-width: 0;
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  gap: 8px;
+  padding: 0 6px;
 }
 .swst-track-title {
-  font-size: 22px;
+  font-size: 24px;
   font-weight: 800;
+  line-height: 1.35;
   color: #f8fafc;
-  white-space: nowrap;
+  text-align: center;
+  width: 100%;
+  white-space: normal;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
   overflow: hidden;
   text-overflow: ellipsis;
+  text-shadow: 0 4px 18px rgba(0, 0, 0, 0.65);
 }
 .swst-track-artist {
-  font-size: 16px;
+  font-size: 16.5px;
   font-weight: 600;
   color: #bae6fd;
+  text-align: center;
+  width: 100%;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
-.swst-wave-wrap {
+.swst-eq-bar-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
   width: 100%;
-  height: 28px;
-  margin-top: 2px;
+  direction: ltr;
+}
+.swst-wave-wrap {
+  flex: 1;
+  width: 100%;
+  height: 36px;
   position: relative;
   cursor: pointer;
   touch-action: none;
@@ -265,44 +289,16 @@
 }
 .swst-wave-canvas {
   width: 100%;
-  height: 28px;
+  height: 36px;
   display: block;
-}
-.swst-progress-row {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  margin-top: 2px;
-  direction: ltr;
 }
 .swst-time-txt {
-  font-size: 15px;
+  font-size: 14.5px;
   font-weight: 700;
   color: #cbd5e1;
-  min-width: 50px;
+  min-width: 48px;
   text-align: center;
-}
-.swst-time-bar-wrap {
-  flex: 1;
-  height: 24px;
-  position: relative;
-  cursor: pointer;
-  touch-action: none;
-  display: flex;
-  align-items: center;
-}
-.swst-time-bar-wrap::before {
-  content: '';
-  position: absolute;
-  left: 0;
-  right: 0;
-  top: -10px;
-  bottom: -10px;
-}
-.swst-time-bar-canvas {
-  width: 100%;
-  height: 24px;
-  display: block;
+  flex-shrink: 0;
 }
 
 /* Enlarged Driving Transport Controls */
@@ -310,45 +306,59 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 10px;
+  gap: 8px;
+}
+.swst-controls-row.stream-mode {
+  position: relative;
+  justify-content: center;
+}
+.swst-controls-row.stream-mode .swst-ctrls-end {
+  position: absolute;
+  right: 0;
+}
+.swst-panel.rtl-mode .swst-controls-row.stream-mode .swst-ctrls-end {
+  right: auto;
+  left: 0;
 }
 .swst-ctrls-main {
   display: flex;
   align-items: center;
-  gap: 14px;
+  gap: 10px;
   direction: ltr;
 }
 .swst-ctrl-btn {
-  height: 58px;
-  min-width: 58px;
-  padding: 0 18px;
-  border-radius: 29px;
+  height: 50px;
+  min-width: 50px;
+  padding: 0 13px;
+  border-radius: 25px;
   background: rgba(255, 255, 255, 0.075);
   color: #e2e8f0;
-  font-size: 17px;
+  font-size: 15px;
   font-weight: 700;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 8px;
+  gap: 6px;
   cursor: pointer;
+  white-space: nowrap;
   transition: transform 0.14s, background 0.2s, box-shadow 0.2s, color 0.2s;
 }
 .swst-ctrl-btn svg {
-  width: 24px;
-  height: 24px;
+  width: 21px;
+  height: 21px;
   fill: currentColor;
+  flex-shrink: 0;
 }
 .swst-ctrl-btn:active { transform: scale(0.93); }
 .swst-ctrl-btn.primary {
-  width: 74px;
-  height: 64px;
-  border-radius: 32px;
+  width: 66px;
+  height: 56px;
+  border-radius: 28px;
   background: linear-gradient(135deg, #bae6fd 0%, #a7f3d0 100%);
   color: #06212c;
   box-shadow: 0 0 24px rgba(167, 243, 208, 0.44);
 }
-.swst-ctrl-btn.primary svg { width: 32px; height: 32px; }
+.swst-ctrl-btn.primary svg { width: 28px; height: 28px; }
 .swst-ctrl-btn.shuffle-active {
   background: rgba(216, 180, 254, 0.24);
   color: #e9d5ff;
@@ -378,7 +388,7 @@
 .swst-body {
   flex: 1;
   overflow-y: auto;
-  padding: 8px 22px 22px 22px;
+  padding: 8px 18px 18px 18px;
   display: flex;
   flex-direction: column;
   gap: 10px;
@@ -539,6 +549,8 @@
   gap: 10px;
   overflow-x: auto;
   padding: 2px 2px 6px 2px;
+  flex-shrink: 0;
+  min-height: 56px;
 }
 .swst-presets-strip::-webkit-scrollbar { display: none; }
 .swst-preset-pill {
@@ -554,6 +566,7 @@
   align-items: center;
   gap: 7px;
   cursor: pointer;
+  flex-shrink: 0;
   transition: transform 0.13s, background 0.2s;
 }
 .swst-preset-pill.active {
@@ -570,6 +583,7 @@
   flex-direction: column;
   align-items: center;
   gap: 14px;
+  flex-shrink: 0;
 }
 .swst-freq-readout {
   display: flex;

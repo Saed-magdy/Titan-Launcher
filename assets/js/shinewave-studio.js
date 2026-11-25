@@ -20,7 +20,6 @@
   var isUserScrubbing = false;
   var waveRafId = 0;
   var wavePhase = 0;
-  var timeWaveAmp = 0;
   var mascotEnabled = true;
   var mascotPhase = 0;
   var mascotBlinkTimer = 0;
@@ -49,7 +48,21 @@
     ],
     localIdx: 0,
     radio: {
-      radioType: 'FM', band: 'FM', freqKhz: 100600, status: 'إشارة قوية • ستيريو',
+      radioType: 'FM', band: 'FM', freqKhz: 100600, scanning: false, status: 'إشارة قوية • ستيريو',
+      lastFmFreq: 100600,
+      lastAmFreq: 999,
+      fmStations: [
+        { name: 'نجوم FM', freq: 100600, favorite: true },
+        { name: 'راديو 9090', freq: 90900, favorite: true },
+        { name: 'راديو هيتس', freq: 88200, favorite: true },
+        { name: 'ميجا FM', freq: 92700, favorite: false },
+        { name: 'نغم FM', freq: 105300, favorite: false }
+      ],
+      amStations: [
+        { name: 'البرنامج العام', freq: 819, favorite: true },
+        { name: 'صوت العرب', freq: 621, favorite: true },
+        { name: 'إذاعة القرآن الكريم', freq: 999, favorite: false }
+      ],
       stations: [
         { name: 'نجوم FM', freq: 100600, favorite: true },
         { name: 'راديو 9090', freq: 90900, favorite: true },
@@ -81,6 +94,8 @@
   function isRu() { return window.isRussianLang ? window.isRussianLang() : false; }
   function fmtTime(sec) { return window.formatTimeSec ? window.formatTimeSec(sec, true) : '00:00'; }
   function escHtml(str) { return window.escapeHtml ? window.escapeHtml(str) : String(str || ''); }
+  function supportsSeekAndModes(src) { return src === 'LOCAL_MUSIC' || src === 'EXTERNAL_APP'; }
+  function showsPlaybackProgress(src) { return src === 'LOCAL_MUSIC' || src === 'EXTERNAL_APP' || src === 'BLUETOOTH'; }
 
   /* ---------- Simulation Helpers when no AndroidBridge ---------- */
   window.simSwitchShineWaveSource = function (key) {
@@ -112,7 +127,13 @@
       simDb.localIdx = (simDb.localIdx + delta + simDb.localTracks.length) % simDb.localTracks.length;
       window.simSwitchShineWaveSource('LOCAL_MUSIC');
     } else if (m.source === 'CAR_RADIO') {
-      simDb.radio.freqKhz += (delta * 100);
+      var isAm = simDb.radio.band === 'AM';
+      var step = isAm ? 9 : 100;
+      var minF = isAm ? 531 : 87500;
+      var maxF = isAm ? 1629 : 108000;
+      simDb.radio.freqKhz = Math.max(minF, Math.min(maxF, simDb.radio.freqKhz + (delta * step)));
+      if (isAm) simDb.radio.lastAmFreq = simDb.radio.freqKhz;
+      else simDb.radio.lastFmFreq = simDb.radio.freqKhz;
       window.simSwitchShineWaveSource('CAR_RADIO');
       if (activeTab === 'CAR_RADIO') renderBody();
     }
@@ -168,27 +189,26 @@
               '<img class="swst-cover-img" id="swst-cover-img" alt="">' +
             '</div>' +
             '<div class="swst-meta">' +
-              '<div class="swst-track-title" id="swst-title">ShineWave Audio</div>' +
-              '<div class="swst-track-artist" id="swst-artist"></div>' +
-              '<div class="swst-wave-wrap" id="swst-wave-wrap"><canvas class="swst-wave-canvas" id="swst-wave-canvas"></canvas></div>' +
-              '<div class="swst-progress-row">' +
-                '<span class="swst-time-txt" id="swst-pos">00:00</span>' +
-                '<div class="swst-time-bar-wrap" id="swst-time-bar-wrap"><canvas class="swst-time-bar-canvas" id="swst-time-bar-canvas"></canvas></div>' +
-                '<span class="swst-time-txt" id="swst-dur">00:00</span>' +
-              '</div>' +
+              '<div class="swst-track-title" id="swst-title" dir="auto">ShineWave Audio</div>' +
+              '<div class="swst-track-artist" id="swst-artist" dir="auto"></div>' +
             '</div>' +
             '<div class="swst-mascot-wrap" id="swst-mascot-wrap">' +
               '<canvas class="swst-mascot-canvas" id="swst-mascot-canvas"></canvas>' +
             '</div>' +
           '</div>' +
-          '<div class="swst-controls-row">' +
+          '<div class="swst-eq-bar-row" id="swst-eq-bar-row">' +
+            '<span class="swst-time-txt" id="swst-pos">00:00</span>' +
+            '<div class="swst-wave-wrap" id="swst-wave-wrap"><canvas class="swst-wave-canvas" id="swst-wave-canvas"></canvas></div>' +
+            '<span class="swst-time-txt" id="swst-dur">00:00</span>' +
+          '</div>' +
+          '<div class="swst-controls-row" id="swst-controls-row">' +
             '<button type="button" class="swst-ctrl-btn" id="swst-btn-shuffle"></button>' +
             '<div class="swst-ctrls-main">' +
               '<button type="button" class="swst-ctrl-btn" id="swst-btn-prev"><svg viewBox="0 0 24 24"><path d="M6 6h2v12H6zm3.5 6l8.5 6V6z"/></svg></button>' +
               '<button type="button" class="swst-ctrl-btn primary" id="swst-btn-play"><svg viewBox="0 0 24 24"><path id="swst-play-path" d="M8 5v14l11-7z"/></svg></button>' +
               '<button type="button" class="swst-ctrl-btn" id="swst-btn-next"><svg viewBox="0 0 24 24"><path d="M6 18l8.5-6L6 6v12zM16 6v12h2V6h-2z"/></svg></button>' +
             '</div>' +
-            '<div style="display:flex;align-items:center;gap:8px;">' +
+            '<div class="swst-ctrls-end" style="display:flex;align-items:center;gap:8px;">' +
               '<button type="button" class="swst-ctrl-btn" id="swst-btn-repeat"></button>' +
               '<button type="button" class="swst-ctrl-btn" id="swst-btn-queue"></button>' +
               '<button type="button" class="swst-ctrl-btn" id="swst-btn-mascot"></button>' +
@@ -244,6 +264,8 @@
 
       function doSeek() {
         var m = window.ShineWaveCardState || {};
+        var curSrc = activeTab || m.source;
+        if (!supportsSeekAndModes(curSrc)) return;
         var b = bridge();
         if (b && typeof b.seekMediaBy === 'function') {
           b.seekMediaBy(deltaSec);
@@ -261,6 +283,9 @@
         isLong = false;
         if (timer) clearTimeout(timer);
         if (repeatTimer) clearInterval(repeatTimer);
+        var m = window.ShineWaveCardState || {};
+        var curSrc = activeTab || m.source;
+        if (!supportsSeekAndModes(curSrc)) return;
         timer = setTimeout(function () {
           isLong = true;
           doSeek();
@@ -318,6 +343,7 @@
     });
     document.getElementById('swst-btn-shuffle').addEventListener('click', function () {
       var m = window.ShineWaveCardState || {};
+      if (!supportsSeekAndModes(activeTab || m.source)) return;
       var b = bridge();
       if (b) b.toggleShineWaveShuffle();
       else {
@@ -328,6 +354,7 @@
     });
     document.getElementById('swst-btn-repeat').addEventListener('click', function () {
       var m = window.ShineWaveCardState || {};
+      if (!supportsSeekAndModes(activeTab || m.source)) return;
       var b = bridge();
       if (b) b.cycleShineWaveRepeat();
       else {
@@ -337,6 +364,8 @@
       }
     });
     document.getElementById('swst-btn-queue').addEventListener('click', function () {
+      var m = window.ShineWaveCardState || {};
+      if (!supportsSeekAndModes(activeTab || m.source)) return;
       queueViewOpen = !queueViewOpen;
       if (queueViewOpen) {
         if (bridge() && bridge().requestShineWaveQueue) bridge().requestShineWaveQueue();
@@ -356,8 +385,7 @@
 
   function bindWaveScrub() {
     var waveWrap = document.getElementById('swst-wave-wrap');
-    var timeWrap = document.getElementById('swst-time-bar-wrap');
-    if (!waveWrap && !timeWrap) return;
+    if (!waveWrap) return;
     var activeWrap = null;
     var activePad = 0;
 
@@ -375,7 +403,6 @@
       m.pos = Math.round(calcRatio(e) * effDur);
       window.syncShineWaveStudioTime(m.pos, effDur);
       drawStudioWaveform();
-      drawStudioTimeBar();
       if (window.refreshShineWaveCardUI) window.refreshShineWaveCardUI();
       if (e.cancelable) e.preventDefault();
     }
@@ -389,21 +416,24 @@
     function attach(elTarget, pad) {
       if (!elTarget) return;
       elTarget.addEventListener('touchstart', function (e) {
+        var curSrc = activeTab || (window.ShineWaveCardState && window.ShineWaveCardState.source);
+        if (!supportsSeekAndModes(curSrc)) return;
         isUserScrubbing = true; activeWrap = elTarget; activePad = pad; onMove(e);
       }, { passive: false });
       elTarget.addEventListener('touchmove', onMove, { passive: false });
       elTarget.addEventListener('touchend', onEnd);
       elTarget.addEventListener('mousedown', function (e) {
+        var curSrc = activeTab || (window.ShineWaveCardState && window.ShineWaveCardState.source);
+        if (!supportsSeekAndModes(curSrc)) return;
         isUserScrubbing = true; activeWrap = elTarget; activePad = pad; onMove(e);
       });
     }
     attach(waveWrap, 0);
-    attach(timeWrap, 10);
     window.addEventListener('mousemove', onMove);
     window.addEventListener('mouseup', onEnd);
   }
 
-  /* ---------- Live Pastel Waveform & Card-Style Squiggle Time Bar ---------- */
+  /* ---------- Live Pastel Fluid Silk Wave Equalizer ---------- */
   function startWaveLoop() {
     if (waveRafId) return;
     function tick() {
@@ -411,7 +441,6 @@
       var overlay = document.getElementById('sw-studio-overlay');
       if (!overlay || !overlay.classList.contains('active')) return;
       drawStudioWaveform();
-      drawStudioTimeBar();
       drawStudioMascot();
       waveRafId = requestAnimationFrame(tick);
     }
@@ -420,65 +449,6 @@
 
   function stopWaveLoop() {
     if (waveRafId) { cancelAnimationFrame(waveRafId); waveRafId = 0; }
-  }
-
-  function drawStudioTimeBar() {
-    var c = document.getElementById('swst-time-bar-canvas');
-    var wrap = document.getElementById('swst-time-bar-wrap');
-    if (!c || !wrap) return;
-    var w = wrap.clientWidth || 360;
-    var h = wrap.clientHeight || 24;
-    var dpr = window.devicePixelRatio || 1;
-    if (c.width !== Math.round(w * dpr) || c.height !== Math.round(h * dpr)) {
-      c.width = Math.round(w * dpr);
-      c.height = Math.round(h * dpr);
-    }
-    var ctx = c.getContext('2d');
-    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    ctx.clearRect(0, 0, w, h);
-
-    var m = window.ShineWaveCardState || {};
-    var targetAmp = m.playing ? 1.0 : 0.0;
-    timeWaveAmp += (targetAmp - timeWaveAmp) * 0.12;
-
-    var pad = 10, x0 = pad, x1 = w - pad, mid = h / 2;
-    var effDur = m.dur > 0 ? m.dur : 225;
-    var frac = Math.max(0, Math.min(1, (m.pos || 0) / effDur));
-    var xp = x0 + (x1 - x0) * frac;
-    ctx.lineCap = 'round';
-
-    ctx.beginPath();
-    ctx.moveTo(xp, mid);
-    ctx.lineTo(x1, mid);
-    ctx.strokeStyle = 'rgba(255, 255, 255, 0.18)';
-    ctx.lineWidth = 4;
-    ctx.stroke();
-
-    var A = timeWaveAmp * 4.0, k = (Math.PI * 2) / 28;
-    ctx.beginPath();
-    for (var x = x0; x <= xp; x += 1.5) {
-      var edge = Math.min(1, (xp - x) / 16);
-      var y = mid + Math.sin(x * k - wavePhase) * A * edge;
-      if (x === x0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
-    }
-    ctx.lineTo(xp, mid);
-
-    var g = ctx.createLinearGradient(x0, 0, Math.max(xp, x0 + 1), 0);
-    g.addColorStop(0, '#93c5fd');
-    g.addColorStop(1, '#a7f3d0');
-    ctx.strokeStyle = g;
-    ctx.lineWidth = 4;
-    ctx.shadowColor = 'rgba(147, 197, 253, 0.72)';
-    ctx.shadowBlur = 10;
-    ctx.stroke();
-
-    ctx.shadowBlur = 12;
-    ctx.shadowColor = '#bae6fd';
-    ctx.fillStyle = '#f8fafc';
-    ctx.beginPath();
-    ctx.arc(xp, mid, 6.8, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.shadowBlur = 0;
   }
 
   /* ---------- Live Fluid Silk Wave Equalizer (أمواج الحرير والنيون الانسيابية) ---------- */
@@ -500,8 +470,12 @@
     var m = window.ShineWaveCardState || {};
     var isPlaying = !!m.playing;
     var spec = (window.getShineWaveAudioSpectrum) ? window.getShineWaveAudioSpectrum() : { beat: 0, energy: 0, bands: [] };
-    var effDur = m.dur > 0 ? m.dur : 225;
-    var frac = Math.max(0, Math.min(1, (m.pos || 0) / effDur));
+    var curSrc = activeTab || m.source || 'LOCAL_MUSIC';
+    var showProg = showsPlaybackProgress(curSrc);
+    var frac = 0;
+    if (m.dur > 0) frac = Math.max(0, Math.min(1, (m.pos || 0) / m.dur));
+    else if ((m.pos || 0) > 0) frac = Math.max(0, Math.min(1, ((m.pos || 0) % 240) / 240));
+    var px = Math.max(6, Math.min(w - 6, w * frac));
     var midY = h / 2;
 
     if (isPlaying) {
@@ -544,8 +518,12 @@
       }
     ];
 
-    layers.forEach(function (l, lIdx) {
+    function strokeLayerSegment(l, lIdx, xStart, xEnd, alphaScale) {
       ctx.save();
+      ctx.beginPath();
+      ctx.rect(xStart, 0, Math.max(0, xEnd - xStart), h);
+      ctx.clip();
+
       ctx.beginPath();
       ctx.lineCap = 'round';
       ctx.lineJoin = 'round';
@@ -569,25 +547,40 @@
       ctx.strokeStyle = l.color;
       ctx.lineWidth = l.width;
       ctx.shadowColor = l.glow;
-      ctx.shadowBlur = 8;
-      ctx.globalAlpha = l.alpha;
+      ctx.shadowBlur = alphaScale > 0.6 ? 8 : 3;
+      ctx.globalAlpha = l.alpha * alphaScale;
       ctx.stroke();
       ctx.restore();
+    }
+
+    layers.forEach(function (l, lIdx) {
+      if (showProg) {
+        strokeLayerSegment(l, lIdx, 0, px, 1.0);
+        strokeLayerSegment(l, lIdx, px, w, 0.38);
+      } else {
+        strokeLayerSegment(l, lIdx, 0, w, 1.0);
+      }
     });
 
-    // Active playback progress head on the wave
-    var px = w * frac;
-    var pEnv = Math.sin(frac * Math.PI);
-    var py = midY + Math.sin(px * 0.048 - wavePhase * 2.4 + 2.4) * (h * 0.42) * beatAmp * pEnv;
+    // Active playback progress head on the equalizer (Local, External Apps, & Bluetooth)
+    if (showProg) {
+      var pEnv = Math.sin((px / w) * Math.PI);
+      var specHeadMod = 1.0;
+      if (spec.bands && spec.bands.length) {
+        var hIdx = Math.floor((px / w) * (spec.bands.length - 1));
+        specHeadMod = 0.5 + (spec.bands[hIdx] || 0.3) * 0.9;
+      }
+      var py = midY + Math.sin(px * 0.048 - wavePhase * 2.4 + 2.4) * ((h * 0.42) * beatAmp + bassDrop * 5.5) * pEnv * specHeadMod;
 
-    ctx.save();
-    ctx.shadowColor = '#38bdf8';
-    ctx.shadowBlur = 12;
-    ctx.fillStyle = '#ffffff';
-    ctx.beginPath();
-    ctx.arc(px, py, 4.2, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.restore();
+      ctx.save();
+      ctx.shadowColor = '#38bdf8';
+      ctx.shadowBlur = 14;
+      ctx.fillStyle = '#ffffff';
+      ctx.beginPath();
+      ctx.arc(px, py, 5.8, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+    }
   }
 
   /* ---------- Interactive 3D WebGL Musical Clown Mascot (مجسم المهرج الكرتوني 3D حقيقي) ---------- */
@@ -622,7 +615,7 @@
 
       var scene = new THREE.Scene();
       var camera = new THREE.PerspectiveCamera(36, w / h, 0.1, 50);
-      camera.position.set(0, 0.15, 6.8);
+      camera.position.set(0, 0.25, 7.6);
 
       // Studio 3-Point Lighting
       var ambLight = new THREE.AmbientLight(0xffffff, 0.75);
@@ -989,6 +982,8 @@
         renderer: renderer,
         scene: scene,
         camera: camera,
+        w: w,
+        h: h,
         charGroup: charGroup,
         bodyGroup: bodyGroup,
         headGroup: headGroup,
@@ -1009,13 +1004,19 @@
     var wrap = document.getElementById('swst-mascot-wrap');
     if (!c || !wrap || !mascotEnabled) return;
 
-    var w = wrap.clientWidth || 104;
-    var h = wrap.clientHeight || 104;
+    var w = wrap.clientWidth || 312;
+    var h = wrap.clientHeight || 312;
 
     if (!threeMascot || threeMascotCanvas !== c) {
       if (window.THREE) {
         initThreeMascot(c, w, h);
       }
+    } else if (threeMascot.w !== w || threeMascot.h !== h) {
+      threeMascot.w = w;
+      threeMascot.h = h;
+      threeMascot.renderer.setSize(w, h, false);
+      threeMascot.camera.aspect = w / Math.max(1, h);
+      threeMascot.camera.updateProjectionMatrix();
     }
 
     if (threeMascot) {
@@ -1107,8 +1108,11 @@
     var jump = isPl ? Math.pow(threeMascotBassHit, 1.4) * 12.0 : 0;
 
     ctx.save();
-    var cx = w / 2;
-    var cy = h / 2 + 12;
+    var s2d = Math.min(w, h) / 104;
+    ctx.translate(w / 2, h / 2);
+    ctx.scale(s2d, s2d);
+    var cx = 0;
+    var cy = 12;
 
     // Ground shadow
     var sScale = Math.max(0.3, 1.0 - jump / 16.0);
@@ -1315,12 +1319,27 @@
     var posEl = document.getElementById('swst-pos');
     var durEl = document.getElementById('swst-dur');
     if (posEl) posEl.textContent = fmtTime(posSec);
-    if (durEl) durEl.textContent = fmtTime(durSec);
+    if (durEl) durEl.textContent = durSec > 0 ? fmtTime(durSec) : '--:--';
   };
 
   /* ---------- Native Async Callbacks ---------- */
   window.onShineWaveLocalData = function (data) { localData = data; if (activeTab === 'LOCAL_MUSIC') renderBody(); };
-  window.onShineWaveRadioData = function (data) { radioData = data; if (activeTab === 'CAR_RADIO') renderBody(); };
+  window.onShineWaveRadioData = function (data) {
+    radioData = data;
+    if (activeTab === 'CAR_RADIO') {
+      var activeEl = document.activeElement;
+      if (activeEl && activeEl.id === 'swst-r-name-input') {
+        var isDab = data && data.radioType === 'DAB';
+        var isAm = data && data.band === 'AM' && !isDab;
+        var numEl = document.querySelector('.swst-freq-num');
+        var slEl = document.getElementById('swst-radio-slider');
+        if (numEl && data) numEl.textContent = isDab ? 'DAB+' : (isAm ? String(data.freqKhz) : (data.freqKhz / 1000).toFixed(1));
+        if (slEl && data) slEl.value = data.freqKhz;
+        return;
+      }
+      renderBody();
+    }
+  };
   window.onShineWaveInternetData = function (data) { internetData = data; if (activeTab === 'INTERNET_RADIO') renderBody(); };
   window.onShineWaveAppsData = function (data) { appsData = data; if (activeTab === 'EXTERNAL_APP') renderBody(); };
   window.onShineWaveQueueData = function (data) { queueData = data; if (queueViewOpen) renderBody(); };
@@ -1389,6 +1408,11 @@
   function renderPlayerHeader() {
     var ar = isAr();
     var card = window.ShineWaveCardState || {};
+    var curSrc = activeTab || card.source || 'LOCAL_MUSIC';
+    var adv = supportsSeekAndModes(curSrc);
+    var showProg = showsPlaybackProgress(curSrc);
+    if (!adv && queueViewOpen) queueViewOpen = false;
+
     var titleEl = document.getElementById('swst-title');
     var artistEl = document.getElementById('swst-artist');
     var coverWrap = document.getElementById('swst-cover-wrap');
@@ -1397,10 +1421,26 @@
     var shufBtn = document.getElementById('swst-btn-shuffle');
     var repBtn = document.getElementById('swst-btn-repeat');
     var qBtn = document.getElementById('swst-btn-queue');
+    var controlsRow = document.getElementById('swst-controls-row');
+    var posEl = document.getElementById('swst-pos');
+    var durEl = document.getElementById('swst-dur');
+    var waveWrap = document.getElementById('swst-wave-wrap');
 
     if (titleEl) titleEl.textContent = card.title || (ar ? 'مشغل الصوتيات' : 'ShineWave Audio');
     if (artistEl) artistEl.textContent = card.artist || '';
     if (playPath) playPath.setAttribute('d', card.playing ? 'M6 19h4V5H6v14zm8-14v14h4V5h-4z' : 'M8 5v14l11-7z');
+
+    var btLiveTitle = document.getElementById('swst-bt-live-title');
+    if (btLiveTitle) {
+      var fallbackBt = ar ? 'قم بتوصيل هاتفك بالبلوتوث للاستماع والمزامنة' : 'Connect your phone via Bluetooth to play';
+      var liveLine = card.title ? (card.artist ? (card.title + ' — ' + card.artist) : card.title) : fallbackBt;
+      btLiveTitle.textContent = liveLine;
+    }
+
+    if (controlsRow) controlsRow.classList.toggle('stream-mode', !adv);
+    if (posEl) posEl.style.display = showProg ? '' : 'none';
+    if (durEl) durEl.style.display = showProg ? '' : 'none';
+    if (waveWrap) waveWrap.style.cursor = adv ? 'pointer' : 'default';
 
     if (coverWrap && coverImg) {
       if (card.albumArt && card.albumArt.length > 30) {
@@ -1413,16 +1453,18 @@
     }
 
     if (shufBtn) {
-      shufBtn.classList.toggle('shuffle-active', !!card.shuffle);
+      shufBtn.style.display = adv ? 'inline-flex' : 'none';
+      shufBtn.classList.toggle('shuffle-active', adv && !!card.shuffle);
       shufBtn.innerHTML = '<svg viewBox="0 0 24 24"><path d="M10.59 9.17L5.41 4 4 5.41l5.17 5.17 1.42-1.41zM14.5 4l2.04 2.04L4 18.59 5.41 20 17.96 7.46 20 9.5V4h-5.5zm.33 9.41l-1.41 1.41 3.13 3.13L14.5 20H20v-5.5l-2.04 2.04-3.13-3.13z"/></svg>' +
         '<span>' + (ar ? 'عشوائي' : 'Shuffle') + '</span>';
     }
 
     if (repBtn) {
+      repBtn.style.display = adv ? 'inline-flex' : 'none';
       var mode = card.repeatMode || 'OFF';
       repBtn.classList.remove('repeat-all', 'repeat-one');
-      if (mode === 'ALL') repBtn.classList.add('repeat-all');
-      else if (mode === 'ONE') repBtn.classList.add('repeat-one');
+      if (adv && mode === 'ALL') repBtn.classList.add('repeat-all');
+      else if (adv && mode === 'ONE') repBtn.classList.add('repeat-one');
       var repLbl = mode === 'ONE'
         ? (ar ? 'تكرار المقطع' : 'Repeat 1')
         : (mode === 'ALL' ? (ar ? 'تكرار الكل' : 'Repeat All') : (ar ? 'بدون تكرار' : 'Repeat Off'));
@@ -1431,7 +1473,8 @@
     }
 
     if (qBtn) {
-      qBtn.classList.toggle('queue-active', queueViewOpen);
+      qBtn.style.display = adv ? 'inline-flex' : 'none';
+      qBtn.classList.toggle('queue-active', adv && queueViewOpen);
       qBtn.innerHTML = '<svg viewBox="0 0 24 24"><path d="M15 6H3v2h12V6zm0 4H3v2h12v-2zM3 16h8v-2H3v2zM17 6v8.18c-.31-.11-.65-.18-1-.18-1.66 0-3 1.34-3 3s1.34 3 3 3 3-1.34 3-3V8h3V6h-5z"/></svg>' +
         '<span>' + (ar ? 'القائمة' : 'Queue') + '</span>';
     }
@@ -1576,10 +1619,12 @@
   function renderBluetoothBody(body) {
     var ar = isAr();
     var card = window.ShineWaveCardState || {};
+    var fallbackBt = ar ? 'قم بتوصيل هاتفك بالبلوتوث للاستماع والمزامنة' : 'Connect your phone via Bluetooth to play';
+    var liveLine = card.title ? (card.artist ? (card.title + ' — ' + card.artist) : card.title) : fallbackBt;
     body.innerHTML =
       '<div class="swst-tuner-hero" style="margin-top:16px;">' +
         '<div style="font-size:26px;font-weight:800;color:#bae6fd;">' + (ar ? 'صوت البلوتوث التلقائي' : 'Bluetooth Audio Stream') + '</div>' +
-        '<div style="font-size:18px;color:#cbd5e1;text-align:center;">' + escHtml(card.title || (ar ? 'قم بتوصيل هاتفك بالبلوتوث للاستماع والمزامنة' : 'Connect your phone via Bluetooth to play')) + '</div>' +
+        '<div id="swst-bt-live-title" style="font-size:18px;color:#cbd5e1;text-align:center;">' + escHtml(liveLine) + '</div>' +
         '<button type="button" class="swst-pill-action mint" id="swst-bt-activate">▶ ' + (ar ? 'تفعيل وتشغيل البلوتوث' : 'Activate & Play BT') + '</button>' +
       '</div>';
     document.getElementById('swst-bt-activate').addEventListener('click', function () {
@@ -1593,6 +1638,7 @@
     var r = radioData || simDb.radio;
     var isDab = r.radioType === 'DAB';
     var isAm = r.band === 'AM' && !isDab;
+    var isScanning = !!r.scanning;
     var freqDisplay = isDab ? 'DAB+' : (isAm ? String(r.freqKhz) : (r.freqKhz / 1000).toFixed(1));
     var freqUnit = isDab ? 'Digital' : (isAm ? 'kHz' : 'MHz');
     var favs = (r.stations || []).filter(function (s) { return s.favorite; });
@@ -1613,7 +1659,8 @@
           '<button type="button" class="swst-subpill' + (!isDab && isAm ? ' active' : '') + '" data-rband="AM">AM</button>' +
           '<button type="button" class="swst-subpill' + (isDab ? ' active' : '') + '" data-rband="DAB" dir="ltr">DAB+</button>' +
         '</div>' +
-        '<div class="swst-freq-readout"><span class="swst-freq-num">' + freqDisplay + '</span><span class="swst-freq-unit">' + freqUnit + '</span></div>';
+        '<div class="swst-freq-readout"><span class="swst-freq-num">' + freqDisplay + '</span><span class="swst-freq-unit">' + freqUnit + '</span></div>' +
+        (r.status ? '<div style="font-size:14px;font-weight:700;color:#cbd5e1;">' + escHtml(r.status) + '</div>' : '');
 
     if (!isDab) {
       var min = isAm ? 531 : 87500, max = isAm ? 1629 : 108000, step = isAm ? 9 : 100;
@@ -1622,7 +1669,7 @@
         '<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;justify-content:center;direction:ltr;">' +
           '<button type="button" class="swst-pill-action lavender" id="swst-r-seek-dn">◀ ' + (ar ? 'بحث' : 'Seek -') + '</button>' +
           '<button type="button" class="swst-pill-action" id="swst-r-step-dn" dir="ltr">' + (isAm ? '-9' : '-0.1') + '</button>' +
-          '<button type="button" class="swst-pill-action mint" id="swst-r-autoscan">⚡ ' + (ar ? 'مسح وحفظ تلقائي' : 'Auto Scan & Save') + '</button>' +
+          '<button type="button" class="swst-pill-action ' + (isScanning ? 'rose' : 'mint') + '" id="swst-r-autoscan">' + (isScanning ? ('⏹ ' + (ar ? 'إيقاف المسح' : 'Stop Scan')) : ('⚡ ' + (ar ? 'مسح وحفظ تلقائي' : 'Auto Scan & Save'))) + '</button>' +
           '<button type="button" class="swst-pill-action" id="swst-r-step-up" dir="ltr">' + (isAm ? '+9' : '+0.1') + '</button>' +
           '<button type="button" class="swst-pill-action lavender" id="swst-r-seek-up">' + (ar ? 'بحث' : 'Seek +') + ' ▶</button>' +
         '</div>' +
@@ -1641,12 +1688,13 @@
       html += '</div>';
     } else {
       var sts = r.stations || [];
-      html += '<div class="swst-section-label">' + (ar ? 'المحطات المحفوظة (اضغط ✎ لتسمية أي محطة)' : 'Saved & OEM Stations (Tap ✎ to rename)') + '</div><div class="swst-stations-grid">';
+      html += '<div class="swst-section-label">' + (ar ? 'المحطات المحفوظة (اضغط ✎ للتسمية أو ★ للمفضلة)' : 'Saved & OEM Stations (✎ Rename · ★ Favorite)') + '</div><div class="swst-stations-grid">';
       sts.forEach(function (st) {
         var fText = isAm ? (st.freq + ' kHz') : ((st.freq / 1000).toFixed(1) + ' MHz');
         html += '<div class="swst-row' + (st.freq === r.freqKhz ? ' active' : '') + '" data-rfreq="' + st.freq + '">' +
           '<div class="swst-row-info"><div class="swst-row-title">' + escHtml(st.name || fText) + '</div>' +
           '<div class="swst-row-sub">' + escHtml(fText) + (st.favorite ? ' · ★' : '') + '</div></div>' +
+          '<button type="button" class="swst-star-btn' + (st.favorite ? ' fav' : '') + '" data-rfav-freq="' + st.freq + '" data-rfav-name="' + escHtml(st.name || fText) + '" title="Favorite">' + (st.favorite ? '★' : '☆') + '</button>' +
           '<button type="button" class="swst-edit-btn" data-redit-freq="' + st.freq + '" data-redit-name="' + escHtml(st.name) + '" title="Rename">✎</button>' +
         '</div>';
       });
@@ -1654,9 +1702,31 @@
     }
     body.innerHTML = html;
 
+    function simSwitchBand(bnd) {
+      if (bnd === 'DAB') {
+        simDb.radio.radioType = 'DAB';
+      } else {
+        if (simDb.radio.band === 'AM') simDb.radio.lastAmFreq = simDb.radio.freqKhz;
+        else simDb.radio.lastFmFreq = simDb.radio.freqKhz;
+        simDb.radio.radioType = bnd;
+        simDb.radio.band = bnd;
+        simDb.radio.freqKhz = (bnd === 'AM') ? simDb.radio.lastAmFreq : simDb.radio.lastFmFreq;
+        simDb.radio.stations = (bnd === 'AM') ? simDb.radio.amStations : simDb.radio.fmStations;
+      }
+      editingRadioName = '';
+      window.simSwitchShineWaveSource('CAR_RADIO');
+      renderBody();
+    }
+
     function simTune(bnd, fk) {
       if (bnd === 'DAB') { simDb.radio.radioType = 'DAB'; }
-      else { simDb.radio.radioType = bnd; simDb.radio.band = bnd; simDb.radio.freqKhz = fk; }
+      else {
+        simDb.radio.radioType = bnd;
+        simDb.radio.band = bnd;
+        simDb.radio.freqKhz = fk;
+        if (bnd === 'AM') simDb.radio.lastAmFreq = fk;
+        else simDb.radio.lastFmFreq = fk;
+      }
       editingRadioName = '';
       window.simSwitchShineWaveSource('CAR_RADIO');
       renderBody();
@@ -1665,37 +1735,55 @@
     body.querySelectorAll('[data-rband]').forEach(function (btn) {
       btn.addEventListener('click', function () {
         var bnd = btn.getAttribute('data-rband');
-        var defF = (bnd === 'AM') ? 1000 : 100600;
         editingRadioName = '';
-        if (bridge()) bridge().tuneShineWaveRadio(bnd, defF);
-        else simTune(bnd, defF);
+        if (bridge()) {
+          if (typeof bridge().selectShineWaveRadioBand === 'function') bridge().selectShineWaveRadioBand(bnd);
+          else bridge().tuneShineWaveRadio(bnd, bnd === 'AM' ? 999 : 100600);
+        } else {
+          simSwitchBand(bnd);
+        }
       });
     });
     var sl = document.getElementById('swst-radio-slider');
-    if (sl) sl.addEventListener('change', function () {
-      var f = parseInt(sl.value, 10);
-      if (bridge()) bridge().tuneShineWaveRadio(r.band, f);
-      else simTune(r.band, f);
-    });
+    if (sl) {
+      sl.addEventListener('input', function () {
+        var f = parseInt(sl.value, 10);
+        var numEl = body.querySelector('.swst-freq-num');
+        if (numEl) numEl.textContent = isAm ? String(f) : (f / 1000).toFixed(1);
+      });
+      sl.addEventListener('change', function () {
+        var f = parseInt(sl.value, 10);
+        if (bridge()) bridge().tuneShineWaveRadio(r.band, f);
+        else simTune(r.band, f);
+      });
+    }
     var sDn = document.getElementById('swst-r-seek-dn');
-    if (sDn) sDn.addEventListener('click', function () { if (bridge()) bridge().seekShineWaveRadio(false); else simTune(r.band, Math.max(87500, r.freqKhz - 400)); });
+    if (sDn) sDn.addEventListener('click', function () {
+      if (bridge()) bridge().seekShineWaveRadio(false);
+      else simTune(r.band, Math.max(isAm ? 531 : 87500, r.freqKhz - (isAm ? 36 : 400)));
+    });
     var sUp = document.getElementById('swst-r-seek-up');
-    if (sUp) sUp.addEventListener('click', function () { if (bridge()) bridge().seekShineWaveRadio(true); else simTune(r.band, Math.min(108000, r.freqKhz + 400)); });
+    if (sUp) sUp.addEventListener('click', function () {
+      if (bridge()) bridge().seekShineWaveRadio(true);
+      else simTune(r.band, Math.min(isAm ? 1629 : 108000, r.freqKhz + (isAm ? 36 : 400)));
+    });
     var stDn = document.getElementById('swst-r-step-dn');
-    if (stDn) stDn.addEventListener('click', function () { if (bridge()) bridge().stepShineWaveRadio(isAm ? -9 : -100); else simTune(r.band, r.freqKhz - (isAm ? 9 : 100)); });
+    if (stDn) stDn.addEventListener('click', function () {
+      if (bridge()) bridge().stepShineWaveRadio(isAm ? -9 : -100);
+      else simTune(r.band, Math.max(isAm ? 531 : 87500, r.freqKhz - (isAm ? 9 : 100)));
+    });
     var stUp = document.getElementById('swst-r-step-up');
-    if (stUp) stUp.addEventListener('click', function () { if (bridge()) bridge().stepShineWaveRadio(isAm ? 9 : 100); else simTune(r.band, r.freqKhz + (isAm ? 9 : 100)); });
+    if (stUp) stUp.addEventListener('click', function () {
+      if (bridge()) bridge().stepShineWaveRadio(isAm ? 9 : 100);
+      else simTune(r.band, Math.min(isAm ? 1629 : 108000, r.freqKhz + (isAm ? 9 : 100)));
+    });
     var aScan = document.getElementById('swst-r-autoscan');
     if (aScan) aScan.addEventListener('click', function () {
       if (bridge() && bridge().startShineWaveRadioAutoScan) {
         bridge().startShineWaveRadioAutoScan();
-        aScan.innerText = ar ? '⏳ جاري المسح...' : '⏳ Scanning...';
-        aScan.disabled = true;
-        setTimeout(function () {
-          if (bridge() && bridge().getShineWaveRadioState) bridge().getShineWaveRadioState();
-          aScan.disabled = false;
-          aScan.innerText = '⚡ ' + (ar ? 'مسح وحفظ تلقائي' : 'Auto Scan & Save');
-        }, 12000);
+      } else {
+        simDb.radio.scanning = !simDb.radio.scanning;
+        renderBody();
       }
     });
 
@@ -1725,10 +1813,29 @@
 
     body.querySelectorAll('[data-rfreq]').forEach(function (cardEl) {
       cardEl.addEventListener('click', function (e) {
-        if (e.target && e.target.getAttribute('data-redit-freq')) return;
+        if (e.target && (e.target.getAttribute('data-redit-freq') || e.target.getAttribute('data-rfav-freq'))) return;
         var f = parseInt(cardEl.getAttribute('data-rfreq'), 10);
         if (bridge()) bridge().tuneShineWaveRadio(r.band, f);
         else simTune(r.band, f);
+      });
+    });
+
+    body.querySelectorAll('[data-rfav-freq]').forEach(function (starBtn) {
+      starBtn.addEventListener('click', function (e) {
+        e.stopPropagation();
+        var f = parseInt(starBtn.getAttribute('data-rfav-freq'), 10);
+        var nm = starBtn.getAttribute('data-rfav-name') || '';
+        if (bridge() && bridge().toggleShineWaveRadioFav) {
+          bridge().toggleShineWaveRadioFav(f, nm);
+        } else {
+          for (var i = 0; i < simDb.radio.stations.length; i++) {
+            if (simDb.radio.stations[i].freq === f) {
+              simDb.radio.stations[i].favorite = !simDb.radio.stations[i].favorite;
+              break;
+            }
+          }
+          renderBody();
+        }
       });
     });
 

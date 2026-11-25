@@ -9,14 +9,22 @@ import android.os.IBinder;
 import android.os.Looper;
 import android.os.Parcel;
 
+import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
+import java.util.ArrayList;
+import java.util.LinkedHashSet;
+import java.util.List;
 import java.util.Locale;
+import java.util.Set;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.atomic.AtomicLong;
 
 /**
  * Hardware client for the vehicle's qg.tuner_service (ITunerService AIDL + raw Binder fallback).
- * Supports FM (87.5-108.0 MHz, kHz*1000) and AM (531-1629 kHz), seek up/down, mute, and tuner status.
+ * Mirrors the proven factory sequences from Shine Wave's FmAmController:
+ * FM (87500-108000 kHz, 100 kHz step) and AM (531-1629 kHz, 9 kHz step, default 999),
+ * OEM boundary-retry seek, seekSet(min) + seekDown auto-scan, mute, and tuner status readback.
  */
 public final class FmAmTunerController {
     public static final int BAND_FM = 1;
@@ -70,6 +78,7 @@ public final class FmAmTunerController {
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
     private final ExecutorService worker = Executors.newSingleThreadExecutor();
     private final Object commandLock = new Object();
+    private final AtomicLong tuneGen = new AtomicLong(0L);
 
     private volatile IBinder binder;
     private volatile Object tunerApi;
@@ -78,16 +87,33 @@ public final class FmAmTunerController {
     private volatile boolean boundRequested = false;
     private volatile boolean autoScanning = false;
 
+    private Integer pendingBand = null;
+    private Integer pendingFreqKhz = null;
+    private long pendingGen = -1L;
+
     private final ServiceConnection serviceConn = new ServiceConnection() {
         @Override
         public void onServiceConnected(ComponentName name, IBinder service) {
             if (service == null) return;
+            final Integer reqBand;
+            final Integer reqFreq;
+            final long reqGen;
             synchronized (commandLock) {
                 binder = service;
                 tunerApi = createTunerApi(service);
+                linkDeathLocked(service);
+                reqBand = pendingBand;
+                reqFreq = pendingFreqKhz;
+                reqGen = pendingGen;
+                pendingBand = null;
+                pendingFreqKhz = null;
             }
             if (listener != null) listener.onConnectionChanged(true);
-            refreshCurrentStateAsync();
+            if (reqBand != null && reqFreq != null && reqGen == tuneGen.get()) {
+                executeTuneWorker(reqBand, reqFreq, reqGen);
+            } else {
+                refreshCurrentStateAsync();
+            }
         }
 
         @Override
@@ -115,7 +141,7 @@ public final class FmAmTunerController {
 
     public void connectAsync() {
         factoryBridge.prewarm();
-        worker.execute(new Runnable() {
+        executeWorker(new Runnable() {
             @Override
             public void run() {
                 if (connectSync()) {
@@ -126,42 +152,98 @@ public final class FmAmTunerController {
         });
     }
 
-    public void tuneAsync(final int band, final int frequencyKhz) {
+    public void rememberDesiredBandAndFreq(int band, int frequencyKhz) {
+        if (band != BAND_FM && band != BAND_AM) return;
         currentBand = band;
         currentFreqKhz = clampFrequency(band, frequencyKhz);
-        worker.execute(new Runnable() {
+    }
+
+    public void tuneAsync(final int band, final int frequencyKhz) {
+        final int targetBand = (band == BAND_AM) ? BAND_AM : BAND_FM;
+        final int targetFreq = clampFrequency(targetBand, frequencyKhz);
+        final long gen = tuneGen.incrementAndGet();
+        currentBand = targetBand;
+        currentFreqKhz = targetFreq;
+        synchronized (commandLock) {
+            pendingBand = targetBand;
+            pendingFreqKhz = targetFreq;
+            pendingGen = gen;
+        }
+        executeTuneWorker(targetBand, targetFreq, gen);
+    }
+
+    private void executeTuneWorker(final int targetBand, final int targetFreq, final long gen) {
+        executeWorker(new Runnable() {
             @Override
             public void run() {
-                connectSync();
-                factoryBridge.cancelPendingTune();
-                setBandInternal(currentBand);
-                boolean sentViaBridge = factoryBridge.playLocalRadio(currentBand, currentFreqKhz);
-                if (!sentViaBridge) {
-                    sendTuneDirect(currentFreqKhz);
-                } else {
-                    mainHandler.postDelayed(new Runnable() {
-                        @Override
-                        public void run() {
-                            verifyAndFallbackTune(currentBand, currentFreqKhz);
-                        }
-                    }, 900L);
+                if (gen != tuneGen.get()) return;
+                boolean connected = connectSync();
+                if (!connected || gen != tuneGen.get()) return;
+                synchronized (commandLock) {
+                    if (pendingGen == gen) {
+                        pendingBand = null;
+                        pendingFreqKhz = null;
+                    }
                 }
-                if (listener != null) listener.onFrequencyChanged(currentFreqKhz);
+
+                factoryBridge.cancelPendingTune();
+                setBandInternal(targetBand);
+                boolean sentViaBridge = factoryBridge.playLocalRadio(targetBand, targetFreq);
+                if (!sentViaBridge) {
+                    // Cancel any async pending tune in FactoryRadioBridge so a late bind
+                    // cannot overwrite our direct ITunerService command.
+                    factoryBridge.cancelPendingTune();
+                    sendTuneDirect(targetFreq);
+                    scheduleTuneVerify(targetBand, targetFreq, gen, 900L, false);
+                } else {
+                    if (listener != null) listener.onFrequencyChanged(targetFreq);
+                    scheduleTuneVerify(targetBand, targetFreq, gen, 750L, true);
+                    scheduleTuneVerify(targetBand, targetFreq, gen, 1800L, true);
+                }
             }
         });
     }
 
     public void seekAsync(final boolean up) {
-        worker.execute(new Runnable() {
+        final long gen = tuneGen.incrementAndGet();
+        final int expectedBand = currentBand;
+        final int beforeFreq = currentFreqKhz;
+        executeWorker(new Runnable() {
             @Override
             public void run() {
-                connectSync();
+                if (gen != tuneGen.get()) return;
+                if (!connectSync()) {
+                    if (listener != null) listener.onStatusMessage("موالف السيارة غير متصل");
+                    return;
+                }
                 factoryBridge.cancelPendingTune();
                 setSeekStatusDirect(1);
-                boolean ok = transactSimple(up ? TR_SEEK_UP : TR_SEEK_DOWN, up ? "seekUp" : "seekDown");
+
+                String method = up ? "seekUp" : "seekDown";
+                int txCode = up ? TR_SEEK_UP : TR_SEEK_DOWN;
+                Integer returnedFreq = invokeSeekCommand(txCode, method);
+                boolean ok = (returnedFreq != null);
+
+                // Match factory LocalRadioEngine.seekPre(): retry once from max frequency
+                // if seekUp returns a frequency outside this band's valid range.
+                if (ok && up && !isOemFrequencyValid(expectedBand, returnedFreq)) {
+                    int maxFreq = (expectedBand == BAND_FM) ? 108000 : 1629;
+                    if (sendPlayOnly(maxFreq)) {
+                        Integer retryFreq = invokeSeekCommand(TR_SEEK_UP, "seekUp");
+                        if (retryFreq != null) {
+                            returnedFreq = retryFreq;
+                        }
+                    }
+                }
+
                 if (ok) {
-                    if (listener != null) listener.onStatusMessage(up ? "جاري البحث للأعلى…" : "جاري البحث للأسفل…");
-                    scheduleReadbackSeries();
+                    if (listener != null) {
+                        listener.onStatusMessage(up ? "جاري البحث للأعلى…" : "جاري البحث للأسفل…");
+                    }
+                    if (returnedFreq != null && isValidFreq(expectedBand, returnedFreq) && returnedFreq != beforeFreq) {
+                        applyConfirmedState(expectedBand, returnedFreq);
+                    }
+                    scheduleSeekReadbackSeries(expectedBand, beforeFreq, gen);
                 } else {
                     if (listener != null) listener.onStatusMessage("موالف السيارة غير متصل");
                 }
@@ -171,65 +253,106 @@ public final class FmAmTunerController {
 
     public synchronized void startAutoScanAndSave(final OemStationRepository repo, final AutoScanListener scanListener) {
         if (autoScanning) return;
+        final long gen = tuneGen.incrementAndGet();
         autoScanning = true;
-        worker.execute(new Runnable() {
+        final int scanBand = currentBand;
+        final int restoreFreq = clampFrequency(scanBand, currentFreqKhz);
+
+        executeWorker(new Runnable() {
             @Override
             public void run() {
+                Set<Integer> discovered = new LinkedHashSet<>();
                 try {
-                    connectSync();
-                    setBandInternal(currentBand);
-                    int startFreq = (currentBand == BAND_FM) ? 87500 : 531;
-                    int maxFreq = (currentBand == BAND_FM) ? 108000 : 1629;
-                    int step = (currentBand == BAND_FM) ? 100 : 9;
+                    if (!connectSync()) {
+                        return;
+                    }
+                    factoryBridge.cancelPendingTune();
+                    setBandInternal(scanBand);
 
-                    sendTuneDirect(startFreq);
-                    try { Thread.sleep(300); } catch (InterruptedException ignored) {}
+                    int minFreq = (scanBand == BAND_FM) ? 87500 : 531;
+                    int maxFreq = (scanBand == BAND_FM) ? 108000 : 1629;
 
-                    int foundCount = 0;
-                    int lastFoundFreq = -1;
-                    int curFreq = startFreq;
-                    int attempts = 0;
-                    int maxAttempts = 60;
-
-                    while (autoScanning && attempts < maxAttempts) {
-                        attempts++;
-                        setSeekStatusDirect(1);
-                        boolean ok = transactSimple(TR_SEEK_UP, "seekUp");
-                        if (!ok) break;
-
-                        TunerStatus st = null;
-                        for (int w = 0; w < 10; w++) {
-                            try { Thread.sleep(350); } catch (InterruptedException ignored) {}
-                            if (!autoScanning) break;
-                            st = readTunerStatusInternal();
-                            if (st != null && st.frequencyKhz != curFreq && isValidFreq(currentBand, st.frequencyKhz)) {
+                    // Mirror factory LocalRadioEngine.scanChannel(): seekSet(min) first.
+                    boolean startConfirmed = false;
+                    if (sendSeekSet(minFreq)) {
+                        for (int w = 0; w < 10 && autoScanning && gen == tuneGen.get(); w++) {
+                            sleepQuietly(150L);
+                            TunerStatus st = readTunerStatusInternal();
+                            if (st != null && st.frequencyKhz == minFreq) {
+                                startConfirmed = true;
                                 break;
                             }
                         }
+                    }
+                    if (!startConfirmed && autoScanning && gen == tuneGen.get()) {
+                        sendTuneDirect(minFreq);
+                        sleepQuietly(300L);
+                    }
 
-                        if (!autoScanning) break;
-                        if (st == null || !isValidFreq(currentBand, st.frequencyKhz)) {
-                            curFreq += (step * 2);
-                            if (curFreq > maxFreq) break;
-                            sendTuneDirect(curFreq);
-                            st = readTunerStatusInternal();
-                        } else {
-                            curFreq = st.frequencyKhz;
+                    TunerStatus initialSt = readTunerStatusInternal();
+                    if (initialSt != null && initialSt.validStation && initialSt.frequencyKhz == minFreq) {
+                        discovered.add(minFreq);
+                    }
+
+                    Integer anchorFreq = discovered.isEmpty() ? null : minFreq;
+                    boolean sawAwayFromAnchor = false;
+                    Integer prevReturned = null;
+                    int consecutiveUnchanged = 0;
+                    int steps = 0;
+                    long startedAt = System.currentTimeMillis();
+
+                    while (autoScanning && gen == tuneGen.get()
+                            && (System.currentTimeMillis() - startedAt) < 120_000L
+                            && steps < 210) {
+                        steps++;
+                        Integer returned = invokeSeekCommand(TR_SEEK_DOWN, "seekDown");
+                        if (returned == null && steps == 1) {
+                            setSeekStatusDirect(1);
+                            returned = invokeSeekCommand(TR_SEEK_DOWN, "seekDown");
                         }
+                        if (!autoScanning || gen != tuneGen.get() || returned == null) break;
 
-                        if (curFreq <= lastFoundFreq && lastFoundFreq != -1) {
+                        int freq = returned;
+                        if (freq < minFreq || freq > maxFreq) break;
+
+                        // Confirm readback matches or settles on candidate frequency.
+                        TunerStatus st = null;
+                        for (int w = 0; w < 6 && autoScanning && gen == tuneGen.get(); w++) {
+                            st = readTunerStatusInternal();
+                            if (st != null && st.frequencyKhz == freq) break;
+                            sleepQuietly(130L);
+                        }
+                        if (!autoScanning || gen != tuneGen.get()) break;
+
+                        if (prevReturned != null && prevReturned == freq) {
+                            consecutiveUnchanged++;
+                        } else {
+                            consecutiveUnchanged = 0;
+                        }
+                        if (anchorFreq == null) {
+                            anchorFreq = freq;
+                        }
+                        if (freq != anchorFreq) {
+                            sawAwayFromAnchor = true;
+                        }
+                        if (freq == anchorFreq && sawAwayFromAnchor && (prevReturned == null || prevReturned != freq)) {
                             break;
                         }
+                        if (consecutiveUnchanged >= 2) {
+                            break;
+                        }
+                        prevReturned = freq;
 
-                        if (st != null && (st.validStation || st.signalLevel >= 2)) {
-                            lastFoundFreq = curFreq;
-                            foundCount++;
-                            final String name = (currentBand == BAND_FM)
-                                    ? String.format(Locale.US, "FM %.1f", curFreq / 1000.0)
-                                    : ("AM " + curFreq);
-                            repo.saveOrUpdateLocalFavorite(currentBand, curFreq, name);
-                            final int fKhz = curFreq;
-                            final int fCount = foundCount;
+                        if (!discovered.contains(freq)) {
+                            discovered.add(freq);
+                            final List<Integer> listCopy = new ArrayList<>(discovered);
+                            repo.saveScannedStations(scanBand, listCopy);
+                            final String name = formatBandFreqName(scanBand, freq);
+                            final int fKhz = freq;
+                            final int fCount = listCopy.size();
+                            if (listener != null) {
+                                listener.onFrequencyChanged(fKhz);
+                            }
                             if (scanListener != null) {
                                 mainHandler.post(new Runnable() {
                                     @Override
@@ -239,23 +362,23 @@ public final class FmAmTunerController {
                                     }
                                 });
                             }
-                        } else {
-                            final int fKhz = curFreq;
-                            final int fCount = foundCount;
-                            if (scanListener != null) {
-                                mainHandler.post(new Runnable() {
-                                    @Override
-                                    public void run() {
-                                        scanListener.onScanProgress(fKhz, fCount);
-                                    }
-                                });
-                            }
                         }
-
-                        try { Thread.sleep(150); } catch (InterruptedException ignored) {}
                     }
 
-                    final int total = foundCount;
+                    // Restore original frequency (or first discovered station if original was invalid).
+                    if (gen == tuneGen.get()) {
+                        int targetRestore = restoreFreq;
+                        if (!isValidFreq(scanBand, targetRestore) && !discovered.isEmpty()) {
+                            targetRestore = discovered.iterator().next();
+                        }
+                        setBandInternal(scanBand);
+                        sendTuneDirect(targetRestore);
+                        currentBand = scanBand;
+                        currentFreqKhz = targetRestore;
+                    }
+                } finally {
+                    autoScanning = false;
+                    final int total = discovered.size();
                     if (scanListener != null) {
                         mainHandler.post(new Runnable() {
                             @Override
@@ -264,8 +387,6 @@ public final class FmAmTunerController {
                             }
                         });
                     }
-                } finally {
-                    autoScanning = false;
                 }
             }
         });
@@ -280,11 +401,15 @@ public final class FmAmTunerController {
     }
 
     public void setMuteAsync(final boolean muted) {
-        worker.execute(new Runnable() {
+        executeWorker(new Runnable() {
             @Override
             public void run() {
+                if (!connectSync()) return;
                 if (tunerApi != null) {
-                    try { invokeApi("setMute", muted); return; } catch (Throwable ignored) {}
+                    try {
+                        invokeApiResult("setMute", muted);
+                        return;
+                    } catch (Throwable ignored) {}
                 }
                 transactIntArg(TR_SET_MUTE, muted ? 1 : 0);
             }
@@ -292,10 +417,12 @@ public final class FmAmTunerController {
     }
 
     public void refreshCurrentStateAsync() {
-        worker.execute(new Runnable() {
+        final long gen = tuneGen.get();
+        executeWorker(new Runnable() {
             @Override
             public void run() {
-                connectSync();
+                if (autoScanning || gen != tuneGen.get()) return;
+                if (!connectSync()) return;
                 readCurrentStateInternal();
             }
         });
@@ -313,30 +440,82 @@ public final class FmAmTunerController {
         return currentFreqKhz;
     }
 
-    private void verifyAndFallbackTune(final int band, final int freqKhz) {
-        worker.execute(new Runnable() {
+    private void scheduleTuneVerify(final int band, final int freqKhz, final long gen,
+                                    final long delayMs, final boolean fallbackOnMismatch) {
+        mainHandler.postDelayed(new Runnable() {
             @Override
             public void run() {
-                TunerStatus st = readTunerStatusInternal();
-                if (st == null || st.frequencyKhz != freqKhz) {
-                    setBandInternal(band);
-                    sendTuneDirect(freqKhz);
-                }
+                if (gen != tuneGen.get() || autoScanning) return;
+                executeWorker(new Runnable() {
+                    @Override
+                    public void run() {
+                        if (gen != tuneGen.get() || autoScanning) return;
+                        Integer b = readBandInternal();
+                        TunerStatus st = readTunerStatusInternal();
+                        if (b != null && b == band && st != null && st.frequencyKhz == freqKhz) {
+                            applyConfirmedState(b, st.frequencyKhz);
+                            if (listener != null) {
+                                listener.onStatusMessage(st.validStation
+                                        ? (st.stereo ? "إشارة قوية • ستيريو" : "محطة صالحة")
+                                        : formatBandFreqName(band, freqKhz));
+                            }
+                        } else if (fallbackOnMismatch) {
+                            setBandInternal(band);
+                            sendTuneDirect(freqKhz);
+                        }
+                    }
+                });
             }
-        });
+        }, delayMs);
     }
 
-    private void scheduleReadbackSeries() {
-        long[] delays = new long[]{450L, 1200L, 2500L};
-        for (long d : delays) {
+    private void scheduleSeekReadbackSeries(final int expectedBand, final int beforeFreq, final long gen) {
+        long[] delays = new long[]{400L, 900L, 1600L, 2600L};
+        for (final long d : delays) {
             mainHandler.postDelayed(new Runnable() {
                 @Override
                 public void run() {
-                    worker.execute(new Runnable() {
-                        @Override public void run() { readCurrentStateInternal(); }
+                    if (gen != tuneGen.get() || autoScanning) return;
+                    executeWorker(new Runnable() {
+                        @Override
+                        public void run() {
+                            if (gen != tuneGen.get() || autoScanning) return;
+                            Integer b = readBandInternal();
+                            TunerStatus st = readTunerStatusInternal();
+                            int resolvedBand = (b != null && (b == BAND_FM || b == BAND_AM)) ? b : expectedBand;
+                            if (st != null && isValidFreq(resolvedBand, st.frequencyKhz)) {
+                                applyConfirmedState(resolvedBand, st.frequencyKhz);
+                                if (listener != null && st.frequencyKhz != beforeFreq) {
+                                    listener.onStatusMessage(st.validStation
+                                            ? (st.stereo ? "إشارة قوية • ستيريو" : "محطة متاحة")
+                                            : formatBandFreqName(resolvedBand, st.frequencyKhz));
+                                }
+                            }
+                        }
                     });
                 }
             }, d);
+        }
+    }
+
+    private void applyConfirmedState(int band, int freqKhz) {
+        boolean bandChanged = (currentBand != band);
+        boolean freqChanged = (currentFreqKhz != freqKhz);
+        currentBand = band;
+        currentFreqKhz = freqKhz;
+        if (bandChanged && listener != null) {
+            listener.onBandChanged(band);
+        }
+        if (freqChanged && listener != null) {
+            listener.onFrequencyChanged(freqKhz);
+        }
+    }
+
+    private void executeWorker(Runnable r) {
+        if (!worker.isShutdown()) {
+            try {
+                worker.execute(r);
+            } catch (Throwable ignored) {}
         }
     }
 
@@ -349,6 +528,7 @@ public final class FmAmTunerController {
             synchronized (commandLock) {
                 binder = found;
                 tunerApi = createTunerApi(found);
+                linkDeathLocked(found);
             }
             return true;
         }
@@ -362,13 +542,39 @@ public final class FmAmTunerController {
         return false;
     }
 
+    private void linkDeathLocked(final IBinder target) {
+        try {
+            target.linkToDeath(new IBinder.DeathRecipient() {
+                @Override
+                public void binderDied() {
+                    boolean lost = false;
+                    synchronized (commandLock) {
+                        if (binder == target) {
+                            binder = null;
+                            tunerApi = null;
+                            lost = true;
+                        }
+                    }
+                    if (lost && listener != null) {
+                        listener.onConnectionChanged(false);
+                    }
+                }
+            }, 0);
+        } catch (Throwable ignored) {}
+    }
+
     private IBinder findServiceBinder() {
         String[] managers = new String[]{"com.qinggan.os.ServiceManager", "android.os.ServiceManager"};
         for (String clsName : managers) {
             try {
                 Class<?> cls = Class.forName(clsName);
-                Method m = cls.getDeclaredMethod("getService", String.class);
-                m.setAccessible(true);
+                Method m;
+                try {
+                    m = cls.getDeclaredMethod("getService", String.class);
+                } catch (NoSuchMethodException e) {
+                    m = cls.getMethod("getService", String.class);
+                }
+                try { m.setAccessible(true); } catch (Throwable ignored) {}
                 Object res = m.invoke(null, SERVICE_NAME);
                 if (res instanceof IBinder) return (IBinder) res;
             } catch (Throwable ignored) {}
@@ -387,8 +593,11 @@ public final class FmAmTunerController {
 
     private void setBandInternal(int band) {
         if (tunerApi != null) {
-            try { invokeApi("setBand", band); if (listener != null) listener.onBandChanged(band); return; }
-            catch (Throwable ignored) {}
+            try {
+                invokeApiResult("setBand", band);
+                if (listener != null) listener.onBandChanged(band);
+                return;
+            } catch (Throwable ignored) {}
         }
         if (transactIntArg(TR_SET_BAND, band) && listener != null) {
             listener.onBandChanged(band);
@@ -397,29 +606,60 @@ public final class FmAmTunerController {
 
     private void setSeekStatusDirect(int status) {
         if (tunerApi != null) {
-            try { invokeApi("setSeekStatus", status); return; } catch (Throwable ignored) {}
+            try {
+                invokeApiResult("setSeekStatus", status);
+                return;
+            } catch (Throwable ignored) {}
         }
         transactIntArg(TR_SET_SEEK_STATUS, status);
     }
 
-    private boolean sendTuneDirect(int freqKhz) {
-        setSeekStatusDirect(1);
-        boolean ok;
+    private boolean sendSeekSet(int freqKhz) {
         if (tunerApi != null) {
             try {
-                invokeApi("play", freqKhz);
-                ok = true;
-            } catch (Throwable t) {
-                ok = transactIntArg(TR_PLAY, freqKhz);
-            }
-        } else {
-            ok = transactIntArg(TR_PLAY, freqKhz);
+                invokeApiResult("seekSet", freqKhz);
+                return true;
+            } catch (Throwable ignored) {}
         }
+        return transactIntArg(TR_SEEK_SET, freqKhz);
+    }
+
+    private boolean sendPlayOnly(int freqKhz) {
+        if (tunerApi != null) {
+            try {
+                if (findMatchingMethod("play", freqKhz) != null) {
+                    invokeApiResult("play", freqKhz);
+                    return true;
+                }
+                if (findMatchingMethod("setFrequency", freqKhz) != null && findMatchingMethod("play") != null) {
+                    invokeApiResult("setFrequency", freqKhz);
+                    invokeApiResult("play");
+                    return true;
+                }
+            } catch (Throwable ignored) {}
+        }
+        return transactIntArg(TR_PLAY, freqKhz);
+    }
+
+    private boolean sendTuneDirect(int freqKhz) {
+        setSeekStatusDirect(1);
+        boolean ok = sendPlayOnly(freqKhz);
         if (ok && listener != null) {
             listener.onFrequencyChanged(freqKhz);
             listener.onStatusMessage("تم ضبط التردد");
         }
         return ok;
+    }
+
+    private Integer invokeSeekCommand(int txCode, String apiMethod) {
+        if (tunerApi != null && apiMethod != null) {
+            try {
+                Object res = invokeApiResult(apiMethod);
+                if (res instanceof Number) return ((Number) res).intValue();
+                return -1;
+            } catch (Throwable ignored) {}
+        }
+        return transactWithIntResult(txCode);
     }
 
     private void readCurrentStateInternal() {
@@ -433,7 +673,9 @@ public final class FmAmTunerController {
             currentFreqKhz = st.frequencyKhz;
             if (listener != null) {
                 listener.onFrequencyChanged(st.frequencyKhz);
-                listener.onStatusMessage(st.validStation ? (st.stereo ? "إشارة قوية • ستيريو" : "محطة متاحة") : "بانتظار إشارة");
+                listener.onStatusMessage(st.validStation
+                        ? (st.stereo ? "إشارة قوية • ستيريو" : "محطة متاحة")
+                        : "بانتظار إشارة");
             }
         }
     }
@@ -441,7 +683,7 @@ public final class FmAmTunerController {
     private Integer readBandInternal() {
         if (tunerApi != null) {
             try {
-                Object val = invokeApi("getBand");
+                Object val = invokeApiResult("getBand");
                 if (val instanceof Number) return ((Number) val).intValue();
             } catch (Throwable ignored) {}
         }
@@ -465,7 +707,7 @@ public final class FmAmTunerController {
     private TunerStatus readTunerStatusInternal() {
         if (tunerApi != null) {
             try {
-                Object st = invokeApi("getTunerStatus");
+                Object st = invokeApiResult("getTunerStatus");
                 if (st != null) {
                     int freq = readInt(st, "getFrequency", 0);
                     int level = readInt(st, "getLevel", 0);
@@ -519,37 +761,71 @@ public final class FmAmTunerController {
         }
     }
 
-    private boolean transactSimple(int code, String apiMethod) {
-        if (tunerApi != null && apiMethod != null) {
-            try {
-                invokeApi(apiMethod);
-                return true;
-            } catch (Throwable ignored) {}
-        }
+    private Integer transactWithIntResult(int code) {
         IBinder b = binder;
-        if (b == null) return false;
+        if (b == null) return null;
         Parcel data = Parcel.obtain();
         Parcel reply = Parcel.obtain();
         try {
             data.writeInterfaceToken(DESCRIPTOR);
-            if (!b.transact(code, data, reply, 0)) return false;
+            if (!b.transact(code, data, reply, 0)) return null;
             reply.readException();
-            return true;
+            if (reply.dataAvail() >= 4) {
+                return reply.readInt();
+            }
+            return -1;
         } catch (Throwable ignored) {
-            return false;
+            return null;
         } finally {
             data.recycle();
             reply.recycle();
         }
     }
 
-    private Object invokeApi(String methodName, Object... args) throws Exception {
-        if (tunerApi == null) throw new IllegalStateException("tunerApi null");
-        for (Method m : tunerApi.getClass().getMethods()) {
-            if (!methodName.equals(m.getName()) || m.getParameterTypes().length != args.length) continue;
-            return m.invoke(tunerApi, args);
+    private Method findMatchingMethod(String methodName, Object... args) {
+        Object api = tunerApi;
+        if (api == null) return null;
+        for (Method m : api.getClass().getMethods()) {
+            if (!methodName.equals(m.getName())) continue;
+            Class<?>[] params = m.getParameterTypes();
+            if (params.length != args.length) continue;
+            boolean match = true;
+            for (int i = 0; i < params.length; i++) {
+                Class<?> p = params[i];
+                Object a = args[i];
+                if (a == null) {
+                    if (p.isPrimitive()) { match = false; break; }
+                } else if (p.isInstance(a)) {
+                    continue;
+                } else if (p == int.class && a instanceof Integer) {
+                    continue;
+                } else if (p == boolean.class && a instanceof Boolean) {
+                    continue;
+                } else if (p == long.class && a instanceof Long) {
+                    continue;
+                } else {
+                    match = false;
+                    break;
+                }
+            }
+            if (match) return m;
         }
-        throw new NoSuchMethodException("ITunerService." + methodName);
+        return null;
+    }
+
+    private Object invokeApiResult(String methodName, Object... args) throws Exception {
+        if (tunerApi == null) throw new IllegalStateException("tunerApi null");
+        Method m = findMatchingMethod(methodName, args);
+        if (m == null) {
+            throw new NoSuchMethodException("ITunerService." + methodName + "(" + args.length + ")");
+        }
+        try {
+            return m.invoke(tunerApi, args);
+        } catch (InvocationTargetException ite) {
+            Throwable cause = ite.getTargetException();
+            if (cause instanceof Exception) throw (Exception) cause;
+            throw ite;
+        }
     }
 
     private static int readInt(Object target, String name, int def) {
@@ -571,19 +847,39 @@ public final class FmAmTunerController {
     }
 
     public static int clampFrequency(int band, int freqKhz) {
-        if (band == BAND_FM) return Math.max(87500, Math.min(108000, freqKhz));
-        return Math.max(531, Math.min(1629, freqKhz));
+        if (band == BAND_FM) {
+            int clamped = Math.max(87500, Math.min(108000, freqKhz));
+            return 87500 + Math.round((clamped - 87500) / 100.0f) * 100;
+        }
+        int clamped = Math.max(531, Math.min(1629, freqKhz));
+        return 531 + Math.round((clamped - 531) / 9.0f) * 9;
     }
 
-    private static boolean isValidFreq(int band, int freqKhz) {
+    public static boolean isValidFreq(int band, int freqKhz) {
         return band == BAND_FM ? (freqKhz >= 87500 && freqKhz <= 108000) : (freqKhz >= 531 && freqKhz <= 1629);
+    }
+
+    private static boolean isOemFrequencyValid(int band, int freqKhz) {
+        if (band == BAND_FM) return freqKhz >= 87500 && freqKhz <= 108000;
+        return (freqKhz >= 144 && freqKhz <= 288) || (freqKhz >= 531 && freqKhz <= 1629);
+    }
+
+    private static String formatBandFreqName(int band, int freqKhz) {
+        return (band == BAND_FM)
+                ? String.format(Locale.US, "FM %.1f MHz", freqKhz / 1000.0)
+                : ("AM " + freqKhz + " kHz");
     }
 
     private static boolean isAlive(IBinder b) {
         try { return b != null && b.isBinderAlive(); } catch (Throwable ignored) { return false; }
     }
 
+    private static void sleepQuietly(long ms) {
+        try { Thread.sleep(ms); } catch (InterruptedException ignored) {}
+    }
+
     public void release() {
+        tuneGen.incrementAndGet();
         autoScanning = false;
         mainHandler.removeCallbacksAndMessages(null);
         if (boundRequested) {

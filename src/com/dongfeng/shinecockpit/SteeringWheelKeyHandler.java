@@ -221,18 +221,20 @@ public final class SteeringWheelKeyHandler {
     private void startQingganSeek(final int dirSign) {
         mHandler.post(new Runnable() {
             @Override public void run() {
+                final ShineWaveEngine sw = mCallback.getShineWaveEngine();
+                if (sw != null && !sw.supportsAdvancedControls()) {
+                    return;
+                }
                 resetSeekWatchdogLocked();
                 if (mQingganSeekActive && mQingganSeekDir == dirSign) {
                     // Already seeking from 500ms HOLD when 1000ms LONG arrives in the same direction
                     return;
                 }
                 if (mQingganSeekActive && mQingganSeekDir != dirSign) {
-                    ShineWaveEngine prevSw = mCallback.getShineWaveEngine();
-                    if (prevSw != null) prevSw.stopLongSeek();
+                    if (sw != null) sw.stopLongSeek();
                 }
                 mQingganSeekActive = true;
                 mQingganSeekDir = dirSign;
-                final ShineWaveEngine sw = mCallback.getShineWaveEngine();
                 if (sw != null) {
                     sw.setSeekUiCallback(new ShineWaveEngine.SeekUiCallback() {
                         @Override public void onSeekTick(int direction) {
@@ -310,48 +312,56 @@ public final class SteeringWheelKeyHandler {
                     mSwcKeyDownTime = System.currentTimeMillis();
                     mIsLongPressSeeking = false;
 
-                    mLongPressSeekRunnable = new Runnable() {
-                        @Override
-                        public void run() {
-                            mIsLongPressSeeking = true;
-                            ShineWaveEngine curSw = mCallback.getShineWaveEngine();
-                            if (curSw != null) {
-                                curSw.startLongSeek(isForward ? 1 : -1);
-                            } else {
-                                CockpitMediaListenerService.seekBy(mContext, stepMs);
-                            }
-                            mCallback.evaluateJs("if (typeof window.onSwcSeek === 'function') { window.onSwcSeek('" + dir + "', " + SWC_SEEK_STEP_MS + "); }");
-
-                            mContinuousSeekRunnable = new Runnable() {
-                                @Override
-                                public void run() {
-                                    if (mIsLongPressSeeking && mPressedSwcKey != 0) {
-                                        if (mCallback.getShineWaveEngine() == null) {
-                                            CockpitMediaListenerService.seekBy(mContext, stepMs);
-                                        }
-                                        mCallback.evaluateJs("if (typeof window.onSwcSeek === 'function') { window.onSwcSeek('" + dir + "', " + SWC_SEEK_STEP_MS + "); }");
-                                        mHandler.postDelayed(this, SWC_SEEK_INTERVAL_MS);
-                                    }
+                    if (sw == null || sw.supportsAdvancedControls()) {
+                        mLongPressSeekRunnable = new Runnable() {
+                            @Override
+                            public void run() {
+                                ShineWaveEngine curSw = mCallback.getShineWaveEngine();
+                                if (curSw != null && !curSw.supportsAdvancedControls()) return;
+                                mIsLongPressSeeking = true;
+                                if (curSw != null) {
+                                    curSw.startLongSeek(isForward ? 1 : -1);
+                                } else {
+                                    CockpitMediaListenerService.seekBy(mContext, stepMs);
                                 }
-                            };
-                            mHandler.postDelayed(mContinuousSeekRunnable, SWC_SEEK_INTERVAL_MS);
-                        }
-                    };
-                    mHandler.postDelayed(mLongPressSeekRunnable, SWC_LONG_PRESS_DELAY_MS);
+                                mCallback.evaluateJs("if (typeof window.onSwcSeek === 'function') { window.onSwcSeek('" + dir + "', " + SWC_SEEK_STEP_MS + "); }");
+
+                                mContinuousSeekRunnable = new Runnable() {
+                                    @Override
+                                    public void run() {
+                                        if (mIsLongPressSeeking && mPressedSwcKey != 0) {
+                                            ShineWaveEngine loopSw = mCallback.getShineWaveEngine();
+                                            if (loopSw != null && !loopSw.supportsAdvancedControls()) return;
+                                            if (loopSw == null) {
+                                                CockpitMediaListenerService.seekBy(mContext, stepMs);
+                                            }
+                                            mCallback.evaluateJs("if (typeof window.onSwcSeek === 'function') { window.onSwcSeek('" + dir + "', " + SWC_SEEK_STEP_MS + "); }");
+                                            mHandler.postDelayed(this, SWC_SEEK_INTERVAL_MS);
+                                        }
+                                    }
+                                };
+                                mHandler.postDelayed(mContinuousSeekRunnable, SWC_SEEK_INTERVAL_MS);
+                            }
+                        };
+                        mHandler.postDelayed(mLongPressSeekRunnable, SWC_LONG_PRESS_DELAY_MS);
+                    }
                 }
                 return true;
             } else if (action == KeyEvent.ACTION_UP) {
                 if (mPressedSwcKey == code) {
                     cancelSeekTimers();
-                    long heldDuration = System.currentTimeMillis() - mSwcKeyDownTime;
 
-                    if (mIsLongPressSeeking || heldDuration >= SWC_LONG_PRESS_DELAY_MS) {
+                    if (mIsLongPressSeeking) {
                         mIsLongPressSeeking = false;
                         mPressedSwcKey = 0;
                         if (sw != null) sw.stopLongSeek();
                         mCallback.evaluateJs("if (typeof window.onSwcSeekEnd === 'function') { window.onSwcSeekEnd(); }");
                     } else {
                         mPressedSwcKey = 0;
+                        boolean isDedicatedSeekKey = (code == KeyEvent.KEYCODE_MEDIA_FAST_FORWARD || code == KeyEvent.KEYCODE_MEDIA_REWIND);
+                        if (isDedicatedSeekKey && sw != null && !sw.supportsAdvancedControls()) {
+                            return true;
+                        }
                         final String cmd = isForward ? "next" : "prev";
                         if (sw != null) {
                             sw.handleCommand(isForward ? "next" : "previous");

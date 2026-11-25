@@ -67,6 +67,7 @@ public final class QingganAudioPolicyBridge {
     private volatile boolean initialized = false;
     private volatile boolean initInProgress = false;
     private volatile int currentRoutingStream = -1;
+    private volatile int pendingStream = -1;
 
     private QingganAudioPolicyBridge(Context context) {
         this.appContext = context.getApplicationContext();
@@ -164,23 +165,101 @@ public final class QingganAudioPolicyBridge {
     }
 
     /**
-     * Routes hardware DSP audio to Car Radio Tuner (streamType = 21).
+     * Routes hardware DSP audio to Car Radio Tuner (streamType = 21 / already-active type = 3).
      */
     public boolean routeToRadio() {
         synchronized (lock) {
             ensureClassesAvailable();
-            if (policyManager == null) return false;
+            if (policyManager == null) {
+                pendingStream = STREAM_RADIO;
+                return false;
+            }
+            if (!initialized && initInProgress) {
+                pendingStream = STREAM_RADIO;
+            }
 
             try {
+                int policyType = STREAM_RADIO;
+                try {
+                    Object info = policyManager.getClass().getMethod("getCurrentAudioPolicyInfo").invoke(policyManager);
+                    if (info != null) {
+                        Object stream = info.getClass().getMethod("getStreamType").invoke(info);
+                        if (stream instanceof Number && ((Number) stream).intValue() == STREAM_RADIO) {
+                            policyType = 3;
+                        }
+                    }
+                } catch (Throwable ignored) {}
+
                 Method m = managerClass.getMethod("requestAudioPolicy", policyListenerClass, int.class);
-                Object res = m.invoke(policyManager, policyListenerProxy, STREAM_RADIO);
-                Log.i(TAG, "requestAudioPolicy(21) radio returned: " + res);
-                currentRoutingStream = STREAM_RADIO;
-                return true;
+                Object res = m.invoke(policyManager, policyListenerProxy, policyType);
+                boolean accepted = (res instanceof Boolean && (Boolean) res)
+                        || (res instanceof Number && ((Number) res).intValue() != 0);
+                Log.i(TAG, "requestAudioPolicy(" + policyType + ") radio returned: " + res);
+                if (accepted) {
+                    currentRoutingStream = STREAM_RADIO;
+                    pendingStream = -1;
+                }
+                ensureRadioStreamAudible();
+                return accepted;
             } catch (Throwable t) {
                 Log.w(TAG, "routeToRadio failed: " + t.getMessage());
                 return false;
             }
+        }
+    }
+
+    /**
+     * Ensures STREAM_RADIO (21) on qg.audio_policy is not stuck at volume 0.
+     */
+    private void ensureRadioStreamAudible() {
+        try {
+            Class<?> sm = Class.forName("android.os.ServiceManager");
+            Method getService = sm.getDeclaredMethod("getService", String.class);
+            getService.setAccessible(true);
+            IBinder binder = (IBinder) getService.invoke(null, "qg.audio_policy");
+            if (binder == null || !binder.isBinderAlive()) return;
+
+            final String desc = "com.qinggan.audiopolicy.IAudioPolicyService";
+            final int trGetVol = IBinder.FIRST_CALL_TRANSACTION + 15;
+            final int trGetMax = IBinder.FIRST_CALL_TRANSACTION + 16;
+            final int trSetVol = IBinder.FIRST_CALL_TRANSACTION + 17;
+
+            Integer curVol = transactAudioInt(binder, desc, trGetVol, STREAM_RADIO);
+            Integer maxVol = transactAudioInt(binder, desc, trGetMax, STREAM_RADIO);
+            if (curVol != null && curVol == 0 && maxVol != null && maxVol > 0) {
+                int targetVol = Math.max(1, maxVol / 3);
+                android.os.Parcel data = android.os.Parcel.obtain();
+                android.os.Parcel reply = android.os.Parcel.obtain();
+                try {
+                    data.writeInterfaceToken(desc);
+                    data.writeInt(STREAM_RADIO);
+                    data.writeInt(targetVol);
+                    data.writeInt(0);
+                    if (binder.transact(trSetVol, data, reply, 0)) {
+                        reply.readException();
+                    }
+                } finally {
+                    data.recycle();
+                    reply.recycle();
+                }
+            }
+        } catch (Throwable ignored) {}
+    }
+
+    private static Integer transactAudioInt(IBinder binder, String desc, int code, int streamType) {
+        android.os.Parcel data = android.os.Parcel.obtain();
+        android.os.Parcel reply = android.os.Parcel.obtain();
+        try {
+            data.writeInterfaceToken(desc);
+            data.writeInt(streamType);
+            if (!binder.transact(code, data, reply, 0)) return null;
+            reply.readException();
+            return reply.readInt();
+        } catch (Throwable ignored) {
+            return null;
+        } finally {
+            data.recycle();
+            reply.recycle();
         }
     }
 
@@ -279,11 +358,17 @@ public final class QingganAudioPolicyBridge {
                     public Object invoke(Object proxy, Method method, Object[] args) {
                         if ("onResult".equals(method.getName())) {
                             boolean res = args != null && args.length > 0 && Boolean.TRUE.equals(args[0]);
+                            int deferred;
                             synchronized (lock) {
                                 initialized = res;
                                 initInProgress = false;
+                                deferred = pendingStream;
+                                if (res) pendingStream = -1;
                             }
                             Log.i(TAG, "OnInitListener.onResult: " + res);
+                            if (res && deferred == STREAM_RADIO) {
+                                routeToRadio();
+                            }
                         }
                         return defaultValue(method.getReturnType());
                     }

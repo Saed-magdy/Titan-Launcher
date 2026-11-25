@@ -44,9 +44,12 @@ public final class ShineWaveEngine {
     private static final String KEY_RADIO_TYPE = "radio_type";
     private static final String KEY_FM_BAND = "radio_fm_band";
     private static final String KEY_FM_FREQ = "radio_fm_freq_khz";
+    private static final String KEY_LAST_FM_FREQ = "radio_last_fm_freq_khz";
+    private static final String KEY_LAST_AM_FREQ = "radio_last_am_freq_khz";
 
     public interface Listener {
         void onStateChanged(JSONObject stateJson);
+        void onRadioDataChanged(JSONObject radioJson);
     }
 
     public interface SeekUiCallback {
@@ -117,6 +120,19 @@ public final class ShineWaveEngine {
         }
     };
 
+    private final Runnable radioSyncRunnable = new Runnable() {
+        @Override
+        public void run() {
+            if (stateModel.getSource() != AudioSourceType.CAR_RADIO || "DAB".equals(stateModel.getRadioType())) {
+                return;
+            }
+            if (!fmAmTuner.isAutoScanning()) {
+                fmAmTuner.refreshCurrentStateAsync();
+            }
+            mainHandler.postDelayed(this, 3000L);
+        }
+    };
+
     private final Runnable longSeekRunnable = new Runnable() {
         @Override
         public void run() {
@@ -142,9 +158,11 @@ public final class ShineWaveEngine {
 
         AudioSourceType savedSource = AudioSourceType.fromKey(prefs.getString(KEY_SOURCE, "BLUETOOTH"));
         stateModel.setSource(savedSource);
+        int initBand = prefs.getInt(KEY_FM_BAND, FmAmTunerController.BAND_FM);
+        int initFreq = getSavedFreqForBand(initBand);
         stateModel.setRadioState(
-                prefs.getString(KEY_RADIO_TYPE, "FM"),
-                prefs.getInt(KEY_FM_FREQ, 87500),
+                prefs.getString(KEY_RADIO_TYPE, initBand == FmAmTunerController.BAND_AM ? "AM" : "FM"),
+                initFreq,
                 "جاهز"
         );
 
@@ -216,17 +234,20 @@ public final class ShineWaveEngine {
                     if (stateModel.getSource() == AudioSourceType.CAR_RADIO) {
                         updateCarRadioTitle();
                         emitState();
+                        emitRadioDataAsync();
                     }
                 }
             }
 
             @Override
             public void onFrequencyChanged(int frequencyKhz) {
-                prefs.edit().putInt(KEY_FM_FREQ, frequencyKhz).apply();
+                int activeBand = fmAmTuner.getCurrentBand();
+                saveFreqForBand(activeBand, frequencyKhz);
                 stateModel.setRadioState(null, frequencyKhz, null);
                 if (stateModel.getSource() == AudioSourceType.CAR_RADIO) {
                     updateCarRadioTitle();
                     emitState();
+                    emitRadioDataAsync();
                 }
             }
 
@@ -235,6 +256,7 @@ public final class ShineWaveEngine {
                 stateModel.setRadioState(null, 0, status);
                 if (stateModel.getSource() == AudioSourceType.CAR_RADIO) {
                     emitState();
+                    emitRadioDataAsync();
                 }
             }
 
@@ -243,6 +265,7 @@ public final class ShineWaveEngine {
                 if (stateModel.getSource() == AudioSourceType.CAR_RADIO) {
                     stateModel.setPlaying(connected);
                     emitState();
+                    emitRadioDataAsync();
                 }
             }
         });
@@ -282,6 +305,7 @@ public final class ShineWaveEngine {
             }
         });
         this.callManager.start();
+        fmAmTuner.rememberDesiredBandAndFreq(initBand, initFreq);
 
         activateSourceInternal(savedSource, false);
     }
@@ -301,6 +325,11 @@ public final class ShineWaveEngine {
             stateModel.setPositionSec(streamPlayer.getCurrentPositionMs() / 1000L);
         }
         return stateModel.toJson();
+    }
+
+    public boolean supportsAdvancedControls() {
+        AudioSourceType s = stateModel.getSource();
+        return s == AudioSourceType.LOCAL_MUSIC || s == AudioSourceType.EXTERNAL_APP;
     }
 
     /**
@@ -344,11 +373,8 @@ public final class ShineWaveEngine {
                 break;
             case "repeat_cycle": {
                 AudioSourceType src = stateModel.getSource();
-                if (src == AudioSourceType.LOCAL_MUSIC || src == AudioSourceType.INTERNET_RADIO) {
+                if (src == AudioSourceType.LOCAL_MUSIC) {
                     streamPlayer.cycleRepeatMode();
-                } else if (src == AudioSourceType.BLUETOOTH) {
-                    avrcpTracker.cycleRepeatMode();
-                    updateRepeatShuffleFromBluetooth();
                 } else if (src == AudioSourceType.EXTERNAL_APP) {
                     externalRouter.cycleRepeatMode();
                     updateRepeatShuffleFromExternal();
@@ -357,11 +383,8 @@ public final class ShineWaveEngine {
             }
             case "shuffle_toggle": {
                 AudioSourceType src = stateModel.getSource();
-                if (src == AudioSourceType.LOCAL_MUSIC || src == AudioSourceType.INTERNET_RADIO) {
+                if (src == AudioSourceType.LOCAL_MUSIC) {
                     streamPlayer.toggleShuffle();
-                } else if (src == AudioSourceType.BLUETOOTH) {
-                    avrcpTracker.toggleShuffleMode();
-                    updateRepeatShuffleFromBluetooth();
                 } else if (src == AudioSourceType.EXTERNAL_APP) {
                     externalRouter.toggleShuffleMode();
                     updateRepeatShuffleFromExternal();
@@ -386,6 +409,7 @@ public final class ShineWaveEngine {
     private void deactivateSource(AudioSourceType prev) {
         avrcpTracker.setActivePolling(false);
         mainHandler.removeCallbacks(externalPollRunnable);
+        mainHandler.removeCallbacks(radioSyncRunnable);
         if (prev == AudioSourceType.LOCAL_MUSIC || prev == AudioSourceType.INTERNET_RADIO) {
             streamPlayer.stopPlayback();
         } else if (prev == AudioSourceType.BLUETOOTH) {
@@ -457,8 +481,9 @@ public final class ShineWaveEngine {
                             @Override
                             public void run() {
                                 avrcpTracker.refresh();
+                                stateModel.setRepeatMode(RepeatMode.OFF);
+                                stateModel.setShuffleEnabled(false);
                                 handleBluetoothSnapshot(avrcpTracker.getSnapshot());
-                                updateRepeatShuffleFromBluetooth();
                             }
                         });
                     }
@@ -468,9 +493,12 @@ public final class ShineWaveEngine {
             case CAR_RADIO: {
                 avrcpTracker.setActivePolling(false);
                 mainHandler.removeCallbacks(externalPollRunnable);
+                stateModel.setRepeatMode(RepeatMode.OFF);
+                stateModel.setShuffleEnabled(false);
                 stateModel.clearArtwork();
                 String rType = prefs.getString(KEY_RADIO_TYPE, "FM");
                 if ("DAB".equals(rType)) {
+                    mainHandler.removeCallbacks(radioSyncRunnable);
                     stateModel.setRadioState("DAB", 0, "جاري الاتصال بـ DAB");
                     dabController.connectAndBrowse(null);
                 } else {
@@ -478,12 +506,16 @@ public final class ShineWaveEngine {
                     fmAmTuner.connectAsync();
                     fmAmTuner.setMuteAsync(false);
                     int band = prefs.getInt(KEY_FM_BAND, FmAmTunerController.BAND_FM);
-                    int freq = prefs.getInt(KEY_FM_FREQ, band == FmAmTunerController.BAND_FM ? 87500 : 1000);
+                    int freq = getSavedFreqForBand(band);
+                    fmAmTuner.rememberDesiredBandAndFreq(band, freq);
                     stateModel.setRadioState(band == FmAmTunerController.BAND_FM ? "FM" : "AM", freq, "راديو السيارة");
                     updateCarRadioTitle();
                     if (autoActivate) {
                         fmAmTuner.tuneAsync(band, freq);
                     }
+                    mainHandler.removeCallbacks(radioSyncRunnable);
+                    mainHandler.postDelayed(radioSyncRunnable, 3000L);
+                    emitRadioDataAsync();
                 }
                 break;
             }
@@ -491,6 +523,8 @@ public final class ShineWaveEngine {
                 QingganAudioPolicyBridge.getInstance(appContext).routeToMusic();
                 avrcpTracker.setActivePolling(false);
                 mainHandler.removeCallbacks(externalPollRunnable);
+                stateModel.setRepeatMode(RepeatMode.OFF);
+                stateModel.setShuffleEnabled(false);
                 stateModel.clearArtwork();
                 if (streamPlayer.getQueueSource() != AudioSourceType.INTERNET_RADIO || streamPlayer.getCurrentItem() == null) {
                     if (!autoActivate) {
@@ -533,7 +567,6 @@ public final class ShineWaveEngine {
         AudioSourceType src = stateModel.getSource();
         switch (src) {
             case LOCAL_MUSIC:
-            case INTERNET_RADIO:
                 switch (cmd) {
                     case "toggle": streamPlayer.togglePlayPause(); break;
                     case "play": streamPlayer.play(); break;
@@ -542,6 +575,16 @@ public final class ShineWaveEngine {
                     case "previous": streamPlayer.previous(); break;
                     case "seek_back": streamPlayer.seekByMs(-10_000L); break;
                     case "seek_forward": streamPlayer.seekByMs(10_000L); break;
+                }
+                break;
+
+            case INTERNET_RADIO:
+                switch (cmd) {
+                    case "toggle": streamPlayer.togglePlayPause(); break;
+                    case "play": streamPlayer.play(); break;
+                    case "pause": streamPlayer.pause(); break;
+                    case "next": streamPlayer.next(); break;
+                    case "previous": streamPlayer.previous(); break;
                 }
                 break;
 
@@ -556,8 +599,6 @@ public final class ShineWaveEngine {
                             case "pause": ok = qingganBt.pause(); break;
                             case "next": ok = qingganBt.next(); break;
                             case "previous": ok = qingganBt.previous(); break;
-                            case "seek_forward": avrcpTracker.seekByMs(10_000L); break;
-                            case "seek_back": avrcpTracker.seekByMs(-10_000L); break;
                         }
                         // Always send through AVRCP / Bluetooth MediaSession to ensure the phone
                         // resumes even if local vendor state reported unhandled
@@ -597,29 +638,25 @@ public final class ShineWaveEngine {
 
     public void seekToSec(long sec) {
         AudioSourceType src = stateModel.getSource();
-        if (src == AudioSourceType.LOCAL_MUSIC || src == AudioSourceType.INTERNET_RADIO) {
+        if (src == AudioSourceType.LOCAL_MUSIC) {
             streamPlayer.seekToMs(sec * 1000L);
         } else if (src == AudioSourceType.EXTERNAL_APP) {
             externalRouter.seekToSec(sec);
             mainHandler.postDelayed(new Runnable() {
                 @Override public void run() { syncExternalSession(true); }
             }, 120L);
-        } else if (src == AudioSourceType.BLUETOOTH) {
-            avrcpTracker.seekToMs(sec * 1000L);
         }
     }
 
     public void seekBySec(long deltaSec) {
         AudioSourceType src = stateModel.getSource();
-        if (src == AudioSourceType.LOCAL_MUSIC || src == AudioSourceType.INTERNET_RADIO) {
+        if (src == AudioSourceType.LOCAL_MUSIC) {
             streamPlayer.seekByMs(deltaSec * 1000L);
         } else if (src == AudioSourceType.EXTERNAL_APP) {
             externalRouter.seekBySec(deltaSec);
             mainHandler.postDelayed(new Runnable() {
                 @Override public void run() { syncExternalSession(true); }
             }, 120L);
-        } else if (src == AudioSourceType.BLUETOOTH) {
-            avrcpTracker.seekByMs(deltaSec * 1000L);
         }
     }
 
@@ -628,7 +665,7 @@ public final class ShineWaveEngine {
     }
 
     public void startLongSeek(int direction) {
-        if (direction == 0 || this.longSeekDir == direction) {
+        if (!supportsAdvancedControls() || direction == 0 || this.longSeekDir == direction) {
             return;
         }
         this.longSeekDir = direction;
@@ -636,9 +673,6 @@ public final class ShineWaveEngine {
         seekBySec(direction * 10L);
         if (seekUiCallback != null) {
             seekUiCallback.onSeekTick(direction);
-        }
-        if (stateModel.getSource() == AudioSourceType.BLUETOOTH) {
-            avrcpTracker.beginSeekHold(direction > 0);
         }
         mainHandler.removeCallbacks(longSeekRunnable);
         mainHandler.postDelayed(longSeekRunnable, 450L);
@@ -648,9 +682,6 @@ public final class ShineWaveEngine {
         boolean wasActive = (longSeekDir != 0);
         longSeekDir = 0;
         mainHandler.removeCallbacks(longSeekRunnable);
-        if (stateModel.getSource() == AudioSourceType.BLUETOOTH) {
-            avrcpTracker.endSeekHold();
-        }
         if (wasActive && seekUiCallback != null) {
             seekUiCallback.onSeekStopped();
         }
@@ -729,19 +760,6 @@ public final class ShineWaveEngine {
         emitState();
     }
 
-    private void updateRepeatShuffleFromBluetooth() {
-        int rMode = avrcpTracker.getRepeatMode();
-        RepeatMode rm = RepeatMode.OFF;
-        if (rMode == AvrcpMetadataTracker.REPEAT_MODE_ALL) rm = RepeatMode.ALL;
-        else if (rMode == AvrcpMetadataTracker.REPEAT_MODE_ONE) rm = RepeatMode.ONE;
-        stateModel.setRepeatMode(rm);
-
-        int sMode = avrcpTracker.getShuffleMode();
-        boolean shuffle = (sMode != AvrcpMetadataTracker.SHUFFLE_MODE_NONE);
-        stateModel.setShuffleEnabled(shuffle);
-        emitState();
-    }
-
     private void updateRepeatShuffleFromExternal() {
         int rMode = externalRouter.getRepeatMode();
         RepeatMode rm = RepeatMode.OFF;
@@ -794,57 +812,24 @@ public final class ShineWaveEngine {
 
     public void playQueueIndex(int index) {
         AudioSourceType src = stateModel.getSource();
-        switch (src) {
-            case LOCAL_MUSIC: {
-                List<NativeStreamPlayer.QueueItem> q = streamPlayer.getQueueSnapshot();
-                if (index >= 0 && index < q.size()) {
-                    streamPlayer.setQueueAndPlay(q, index, AudioSourceType.LOCAL_MUSIC);
-                }
-                break;
+        if (src == AudioSourceType.LOCAL_MUSIC) {
+            List<NativeStreamPlayer.QueueItem> q = streamPlayer.getQueueSnapshot();
+            if (index >= 0 && index < q.size()) {
+                streamPlayer.setQueueAndPlay(q, index, AudioSourceType.LOCAL_MUSIC);
             }
-            case EXTERNAL_APP: {
-                JSONObject queueJson = externalRouter.getQueueJson();
-                if (queueJson != null && queueJson.has("items")) {
-                    JSONArray items = queueJson.optJSONArray("items");
-                    if (items != null && index >= 0 && index < items.length()) {
-                        JSONObject it = items.optJSONObject(index);
-                        if (it != null) {
-                            long qId = it.optLong("id", -1L);
-                            if (qId != -1L) {
-                                externalRouter.skipToQueueItem(qId);
-                            }
+        } else if (src == AudioSourceType.EXTERNAL_APP) {
+            JSONObject queueJson = externalRouter.getQueueJson();
+            if (queueJson != null && queueJson.has("items")) {
+                JSONArray items = queueJson.optJSONArray("items");
+                if (items != null && index >= 0 && index < items.length()) {
+                    JSONObject it = items.optJSONObject(index);
+                    if (it != null) {
+                        long qId = it.optLong("id", -1L);
+                        if (qId != -1L) {
+                            externalRouter.skipToQueueItem(qId);
                         }
                     }
                 }
-                break;
-            }
-            case CAR_RADIO: {
-                int band = prefs.getInt(KEY_FM_BAND, FmAmTunerController.BAND_FM);
-                List<OemStationRepository.Station> stations = oemStationRepo.loadStations(band, fmAmTuner.getFactoryBridge());
-                if (index >= 0 && index < stations.size()) {
-                    OemStationRepository.Station s = stations.get(index);
-                    tuneCarRadio(band == FmAmTunerController.BAND_FM ? "FM" : "AM", s.frequencyKhz);
-                }
-                break;
-            }
-            case INTERNET_RADIO: {
-                List<RadioBrowserClient.Station> favs = internetStore.getFavorites();
-                if (favs.isEmpty()) favs = internetStore.getRecent();
-                if (favs.isEmpty()) favs = RadioStationStore.getCuratedArabicStations();
-                if (index >= 0 && index < favs.size()) {
-                    RadioBrowserClient.Station s = favs.get(index);
-                    playInternetStation(s.stationUuid, s.name, s.streamUrl, s.countryCode);
-                }
-                break;
-            }
-            case BLUETOOTH: {
-                executeBg(new Runnable() {
-                    @Override public void run() {
-                        qingganBt.play();
-                        avrcpTracker.sendPassThroughFallback("play");
-                    }
-                });
-                break;
             }
         }
     }
@@ -855,107 +840,67 @@ public final class ShineWaveEngine {
         AudioSourceType src = stateModel.getSource();
         int cur = 0;
         try {
-            switch (src) {
-                case LOCAL_MUSIC: {
-                    List<NativeStreamPlayer.QueueItem> q = streamPlayer.getQueueSnapshot();
-                    cur = streamPlayer.getCurrentIndex();
-                    for (int i = 0; i < q.size(); i++) {
-                        NativeStreamPlayer.QueueItem item = q.get(i);
-                        arr.put(new JSONObject()
-                                .put("index", i)
-                                .put("id", item.id)
-                                .put("title", item.title)
-                                .put("artist", item.artist)
-                                .put("durationSec", item.durationMs / 1000L)
-                                .put("active", i == cur));
-                    }
-                    root.put("source", "LOCAL_MUSIC");
-                    root.put("currentIndex", cur);
-                    root.put("items", arr);
-                    return root;
+            if (src == AudioSourceType.LOCAL_MUSIC) {
+                List<NativeStreamPlayer.QueueItem> q = streamPlayer.getQueueSnapshot();
+                cur = streamPlayer.getCurrentIndex();
+                for (int i = 0; i < q.size(); i++) {
+                    NativeStreamPlayer.QueueItem item = q.get(i);
+                    arr.put(new JSONObject()
+                            .put("index", i)
+                            .put("id", item.id)
+                            .put("title", item.title)
+                            .put("artist", item.artist)
+                            .put("durationSec", item.durationMs / 1000L)
+                            .put("active", i == cur));
                 }
-                case EXTERNAL_APP: {
-                    JSONObject ext = externalRouter.getQueueJson();
-                    if (ext != null && ext.has("items") && ext.getJSONArray("items").length() > 0) {
-                        ext.put("source", "EXTERNAL_APP");
-                        return ext;
-                    }
-                    ExternalPlayerRouter.SessionSnapshot snap = externalRouter.readSelectedSession();
-                    if (snap != null) {
-                        arr.put(new JSONObject()
-                                .put("index", 0)
-                                .put("id", snap.packageName)
-                                .put("title", snap.title.isEmpty() ? snap.label : snap.title)
-                                .put("artist", snap.artist)
-                                .put("durationSec", snap.durationSec)
-                                .put("active", true));
-                    }
-                    root.put("source", "EXTERNAL_APP");
-                    root.put("currentIndex", 0);
-                    root.put("items", arr);
-                    return root;
+                root.put("source", "LOCAL_MUSIC");
+                root.put("currentIndex", cur);
+                root.put("items", arr);
+                return root;
+            } else if (src == AudioSourceType.EXTERNAL_APP) {
+                JSONObject ext = externalRouter.getQueueJson();
+                if (ext != null && ext.has("items") && ext.getJSONArray("items").length() > 0) {
+                    ext.put("source", "EXTERNAL_APP");
+                    return ext;
                 }
-                case CAR_RADIO: {
-                    int band = prefs.getInt(KEY_FM_BAND, FmAmTunerController.BAND_FM);
-                    int curFreq = fmAmTuner.getCurrentFreqKhz() > 0 ? fmAmTuner.getCurrentFreqKhz() : prefs.getInt(KEY_FM_FREQ, 87500);
-                    List<OemStationRepository.Station> stations = oemStationRepo.loadStations(band, fmAmTuner.getFactoryBridge());
-                    for (int i = 0; i < stations.size(); i++) {
-                        OemStationRepository.Station s = stations.get(i);
-                        boolean active = (s.frequencyKhz == curFreq);
-                        if (active) cur = i;
-                        arr.put(new JSONObject()
-                                .put("index", i)
-                                .put("id", String.valueOf(s.frequencyKhz))
-                                .put("title", s.name.isEmpty() ? ((band == FmAmTunerController.BAND_FM ? "FM " : "AM ") + String.format(Locale.US, "%.1f", s.frequencyKhz / 1000.0)) : s.name)
-                                .put("artist", (band == FmAmTunerController.BAND_FM ? "FM " : "AM ") + String.format(Locale.US, "%.1f MHz", s.frequencyKhz / 1000.0))
-                                .put("durationSec", 0)
-                                .put("active", active));
-                    }
-                    root.put("source", "CAR_RADIO");
-                    root.put("currentIndex", cur);
-                    root.put("items", arr);
-                    return root;
-                }
-                case INTERNET_RADIO: {
-                    List<RadioBrowserClient.Station> favs = internetStore.getFavorites();
-                    if (favs.isEmpty()) favs = internetStore.getRecent();
-                    if (favs.isEmpty()) favs = RadioStationStore.getCuratedArabicStations();
-                    NativeStreamPlayer.QueueItem currentItem = streamPlayer.getCurrentItem();
-                    String curUuid = currentItem != null ? currentItem.id : "";
-                    for (int i = 0; i < favs.size(); i++) {
-                        RadioBrowserClient.Station s = favs.get(i);
-                        boolean active = s.stationUuid.equals(curUuid);
-                        if (active) cur = i;
-                        arr.put(new JSONObject()
-                                .put("index", i)
-                                .put("id", s.stationUuid)
-                                .put("title", s.name)
-                                .put("artist", s.countryCode.isEmpty() ? "Internet Radio" : s.countryCode)
-                                .put("durationSec", 0)
-                                .put("active", active));
-                    }
-                    root.put("source", "INTERNET_RADIO");
-                    root.put("currentIndex", cur);
-                    root.put("items", arr);
-                    return root;
-                }
-                case BLUETOOTH: {
-                    AvrcpMetadataTracker.AvrcpSnapshot bSnap = avrcpTracker.getSnapshot();
+                ExternalPlayerRouter.SessionSnapshot snap = externalRouter.readSelectedSession();
+                if (snap != null) {
                     arr.put(new JSONObject()
                             .put("index", 0)
-                            .put("id", "bt_active")
-                            .put("title", bSnap.title.isEmpty() ? "Bluetooth Audio" : bSnap.title)
-                            .put("artist", bSnap.artist)
-                            .put("durationSec", bSnap.durationMs / 1000L)
+                            .put("id", snap.packageName)
+                            .put("title", snap.title.isEmpty() ? snap.label : snap.title)
+                            .put("artist", snap.artist)
+                            .put("durationSec", snap.durationSec)
                             .put("active", true));
-                    root.put("source", "BLUETOOTH");
-                    root.put("currentIndex", 0);
-                    root.put("items", arr);
-                    return root;
                 }
+                root.put("source", "EXTERNAL_APP");
+                root.put("currentIndex", 0);
+                root.put("items", arr);
+                return root;
             }
+            root.put("source", src.getKey());
+            root.put("currentIndex", 0);
+            root.put("items", arr);
         } catch (Throwable ignored) {}
         return root;
+    }
+
+    private int getSavedFreqForBand(int band) {
+        int defFreq = (band == FmAmTunerController.BAND_FM) ? 87500 : 999;
+        String key = (band == FmAmTunerController.BAND_FM) ? KEY_LAST_FM_FREQ : KEY_LAST_AM_FREQ;
+        int raw = prefs.getInt(key, -1);
+        if (raw <= 0) {
+            int legacy = prefs.getInt(KEY_FM_FREQ, defFreq);
+            raw = FmAmTunerController.isValidFreq(band, legacy) ? legacy : defFreq;
+        }
+        return FmAmTunerController.clampFrequency(band, raw);
+    }
+
+    private void saveFreqForBand(int band, int freqKhz) {
+        if (!FmAmTunerController.isValidFreq(band, freqKhz)) return;
+        int snapped = FmAmTunerController.clampFrequency(band, freqKhz);
+        String key = (band == FmAmTunerController.BAND_FM) ? KEY_LAST_FM_FREQ : KEY_LAST_AM_FREQ;
+        prefs.edit().putInt(KEY_FM_FREQ, snapped).putInt(key, snapped).apply();
     }
 
     public JSONObject buildRadioDataJson() {
@@ -963,18 +908,33 @@ public final class ShineWaveEngine {
         try {
             String rType = prefs.getString(KEY_RADIO_TYPE, "FM");
             int band = prefs.getInt(KEY_FM_BAND, FmAmTunerController.BAND_FM);
-            int freq = fmAmTuner.getCurrentFreqKhz() > 0 ? fmAmTuner.getCurrentFreqKhz() : prefs.getInt(KEY_FM_FREQ, 87500);
+            int curTunerFreq = fmAmTuner.getCurrentFreqKhz();
+            int freq = (fmAmTuner.getCurrentBand() == band && FmAmTunerController.isValidFreq(band, curTunerFreq))
+                    ? curTunerFreq
+                    : getSavedFreqForBand(band);
             List<OemStationRepository.Station> stations = oemStationRepo.loadStations(band, fmAmTuner.getFactoryBridge());
+            String activeStationName = "";
             JSONArray stArr = new JSONArray();
             for (OemStationRepository.Station s : stations) {
+                if (s.frequencyKhz == freq && !s.name.isEmpty()) {
+                    activeStationName = s.name;
+                }
                 stArr.put(new JSONObject()
                         .put("name", s.name)
                         .put("freq", s.frequencyKhz)
                         .put("favorite", s.isFavorite));
             }
+            if (!activeStationName.isEmpty() && stateModel.getSource() == AudioSourceType.CAR_RADIO && !"DAB".equals(rType)) {
+                String label = (band == FmAmTunerController.BAND_FM)
+                        ? String.format(Locale.US, "%s · %.1f MHz", activeStationName, freq / 1000.0)
+                        : (activeStationName + " · " + freq + " kHz");
+                stateModel.setTrackInfo(label, "راديو السيارة", "", 0L, 0L, true);
+                emitState();
+            }
             root.put("radioType", rType);
             root.put("band", band == FmAmTunerController.BAND_FM ? "FM" : "AM");
             root.put("freqKhz", freq);
+            root.put("scanning", fmAmTuner.isAutoScanning());
             root.put("status", stateModel.toJson().optString("radioStatus", ""));
             root.put("stations", stArr);
             root.put("dabConnected", dabConnected);
@@ -983,28 +943,62 @@ public final class ShineWaveEngine {
         return root;
     }
 
-    public void tuneCarRadio(String bandOrType, int freqKhz) {
+    public void selectCarRadioBand(String bandOrType) {
         selectSource(AudioSourceType.CAR_RADIO, false);
         if ("DAB".equalsIgnoreCase(bandOrType)) {
+            mainHandler.removeCallbacks(radioSyncRunnable);
             prefs.edit().putString(KEY_RADIO_TYPE, "DAB").apply();
             stateModel.setRadioState("DAB", 0, "DAB / DAB+");
             dabController.connectAndBrowse(null);
             emitState();
+            emitRadioDataAsync();
+            return;
+        }
+        int prevBand = prefs.getInt(KEY_FM_BAND, FmAmTunerController.BAND_FM);
+        int prevFreq = prefs.getInt(KEY_FM_FREQ, prevBand == FmAmTunerController.BAND_FM ? 87500 : 999);
+        if (FmAmTunerController.isValidFreq(prevBand, prevFreq)) {
+            saveFreqForBand(prevBand, prevFreq);
+        }
+        int targetBand = "AM".equalsIgnoreCase(bandOrType) ? FmAmTunerController.BAND_AM : FmAmTunerController.BAND_FM;
+        int targetFreq = getSavedFreqForBand(targetBand);
+        String rType = (targetBand == FmAmTunerController.BAND_FM) ? "FM" : "AM";
+        prefs.edit().putString(KEY_RADIO_TYPE, rType).putInt(KEY_FM_BAND, targetBand).apply();
+        saveFreqForBand(targetBand, targetFreq);
+        stateModel.setRadioState(rType, targetFreq, "جاري الضبط…");
+        updateCarRadioTitle();
+        fmAmTuner.tuneAsync(targetBand, targetFreq);
+        mainHandler.removeCallbacks(radioSyncRunnable);
+        mainHandler.postDelayed(radioSyncRunnable, 3000L);
+        emitState();
+        emitRadioDataAsync();
+    }
+
+    public void tuneCarRadio(String bandOrType, int freqKhz) {
+        selectSource(AudioSourceType.CAR_RADIO, false);
+        if ("DAB".equalsIgnoreCase(bandOrType)) {
+            mainHandler.removeCallbacks(radioSyncRunnable);
+            prefs.edit().putString(KEY_RADIO_TYPE, "DAB").apply();
+            stateModel.setRadioState("DAB", 0, "DAB / DAB+");
+            dabController.connectAndBrowse(null);
+            emitState();
+            emitRadioDataAsync();
             return;
         }
         int band = "AM".equalsIgnoreCase(bandOrType) ? FmAmTunerController.BAND_AM : FmAmTunerController.BAND_FM;
         int clamped = FmAmTunerController.clampFrequency(band, freqKhz);
         String rType = (band == FmAmTunerController.BAND_FM) ? "FM" : "AM";
-        prefs.edit().putString(KEY_RADIO_TYPE, rType).putInt(KEY_FM_BAND, band).putInt(KEY_FM_FREQ, clamped).apply();
+        prefs.edit().putString(KEY_RADIO_TYPE, rType).putInt(KEY_FM_BAND, band).apply();
+        saveFreqForBand(band, clamped);
         stateModel.setRadioState(rType, clamped, "جاري الضبط…");
         updateCarRadioTitle();
         fmAmTuner.tuneAsync(band, clamped);
         emitState();
+        emitRadioDataAsync();
     }
 
     public void stepCarRadio(int deltaKhz) {
         int band = prefs.getInt(KEY_FM_BAND, FmAmTunerController.BAND_FM);
-        int cur = prefs.getInt(KEY_FM_FREQ, band == FmAmTunerController.BAND_FM ? 87500 : 1000);
+        int cur = getSavedFreqForBand(band);
         int step = (deltaKhz != 0) ? deltaKhz : (band == FmAmTunerController.BAND_FM ? 100 : 9);
         tuneCarRadio(band == FmAmTunerController.BAND_FM ? "FM" : "AM", cur + step);
     }
@@ -1015,29 +1009,43 @@ public final class ShineWaveEngine {
     }
 
     public void startRadioAutoScan() {
+        if (fmAmTuner.isAutoScanning()) {
+            stopRadioAutoScan();
+            return;
+        }
         selectSource(AudioSourceType.CAR_RADIO, false);
-        stateModel.setRadioState(prefs.getString(KEY_RADIO_TYPE, "FM"), fmAmTuner.getCurrentFreqKhz(), "جاري البحث التلقائي…");
+        int band = prefs.getInt(KEY_FM_BAND, FmAmTunerController.BAND_FM);
+        int curFreq = getSavedFreqForBand(band);
+        fmAmTuner.rememberDesiredBandAndFreq(band, curFreq);
+        String rType = (band == FmAmTunerController.BAND_FM) ? "FM" : "AM";
+        stateModel.setRadioState(rType, curFreq, "جاري البحث التلقائي…");
         emitState();
+        emitRadioDataAsync();
         fmAmTuner.startAutoScanAndSave(oemStationRepo, new FmAmTunerController.AutoScanListener() {
             @Override
             public void onScanProgress(int currentFreqKhz, int stationsFound) {
-                String rType = prefs.getString(KEY_RADIO_TYPE, "FM");
-                stateModel.setRadioState(rType, currentFreqKhz, "بحث تلقائي (" + stationsFound + " محطة)…");
+                String rT = prefs.getString(KEY_RADIO_TYPE, "FM");
+                stateModel.setRadioState(rT, currentFreqKhz, "بحث تلقائي (" + stationsFound + " محطة)…");
                 emitState();
+                emitRadioDataAsync();
             }
 
             @Override
             public void onStationFound(int freqKhz, String name) {
                 stateModel.setTrackInfo(name, "راديو السيارة", "FM", 0L, 0L, true);
                 emitState();
+                emitRadioDataAsync();
             }
 
             @Override
             public void onScanComplete(int totalStations) {
-                String rType = prefs.getString(KEY_RADIO_TYPE, "FM");
-                stateModel.setRadioState(rType, fmAmTuner.getCurrentFreqKhz(), "اكتمل البحث (" + totalStations + " محطة)");
+                String rT = prefs.getString(KEY_RADIO_TYPE, "FM");
+                int finalFreq = fmAmTuner.getCurrentFreqKhz();
+                saveFreqForBand(fmAmTuner.getCurrentBand(), finalFreq);
+                stateModel.setRadioState(rT, finalFreq, "اكتمل البحث (" + totalStations + " محطة)");
                 updateCarRadioTitle();
                 emitState();
+                emitRadioDataAsync();
             }
         });
     }
@@ -1046,6 +1054,7 @@ public final class ShineWaveEngine {
         fmAmTuner.stopAutoScan();
         stateModel.setRadioState(prefs.getString(KEY_RADIO_TYPE, "FM"), fmAmTuner.getCurrentFreqKhz(), "تم إيقاف البحث");
         emitState();
+        emitRadioDataAsync();
     }
 
     public boolean isRadioAutoScanning() {
@@ -1054,12 +1063,15 @@ public final class ShineWaveEngine {
 
     public boolean toggleCarRadioFavorite(int freqKhz, String name) {
         int band = prefs.getInt(KEY_FM_BAND, FmAmTunerController.BAND_FM);
-        return oemStationRepo.toggleLocalFavorite(band, freqKhz, name);
+        boolean res = oemStationRepo.toggleLocalFavorite(band, freqKhz, name);
+        emitRadioDataAsync();
+        return res;
     }
 
     public void saveCarRadioFavorite(int freqKhz, String name) {
         int band = prefs.getInt(KEY_FM_BAND, FmAmTunerController.BAND_FM);
         oemStationRepo.saveOrUpdateLocalFavorite(band, freqKhz, name);
+        emitRadioDataAsync();
     }
 
     public void browseDab(String mediaId) {
@@ -1198,6 +1210,27 @@ public final class ShineWaveEngine {
                         Log.w(TAG, "Listener callback failed: " + t.getMessage());
                     }
                 }
+            }
+        });
+    }
+
+    private void emitRadioDataAsync() {
+        executeBg(new Runnable() {
+            @Override
+            public void run() {
+                final JSONObject payload = buildRadioDataJson();
+                mainHandler.post(new Runnable() {
+                    @Override
+                    public void run() {
+                        for (Listener l : listeners) {
+                            try {
+                                l.onRadioDataChanged(payload);
+                            } catch (Throwable t) {
+                                Log.w(TAG, "Radio listener callback failed: " + t.getMessage());
+                            }
+                        }
+                    }
+                });
             }
         });
     }
