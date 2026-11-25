@@ -27,23 +27,27 @@ does **not** apply to them: each one keeps its owner's terms.
 
 ---
 
-## 3D car model and light textures: origin being confirmed
+## Car-maker graphics (taken from the car's original head-unit software)
 
-| Part | Files |
-|---|---|
-| 3D car model | `assets/models/c65_car.glb` |
-| Headlight and tail-light textures | `assets/textures/lights/*.png` |
+| Part | Files | Changes made for this launcher |
+|---|---|---|
+| 3D car model | `assets/models/c65_car.glb` | Mesh and material adjustments |
+| Headlight and tail-light textures | `assets/textures/lights/*.png` | Mesh and material adjustments |
+| App icon | `res/drawable/ic_launcher.png` | Visual cleanup |
+| Settings gear image | `assets/setting_gear_refined.png` | Visual cleanup |
+| Tyre-pressure (TPMS) image | `assets/tpms_graphic_transparent.png` | Visual cleanup |
 
-These files carry part names and file details that suggest they may come from the vehicle
-manufacturer's own software. Until their origin and permission are confirmed, they are
-**not** offered under this project's license, and must not be reused outside this launcher.
+These files were extracted from the original software of the car's head unit and then
+adjusted for this launcher (confirmed by the author in
+[issue #15](https://github.com/Saed-magdy/Titan-Launcher/issues/15)). They belong to the
+vehicle manufacturer or its head-unit supplier, not to this project.
 
----
-
-## Images whose origin is being confirmed
-
-`res/drawable/ic_launcher.png`, `assets/setting_gear_refined.png`,
-`assets/tpms_graphic_transparent.png`.
+- They are **not** offered under this project's [LICENSE](LICENSE), and the changes made
+  to them do not change who owns them.
+- They are included only so the launcher can show the same car on the same car's screen.
+  Do not reuse them anywhere else.
+- If you are the owner of any of these files and want them removed, please open an issue
+  and they will be removed.
 
 ---
 
