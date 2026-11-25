@@ -6,6 +6,10 @@
 
 Since version `2.1.0` the launcher fully merges the **Shine Wave** audio engine directly into the launcher process (`com.dongfeng.shinecockpit.shinewave`) for zero-latency (`0 ms` in-memory) response, unified steering-wheel controls, and a borderless smoked-glass pastel UI.
 
+> ⚠️ **Safety and no warranty:** this launcher can send commands to the car (trunk, windows, sunroof, lights). It is provided **as is, without any warranty**; you install and use it at your own risk. Do not operate the screen while driving: keep your eyes on the road.
+>
+> This is an independent project. It is **not affiliated with, endorsed by, or supported by** Dongfeng Motor, Qinggan, or any vehicle manufacturer. See [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
+
 ---
 
 ## Key Features
