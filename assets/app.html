@@ -306,6 +306,17 @@
     </div>
   </div>
 
+  <!-- RESTORE SETTINGS CONFIRMATION (asks before replacing the current settings) -->
+  <div class="modal-overlay interactive" id="settings-restore-modal" style="z-index: 140;">
+    <div class="modal-box ltr-mode tpms-confirm-box" id="settings-restore-box">
+      <div class="tpms-confirm-msg" id="settings-restore-msg">Replace your current settings with this backup?</div>
+      <div class="tpms-confirm-actions">
+        <button class="tpms-confirm-btn cancel" id="btn-restore-cancel" onclick="closeRestoreConfirm()">Cancel</button>
+        <button class="tpms-confirm-btn sure" id="btn-restore-confirm" onclick="confirmRestoreSettings()">Replace</button>
+      </div>
+    </div>
+  </div>
+
   <!-- TPMS RESET WARNING CONFIRMATION MODAL -->
   <div class="modal-overlay interactive" id="tpms-confirm-modal" style="z-index: 120;" onclick="closeTpmsResetConfirm(event)">
     <div class="modal-box ltr-mode tpms-confirm-box" onclick="event.stopPropagation()">
@@ -489,6 +500,16 @@
             </div>
             <div class="lock-action-wrap">
               <button class="settings-btn" id="btn-check-updates" onclick="triggerManualUpdateCheck()" style="color: #93c5fd; font-weight: 800;">Check Now</button>
+            </div>
+          </div>
+          <div class="lock-control-card" style="margin-bottom: 12px;">
+            <div class="lock-info-col">
+              <span class="toggle-label" id="lbl-settings-backup">Back Up &amp; Restore Settings</span>
+              <span class="lock-can-stat" id="desc-settings-backup">Save your launcher settings to a USB stick or a file, and load them back</span>
+            </div>
+            <div class="lock-action-wrap" style="gap: 8px;">
+              <button class="settings-btn" id="btn-settings-backup" style="white-space: nowrap;" onclick="backupLauncherSettings()">Back Up</button>
+              <button class="settings-btn" id="btn-settings-restore" style="white-space: nowrap;" onclick="restoreLauncherSettings()">Restore</button>
             </div>
           </div>
           <div class="lock-control-card" style="margin-bottom: 12px;">

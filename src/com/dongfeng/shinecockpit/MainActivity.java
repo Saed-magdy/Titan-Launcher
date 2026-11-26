@@ -1031,6 +1031,29 @@ public class MainActivity extends Activity implements CockpitMediaListenerServic
             SystemControlHelper.openDefaultLauncherSettings(host());
         }
 
+        /** "Back up" button in Settings: saves the given settings file (the page builds it). */
+        @JavascriptInterface
+        public void backupSettings(final String backupJson) {
+            if (backupJson == null || backupJson.length() > SETTINGS_BACKUP_MAX_BYTES) return;
+            mHandler.post(new Runnable() {
+                @Override
+                public void run() {
+                    startSettingsBackup(backupJson);
+                }
+            });
+        }
+
+        /** "Restore" button in Settings: lets the driver pick a backup file; the page checks it and asks first. */
+        @JavascriptInterface
+        public void restoreSettings() {
+            mHandler.post(new Runnable() {
+                @Override
+                public void run() {
+                    startSettingsRestore();
+                }
+            });
+        }
+
         @JavascriptInterface
         public void setAutoBoot(final boolean enabled) {
             try {
@@ -1678,6 +1701,127 @@ public class MainActivity extends Activity implements CockpitMediaListenerServic
                 + "if (typeof window.setCameraOverlayActive === 'function') { window.setCameraOverlayActive(" + active + "); } "
                 + "if (!" + active + " && " + mIsForeground + " && typeof window.setCockpitPaused === 'function') { window.setCockpitPaused(false); }";
         evalWebViewJs(js);
+    }
+
+    /* ========================================================
+       BACK UP AND RESTORE SETTINGS
+       The page builds the backup (only the launcher's own settings: quick apps, car
+       colour, language, alerts... never passwords or Wi-Fi). Java only saves or opens
+       the file. Android's file picker is used, so the driver can choose a USB stick or
+       the head unit's storage. If the head unit has no file picker, the file goes to
+       Download/titan-launcher-settings.json instead.
+       ======================================================== */
+    private static final int REQ_SETTINGS_BACKUP = 7301;
+    private static final int REQ_SETTINGS_RESTORE = 7302;
+    private static final int SETTINGS_BACKUP_MAX_BYTES = 256 * 1024;
+    private static final String SETTINGS_BACKUP_FALLBACK_NAME = "titan-launcher-settings.json";
+    private String mPendingBackupJson;
+
+    private void startSettingsBackup(String json) {
+        mPendingBackupJson = json;
+        String name = "titan-launcher-settings-"
+                + new java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US).format(new java.util.Date()) + ".json";
+        try {
+            Intent i = new Intent(Intent.ACTION_CREATE_DOCUMENT);
+            i.addCategory(Intent.CATEGORY_OPENABLE);
+            i.setType("application/json");
+            i.putExtra(Intent.EXTRA_TITLE, name);
+            if (i.resolveActivity(getPackageManager()) != null) {
+                startActivityForResult(i, REQ_SETTINGS_BACKUP);
+                return;
+            }
+        } catch (Exception e) {
+            Log.w(TAG, "No file picker for the settings backup", e);
+        }
+        // No file picker on this head unit: save to the Download folder.
+        java.io.File f = new java.io.File(android.os.Environment.getExternalStoragePublicDirectory(
+                android.os.Environment.DIRECTORY_DOWNLOADS), SETTINGS_BACKUP_FALLBACK_NAME);
+        boolean ok = false;
+        try (java.io.OutputStream out = new java.io.FileOutputStream(f)) {
+            out.write(json.getBytes("UTF-8"));
+            ok = true;
+        } catch (Exception e) {
+            Log.e(TAG, "Settings backup to Download failed", e);
+        }
+        mPendingBackupJson = null;
+        reportBackupResult(ok, ok ? "Download/" + SETTINGS_BACKUP_FALLBACK_NAME : "");
+    }
+
+    private void startSettingsRestore() {
+        try {
+            Intent i = new Intent(Intent.ACTION_OPEN_DOCUMENT);
+            i.addCategory(Intent.CATEGORY_OPENABLE);
+            i.setType("*/*");
+            if (i.resolveActivity(getPackageManager()) != null) {
+                startActivityForResult(i, REQ_SETTINGS_RESTORE);
+                return;
+            }
+        } catch (Exception e) {
+            Log.w(TAG, "No file picker for the settings restore", e);
+        }
+        // No file picker: try the file a backup without a picker would have written.
+        java.io.File f = new java.io.File(android.os.Environment.getExternalStoragePublicDirectory(
+                android.os.Environment.DIRECTORY_DOWNLOADS), SETTINGS_BACKUP_FALLBACK_NAME);
+        try (java.io.InputStream in = new java.io.FileInputStream(f)) {
+            deliverRestoreFile(readLimited(in));
+        } catch (Exception e) {
+            Log.e(TAG, "No settings backup found in Download", e);
+            deliverRestoreFile(null);
+        }
+    }
+
+    @Override
+    protected void onActivityResult(int requestCode, int resultCode, Intent data) {
+        super.onActivityResult(requestCode, resultCode, data);
+        if (requestCode == REQ_SETTINGS_BACKUP) {
+            String json = mPendingBackupJson;
+            mPendingBackupJson = null;
+            if (resultCode != RESULT_OK || data == null || data.getData() == null || json == null) {
+                reportBackupResult(false, "cancelled");
+                return;
+            }
+            boolean ok = false;
+            try (java.io.OutputStream out = getContentResolver().openOutputStream(data.getData(), "w")) {
+                if (out != null) {
+                    out.write(json.getBytes("UTF-8"));
+                    ok = true;
+                }
+            } catch (Exception e) {
+                Log.e(TAG, "Settings backup failed", e);
+            }
+            reportBackupResult(ok, "");
+        } else if (requestCode == REQ_SETTINGS_RESTORE) {
+            if (resultCode != RESULT_OK || data == null || data.getData() == null) return; // cancelled: nothing to do
+            try (java.io.InputStream in = getContentResolver().openInputStream(data.getData())) {
+                deliverRestoreFile(in == null ? null : readLimited(in));
+            } catch (Exception e) {
+                Log.e(TAG, "Could not read the settings backup", e);
+                deliverRestoreFile(null);
+            }
+        }
+    }
+
+    /** Reads a backup file, refusing anything bigger than 256 KB (a real backup is a few KB). */
+    private static String readLimited(java.io.InputStream in) throws java.io.IOException {
+        java.io.ByteArrayOutputStream buf = new java.io.ByteArrayOutputStream();
+        byte[] chunk = new byte[8192];
+        int n;
+        while ((n = in.read(chunk)) > 0) {
+            buf.write(chunk, 0, n);
+            if (buf.size() > SETTINGS_BACKUP_MAX_BYTES) return null;
+        }
+        return buf.toString("UTF-8");
+    }
+
+    private void reportBackupResult(boolean ok, String where) {
+        evalWebViewJs("if (typeof window.onSettingsBackupResult === 'function') { window.onSettingsBackupResult("
+                + ok + ", " + JSONObject.quote(where == null ? "" : where) + "); }");
+    }
+
+    /** Hands the file text to the page, which checks it and asks the driver before replacing anything. */
+    private void deliverRestoreFile(String text) {
+        evalWebViewJs("if (typeof window.onSettingsRestoreFile === 'function') { window.onSettingsRestoreFile("
+                + (text == null ? "null" : JSONObject.quote(text)) + "); }");
     }
 
     @Override

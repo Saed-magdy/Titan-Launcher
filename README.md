@@ -29,6 +29,7 @@ Since version `2.1.0` the launcher fully merges the **Shine Wave** audio engine 
   - Tyre pressure warning popup (`TyreWarningMonitor.java`): shows once when a tyre is low (the car's tyre system flags it, or under 1.9 bar), also on top of other apps, with an optional spoken warning. On/off and Voice in Settings → Launcher.
   - Speed alert (`SpeedAlertMonitor.java`): off by default; the driver picks a speed (40-200 km/h) in Settings → Launcher. Above it for 3 seconds: a short banner and a spoken alert or chime, once until the speed drops 5 km/h below it.
   - Unified Steering-Wheel Control (SWC) handling, notification `MediaSession` listener (`CockpitMediaListenerService.java`), start-on-boot (`BootReceiver.java`), and a crash watchdog (`LauncherWatchdog.java`) that restarts the launcher after a crash and falls back to the car's original launcher if it keeps crashing.
+  - Back up and restore settings (Settings → Launcher): saves the launcher's own settings (quick apps, car colour, language, alerts; never passwords or Wi-Fi) to a USB stick or a file with Android's file picker, and loads them back after asking first.
 - **Desktop Browser Simulation Mode:**
   - Opening `assets/app.html` over any local static HTTP server automatically runs interactive frontend simulations for telemetry and all 5 Shine Wave audio sources when `window.AndroidBridge` is absent.
 
