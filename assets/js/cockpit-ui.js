@@ -543,6 +543,124 @@
       }
     }
 
+    /* ========================================================
+       TRIP COMPUTER
+       Tap the consumption / range card. Two trips (A and B), counted by Java
+       (TripComputer) from the car's odometer and fuel level, also while other
+       apps are on screen. Cost = fuel used x the price the driver types once.
+       ======================================================== */
+    var tripRefreshTimer = null;
+    var tripResetArmed = { a: 0, b: 0 };
+
+    function getFuelPrice() {
+      try { const v = parseFloat(localStorage.getItem('shine_fuel_price') || ''); return isFinite(v) && v > 0 ? v : 0; } catch (e) { return 0; }
+    }
+
+    function saveFuelPrice(v) {
+      const n = parseFloat(v);
+      try {
+        if (isFinite(n) && n > 0 && n < 100000) localStorage.setItem('shine_fuel_price', String(n));
+        else localStorage.removeItem('shine_fuel_price');
+      } catch (e) {}
+      refreshTripModal();
+    }
+    window.saveFuelPrice = saveFuelPrice;
+
+    function readTripData() {
+      if (window.AndroidBridge && window.AndroidBridge.getTripData) {
+        try { return JSON.parse(window.AndroidBridge.getTripData() || '{}'); } catch (e) { return {}; }
+      }
+      // Desktop browser preview: example numbers.
+      return { a: { km: 42, minutes: 51, fuelL: 3.1, avg: 7.4 }, b: { km: 3, minutes: 9, fuelL: 0.5, avg: null }, live: false };
+    }
+
+    function tripTime(minutes, d) {
+      const m = Math.max(0, Math.round(minutes || 0));
+      const h = Math.floor(m / 60);
+      const rest = m % 60;
+      const L = window.toLangDigits;
+      return (h > 0 ? L(h) + ' ' + d['trip_h'] + ' ' : '') + L(rest) + ' ' + d['trip_min'];
+    }
+
+    function renderTripColumn(key, t, d) {
+      const col = document.getElementById('trip-col-' + key);
+      if (!col) return;
+      t = t || {};
+      const L = window.toLangDigits;
+      const price = getFuelPrice();
+      const fuel = typeof t.fuelL === 'number' ? t.fuelL : 0;
+      const rows = [
+        [d['trip_km'], L(t.km || 0) + ' ' + d['trip_kmu']],
+        [d['trip_time'], tripTime(t.minutes, d)],
+        [d['trip_fuel'], L(fuel.toFixed(1)) + ' ' + d['trip_l']],
+        [d['trip_avg'], (typeof t.avg === 'number') ? L(t.avg.toFixed(1)) + ' L/100' : d['trip_after5']],
+        [d['trip_cost'], price > 0 ? L((fuel * price).toFixed(2)) : d['trip_noprice']]
+      ];
+      col.textContent = '';
+      const title = document.createElement('div');
+      title.className = 'trip-col-title';
+      title.textContent = d['trip_' + key];
+      col.appendChild(title);
+      rows.forEach(function (r) {
+        const row = document.createElement('div');
+        row.className = 'trip-row';
+        const a = document.createElement('span'); a.textContent = r[0];
+        const b = document.createElement('span'); b.textContent = r[1];
+        row.appendChild(a); row.appendChild(b);
+        col.appendChild(row);
+      });
+      const btn = document.createElement('button');
+      const armed = Date.now() - tripResetArmed[key] < 3000;
+      btn.className = 'trip-reset-btn' + (armed ? ' confirm' : '');
+      btn.textContent = armed ? d['trip_reset_confirm'] : d['trip_reset'];
+      btn.onclick = function () { resetTripPressed(key); };
+      col.appendChild(btn);
+    }
+
+    function refreshTripModal() {
+      const d = I18N[state.lang] || I18N['en'];
+      const data = readTripData();
+      renderTripColumn('a', data.a, d);
+      renderTripColumn('b', data.b, d);
+    }
+
+    // Reset needs two taps within 3 seconds, so a trip is not lost by accident.
+    function resetTripPressed(key) {
+      if (Date.now() - tripResetArmed[key] < 3000) {
+        tripResetArmed[key] = 0;
+        if (window.AndroidBridge && window.AndroidBridge.resetTrip) {
+          try { window.AndroidBridge.resetTrip(key); } catch (e) {}
+        }
+      } else {
+        tripResetArmed[key] = Date.now();
+        setTimeout(refreshTripModal, 3100);
+      }
+      refreshTripModal();
+    }
+
+    function openTripModal() {
+      const modal = document.getElementById('trip-modal');
+      if (!modal) return;
+      const box = document.getElementById('trip-box');
+      const ar = state.lang === 'ar';
+      if (box) { box.classList.toggle('rtl-mode', ar); box.classList.toggle('ltr-mode', !ar); }
+      const input = document.getElementById('trip-fuel-price');
+      if (input) { const p = getFuelPrice(); input.value = p > 0 ? String(p) : ''; }
+      refreshTripModal();
+      modal.style.display = 'flex';
+      if (tripRefreshTimer) clearInterval(tripRefreshTimer);
+      tripRefreshTimer = setInterval(refreshTripModal, 5000);
+    }
+    window.openTripModal = openTripModal;
+
+    function closeTripModal(e) {
+      if (e && e.target && e.target.id !== 'trip-modal') return;
+      const modal = document.getElementById('trip-modal');
+      if (modal) modal.style.display = 'none';
+      if (tripRefreshTimer) { clearInterval(tripRefreshTimer); tripRefreshTimer = null; }
+    }
+    window.closeTripModal = closeTripModal;
+
     function openTpmsResetConfirm() {
       const modal = document.getElementById('tpms-confirm-modal');
       if (modal) modal.style.display = 'flex';

@@ -69,6 +69,7 @@ public class MainActivity extends Activity implements CockpitMediaListenerServic
 
     private final AudioSpectrumAnalyzer mAudioAnalyzer = new AudioSpectrumAnalyzer();
     private final AppRepository mAppRepo = new AppRepository();
+    private TripComputer mTrip;
     private SteeringWheelKeyHandler mSwcHandler;
 
     private volatile boolean mIsForeground = true;
@@ -179,6 +180,7 @@ public class MainActivity extends Activity implements CockpitMediaListenerServic
 
         setupWebView();
         startTelemetryLoop();
+        startTripLoop();
         SystemControlHelper.ensureNotificationListenerAccess(this);
         CockpitMediaListenerService.setListener(this);
         startShineWaveEngine();
@@ -849,6 +851,18 @@ public class MainActivity extends Activity implements CockpitMediaListenerServic
         public void checkForUpdates(final boolean silentIfUpToDate) {
             GitHubUpdateChecker.checkForUpdates(MainActivity.this, silentIfUpToDate);
         }
+
+        /** Trip computer popup: the current trips A and B as JSON. */
+        @JavascriptInterface
+        public String getTripData() {
+            return mTrip == null ? "{}" : mTrip.toJson();
+        }
+
+        /** Trip computer "Reset" button: "a" or "b". */
+        @JavascriptInterface
+        public void resetTrip(final String which) {
+            if (mTrip != null) mTrip.reset("b".equals(which) ? 1 : 0);
+        }
     }
 
     private static String buildFastControlSig(CanBusClient.TelemetrySnapshot s) {
@@ -885,6 +899,31 @@ public class MainActivity extends Activity implements CockpitMediaListenerServic
 
     private void dispatchTelemetryToWebView(final String teleStr) {
         evalWebViewJs("window.onCanTelemetry(" + teleStr + ");");
+    }
+
+    /**
+     * Trip computer: reads odometer, fuel and speed every 10 seconds, also while another app
+     * is on screen, so trips keep counting over Maps. Uses the same single background thread
+     * as the telemetry loop, so the two never talk to the car at the same moment.
+     */
+    private void startTripLoop() {
+        mTrip = new TripComputer(getSharedPreferences(PREF_HUB, MODE_PRIVATE));
+        mTelemetryExecutor.scheduleWithFixedDelay(new Runnable() {
+            @Override
+            public void run() {
+                try {
+                    if (mCanBusClient == null) return;
+                    CanBusClient.TelemetrySnapshot s = mCanBusClient.getTelemetrySnapshot(true);
+                    if (!s.canConnected) return;
+                    float cap = s.fuelCapacity > 0 ? s.fuelCapacity : 55.0f;
+                    double litres = cap * (s.fuelPercentage / 100.0);
+                    mTrip.onReading(s.odometerValid, s.totalMileage, s.fuelPctValid, litres,
+                            s.speed, SystemClock.elapsedRealtime());
+                } catch (Exception e) {
+                    Log.e(TAG, "Trip computer update failed", e);
+                }
+            }
+        }, 5, 10, TimeUnit.SECONDS);
     }
 
     private void startTelemetryLoop() {

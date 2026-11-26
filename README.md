@@ -28,6 +28,7 @@ Since version `2.1.0` the launcher fully merges the **Shine Wave** audio engine 
   - Unified Steering-Wheel Control (SWC) handling, notification `MediaSession` listener (`CockpitMediaListenerService.java`), start-on-boot (`BootReceiver.java`), and a crash watchdog (`LauncherWatchdog.java`) that restarts the launcher after a crash and falls back to the car's original launcher if it keeps crashing.
 - **Desktop Browser Simulation Mode:**
   - Opening `assets/app.html` over any local static HTTP server automatically runs interactive frontend simulations for telemetry and all 5 Shine Wave audio sources when `window.AndroidBridge` is absent.
+- **Trip Computer:** tap the consumption / range card. Trip A and Trip B (each resettable) show distance, driving time, fuel used, average consumption and cost (after typing the fuel price once). Counted from the car's odometer and fuel level every 10 seconds, also while Maps is open (`TripComputer.java`).
 
 ---
 

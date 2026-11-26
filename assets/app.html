@@ -71,7 +71,7 @@
   <!-- 2, 3, 4: HUD CLUSTER ZONE (Mirror Symmetry: [Left Card: Instant + Range] | [Center Clock + [PiP] AM/PM [Settings]] | [Right Card: Fuel + Outside Temp]) -->
   <div class="hud top-metrics-row">
     <!-- LEFT CARD: Instant Consumption (Row 1) & Remaining Range (Row 2) - Transparent 3-Col Layout -->
-    <div class="telemetry-card telemetry-card-left" title="Fuel Economy & Range">
+    <div class="telemetry-card telemetry-card-left" title="Fuel Economy & Range (tap for the trip computer)" onclick="openTripModal()" style="cursor: pointer;">
       <!-- Row 1: Instantaneous Fuel Consumption (Icon | Value | Unit) -->
       <div class="tele-grid-row">
         <div class="tele-col-icon">
@@ -349,7 +349,23 @@
     </div>
   </div>
 
-<!-- FULL-SCREEN COCKPIT BLURRED APP DRAWER (Opens when Apps Grid Icon is tapped) -->
+  <!-- TRIP COMPUTER (opens when the consumption / range card is tapped) -->
+  <div class="modal-overlay interactive" id="trip-modal" style="z-index: 130;" onclick="closeTripModal(event)">
+    <div class="modal-box ltr-mode trip-box" id="trip-box" onclick="event.stopPropagation()">
+      <div class="trip-title" id="trip-title">Trip Computer</div>
+      <div class="trip-grid">
+        <div class="trip-col" id="trip-col-a"></div>
+        <div class="trip-col" id="trip-col-b"></div>
+      </div>
+      <div class="trip-price-row">
+        <span id="lbl-fuel-price">Fuel price per litre</span>
+        <input type="number" id="trip-fuel-price" min="0" step="0.01" inputmode="decimal" onchange="saveFuelPrice(this.value)">
+      </div>
+      <button class="trip-close-btn" id="trip-close" onclick="closeTripModal()">Close</button>
+    </div>
+  </div>
+
+  <!-- FULL-SCREEN COCKPIT BLURRED APP DRAWER (Opens when Apps Grid Icon is tapped) -->
   <div class="app-drawer-overlay interactive" id="app-drawer-overlay" onclick="closeAppDrawer(event)">
     <div class="app-drawer-header" onclick="event.stopPropagation()">
       <div class="app-drawer-title-wrap">
