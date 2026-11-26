@@ -1378,6 +1378,7 @@
         lipOption: state.lipOption,
         seatOption: state.seatOption,
         plateText: state.plateText,
+        drivingTipEnabled: (function () { const c = document.getElementById('chk-drive-tip'); return c ? c.checked : true; })(),
         speedLock: chkSpeed ? chkSpeed.checked : false,
         walkLock: chkWalk ? chkWalk.checked : false,
         offUnlock: chkOff ? chkOff.checked : false,
@@ -1485,6 +1486,11 @@
           } catch(e) {}
         }
         if (s.defaultPage) setDefaultPageOption(s.defaultPage);
+        if (s.drivingTipEnabled !== undefined) {
+          const chkTip = document.getElementById('chk-drive-tip');
+          if (chkTip) chkTip.checked = s.drivingTipEnabled !== false;
+          onDrivingTipToggle();
+        }
         if (s.carColor) setCarColor(s.carColor === '#ffffff' ? '#e2e8f0' : s.carColor);
         if (s.roofOption) setRoofOption(s.roofOption);
         if (s.lipOption) setLipOption(s.lipOption);
@@ -1584,6 +1590,59 @@
        ======================================================== */
     let lastInstFuelUpdate = 0;
     let cachedInstFuel = 0.0;
+
+    /* ========================================================
+       GENTLE DRIVING TIP
+       A thin bar under the consumption. Its length follows the fuel use,
+       smoothed over about 3 seconds so it does not flicker: short and green
+       when driving smoothly, long and yellow on hard acceleration (12 L/100
+       or more). Hidden when the car is stopped. No numbers, popups or sounds.
+       Setting: drivingTipEnabled (on by default).
+       ======================================================== */
+    var drivingTipSmoothed = -1;
+    var drivingTipLastMs = 0;
+    var DRIVING_TIP_HARD = 12;   // L/100 km from which the bar turns yellow
+    var DRIVING_TIP_FULL = 20;   // L/100 km at which the bar is full
+
+    function drivingTipEnabled() {
+      const c = document.getElementById('chk-drive-tip');
+      return !c || c.checked;
+    }
+
+    function updateDrivingTip(instFuel, speed) {
+      const track = document.getElementById('drive-tip-track');
+      const fill = document.getElementById('drive-tip-fill');
+      if (!track || !fill) return;
+      const v = Number(instFuel);
+      if (!drivingTipEnabled() || !(speed > 0) || !isFinite(v) || v < 0) {
+        track.classList.remove('visible');
+        drivingTipSmoothed = -1;
+        return;
+      }
+      const now = Date.now();
+      if (drivingTipSmoothed < 0) {
+        drivingTipSmoothed = v;
+      } else {
+        const dt = Math.min(5000, Math.max(0, now - drivingTipLastMs));
+        const k = 1 - Math.exp(-dt / 3000);
+        drivingTipSmoothed += (v - drivingTipSmoothed) * k;
+      }
+      drivingTipLastMs = now;
+      const ratio = Math.max(0.05, Math.min(1, drivingTipSmoothed / DRIVING_TIP_FULL));
+      fill.style.width = Math.round(ratio * 100) + '%';
+      fill.classList.toggle('hard', drivingTipSmoothed >= DRIVING_TIP_HARD);
+      track.classList.add('visible');
+    }
+    window.updateDrivingTip = updateDrivingTip;
+
+    function onDrivingTipToggle() {
+      if (!drivingTipEnabled()) {
+        const track = document.getElementById('drive-tip-track');
+        if (track) track.classList.remove('visible');
+        drivingTipSmoothed = -1;
+      }
+    }
+    window.onDrivingTipToggle = onDrivingTipToggle;
     let lastRangeUpdate = 0;
     let cachedRange = 290;
     let cachedCurrentSpeed = 0;
@@ -1720,6 +1779,7 @@
 
       if (data.instFuel !== undefined) {
         cachedInstFuel = data.instFuel;
+        updateDrivingTip(data.instFuel, cachedCurrentSpeed);
         const now = Date.now();
         if (now - lastInstFuelUpdate >= 800 || lastInstFuelUpdate === 0) {
           lastInstFuelUpdate = now;
