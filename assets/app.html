@@ -31,6 +31,7 @@
         <line x1="3" y1="10" x2="21" y2="10"/>
       </svg>
       <span id="sb-date-text">Tuesday, 10 November 2026</span>
+      <span class="sb-weather" id="sb-weather" style="display: none;"></span>
     </div>
 
     <div class="statusbar-indicators" id="statusbar-indicators">
@@ -544,6 +545,23 @@
             </div>
             <div class="lock-action-wrap">
               <label class="switch"><input type="checkbox" id="chk-auto-boot" checked onchange="onAutoBootChanged(this.checked)"><span class="slider-toggle"></span></label>
+            </div>
+          </div>
+          <div class="lock-control-card weather-card" style="margin-top: 12px;">
+            <div class="lock-info-col">
+              <span class="toggle-label" id="lbl-weather">Weather on the Main Screen</span>
+              <span class="lock-can-stat" id="desc-weather">Needs internet. Only the city you choose is sent (to Open-Meteo), never the car's position.</span>
+              <div class="weather-options">
+                <div class="weather-city-row">
+                  <input type="text" class="text-input-field weather-city-input" id="weather-city-input" maxlength="60" placeholder="Cairo">
+                  <button type="button" class="settings-btn" id="btn-weather-find" onclick="findWeatherCity()">Find</button>
+                </div>
+                <div class="weather-city-current" id="weather-city-current"></div>
+                <div class="weather-city-results" id="weather-city-results"></div>
+              </div>
+            </div>
+            <div class="lock-action-wrap">
+              <label class="switch"><input type="checkbox" id="chk-weather" onchange="onWeatherToggle()"><span class="slider-toggle"></span></label>
             </div>
           </div>
           <div class="lock-control-card" style="margin-top: 12px;">

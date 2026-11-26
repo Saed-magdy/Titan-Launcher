@@ -34,6 +34,8 @@ Since version `2.1.0` the launcher fully merges the **Shine Wave** audio engine 
   - Opening `assets/app.html` over any local static HTTP server automatically runs interactive frontend simulations for telemetry and all 5 Shine Wave audio sources when `window.AndroidBridge` is absent.
 - **Trip Computer:** tap the consumption / range card. Trip A and Trip B (each resettable) show distance, driving time, fuel used, average consumption and cost (after typing the fuel price once). Counted from the car's odometer and fuel level every 10 seconds, also while Maps is open (`TripComputer.java`).
 
+- **Weather (optional, off by default):** Settings → Launcher → Weather. Type your city once; today's forecast (icon, now, high/low) shows next to the date. Uses Open-Meteo (free, no account); only the chosen city is sent, never the car's position.
+
 ---
 
 ## Project Structure

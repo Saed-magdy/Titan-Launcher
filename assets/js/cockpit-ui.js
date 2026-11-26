@@ -1664,6 +1664,159 @@
       }
     }
 
+    /* ========================================================
+       WEATHER ON THE MAIN SCREEN (optional, off by default)
+       The driver types a city once; Java asks Open-Meteo (free, no account)
+       for today's forecast for that city. Shown next to the date as an icon,
+       the temperature now, and today's high / low. Hidden when switched off,
+       when there is no internet, or when the data is older than 3 hours.
+       Saved in page storage: shine_weather (switch + city), shine_weather_cache.
+       ======================================================== */
+    var WEATHER_REFRESH_MS = 30 * 60 * 1000;
+    var WEATHER_MAX_AGE_MS = 3 * 60 * 60 * 1000;
+    var weatherCityResults = [];
+
+    function weatherConfig() {
+      try { const c = JSON.parse(localStorage.getItem('shine_weather') || '{}'); return (c && typeof c === 'object') ? c : {}; } catch (e) { return {}; }
+    }
+    function saveWeatherConfig(c) { try { localStorage.setItem('shine_weather', JSON.stringify(c)); } catch (e) {} }
+
+    function weatherIcon(code, rainPct) {
+      if (code >= 95) return '\u26C8';             // thunderstorm
+      if (code >= 71 && code <= 77) return '\u2744'; // snow
+      if ((code >= 51 && code <= 67) || (code >= 80 && code <= 82) || rainPct >= 60) return '\uD83C\uDF27'; // rain
+      if (code === 45 || code === 48) return '\uD83C\uDF2B'; // fog
+      if (code >= 1 && code <= 3) return '\u26C5';   // partly cloudy
+      return '\u2600';                                // clear
+    }
+
+    function renderWeather() {
+      const el = document.getElementById('sb-weather');
+      if (!el) return;
+      const cfg = weatherConfig();
+      let cache = null;
+      try { cache = JSON.parse(localStorage.getItem('shine_weather_cache') || 'null'); } catch (e) {}
+      if (!cfg.enabled || !cfg.city || !cache || !cache.d || Date.now() - cache.t > WEATHER_MAX_AGE_MS) {
+        el.style.display = 'none';
+        return;
+      }
+      const d = cache.d;
+      const L = window.toLangDigits;
+      const now = Math.round(d.current.temperature_2m);
+      const hi = Math.round(d.daily.temperature_2m_max[0]);
+      const lo = Math.round(d.daily.temperature_2m_min[0]);
+      const rain = d.daily.precipitation_probability_max ? (d.daily.precipitation_probability_max[0] || 0) : 0;
+      el.textContent = weatherIcon(d.current.weather_code, rain) + ' ' + L(now) + '\u00B0  ' + L(hi) + '\u00B0/' + L(lo) + '\u00B0';
+      el.style.display = '';
+    }
+
+    window.onWeatherData = function (text) {
+      if (!text) { renderWeather(); return; }
+      try {
+        const d = JSON.parse(text);
+        if (!d || !d.current || !d.daily || !Array.isArray(d.daily.temperature_2m_max)) return;
+        localStorage.setItem('shine_weather_cache', JSON.stringify({ t: Date.now(), d: d }));
+      } catch (e) { return; }
+      renderWeather();
+    };
+
+    function refreshWeather(force) {
+      const cfg = weatherConfig();
+      if (!cfg.enabled || !cfg.city) { renderWeather(); return; }
+      let cache = null;
+      try { cache = JSON.parse(localStorage.getItem('shine_weather_cache') || 'null'); } catch (e) {}
+      if (!force && cache && Date.now() - cache.t < WEATHER_REFRESH_MS) { renderWeather(); return; }
+      const lat = Number(cfg.city.lat), lon = Number(cfg.city.lon);
+      if (window.AndroidBridge && window.AndroidBridge.fetchWeather) {
+        try { window.AndroidBridge.fetchWeather(lat, lon); } catch (e) {}
+      } else {
+        // Desktop browser preview: ask Open-Meteo directly.
+        fetch('https://api.open-meteo.com/v1/forecast?latitude=' + lat.toFixed(3) + '&longitude=' + lon.toFixed(3) +
+          '&current=temperature_2m,weather_code&daily=temperature_2m_max,temperature_2m_min,precipitation_probability_max&timezone=auto&forecast_days=1')
+          .then(function (r) { return r.ok ? r.text() : null; }).then(window.onWeatherData).catch(function () { renderWeather(); });
+      }
+    }
+    window.refreshWeather = refreshWeather;
+
+    function renderWeatherSettings() {
+      const cfg = weatherConfig();
+      const dict = I18N[state.lang] || I18N['en'];
+      const chk = document.getElementById('chk-weather');
+      if (chk) chk.checked = !!cfg.enabled;
+      const opts = document.querySelector('.weather-options');
+      if (opts) opts.style.display = cfg.enabled ? '' : 'none';
+      const cur = document.getElementById('weather-city-current');
+      if (cur) cur.textContent = cfg.city ? (dict['weather_city'] || 'City: {c}').replace('{c}', cfg.city.label) : (dict['weather_nocity'] || 'Type your city and press Find');
+    }
+
+    function onWeatherToggle() {
+      const cfg = weatherConfig();
+      const chk = document.getElementById('chk-weather');
+      cfg.enabled = !!(chk && chk.checked);
+      saveWeatherConfig(cfg);
+      renderWeatherSettings();
+      refreshWeather(true);
+    }
+    window.onWeatherToggle = onWeatherToggle;
+
+    function findWeatherCity() {
+      const input = document.getElementById('weather-city-input');
+      const q = input ? input.value.trim() : '';
+      if (!q) return;
+      const lang = state.lang || 'en';
+      if (window.AndroidBridge && window.AndroidBridge.searchWeatherCity) {
+        try { window.AndroidBridge.searchWeatherCity(q, lang); } catch (e) {}
+      } else {
+        fetch('https://geocoding-api.open-meteo.com/v1/search?count=5&format=json&language=' + lang + '&name=' + encodeURIComponent(q))
+          .then(function (r) { return r.ok ? r.text() : null; }).then(window.onWeatherCities).catch(function () { window.onWeatherCities(null); });
+      }
+    }
+    window.findWeatherCity = findWeatherCity;
+
+    window.onWeatherCities = function (text) {
+      const box = document.getElementById('weather-city-results');
+      if (!box) return;
+      box.textContent = '';
+      weatherCityResults = [];
+      try {
+        const d = text ? JSON.parse(text) : null;
+        (d && Array.isArray(d.results) ? d.results : []).slice(0, 5).forEach(function (r) {
+          if (typeof r.latitude !== 'number' || typeof r.longitude !== 'number') return;
+          const label = [r.name, r.admin1, r.country].filter(function (x) { return typeof x === 'string' && x; }).join(', ');
+          weatherCityResults.push({ label: label.slice(0, 80), lat: r.latitude, lon: r.longitude });
+        });
+      } catch (e) {}
+      const dict = I18N[state.lang] || I18N['en'];
+      if (!weatherCityResults.length) {
+        box.textContent = dict['weather_notfound'] || 'City not found (or no internet)';
+        return;
+      }
+      weatherCityResults.forEach(function (c, i) {
+        const b = document.createElement('button');
+        b.type = 'button';
+        b.className = 'settings-btn';
+        b.textContent = c.label;
+        b.onclick = function () { chooseWeatherCity(i); };
+        box.appendChild(b);
+      });
+    };
+
+    function chooseWeatherCity(i) {
+      const c = weatherCityResults[i];
+      if (!c) return;
+      const cfg = weatherConfig();
+      cfg.city = c;
+      saveWeatherConfig(cfg);
+      try { localStorage.removeItem('shine_weather_cache'); } catch (e) {}
+      const box = document.getElementById('weather-city-results');
+      if (box) box.textContent = '';
+      renderWeatherSettings();
+      refreshWeather(true);
+    }
+
+    setTimeout(function () { renderWeatherSettings(); refreshWeather(false); }, 4000);
+    setInterval(function () { refreshWeather(false); }, 5 * 60 * 1000);
+
     function onAutoBootChanged(enabled) {
       state.autoBoot = enabled;
       if (window.AndroidBridge && typeof window.AndroidBridge.setAutoBoot === 'function') {
