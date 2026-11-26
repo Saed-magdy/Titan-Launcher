@@ -331,18 +331,6 @@
     </div>
   </div>
 
-  <!-- LOW FUEL WARNING POPUP (about 65% of the screen wide, 25% high; OK closes it, or it closes by itself after 20 s) -->
-  <div class="modal-overlay interactive" id="fuel-warn-modal" style="z-index: 150;">
-    <div class="modal-box ltr-mode fuel-warn-box" id="fuel-warn-box">
-      <div class="fuel-warn-title" id="fuel-warn-title">&#9981; Low fuel</div>
-      <div class="fuel-warn-msg" id="fuel-warn-msg"></div>
-      <div class="fuel-warn-actions">
-        <button class="fuel-warn-ok" id="fuel-warn-ok" onclick="closeFuelWarning()">OK</button>
-        <button class="fuel-warn-find" id="fuel-warn-find" onclick="findFuelStation()">Find a petrol station</button>
-      </div>
-    </div>
-  </div>
-
   <!-- SUNROOF FLOATING CARD OVER 3D CAR (Ultra-minimalist, borderless text commands, no title, no close button, no icons, centered directly above TPMS) -->
   <div class="sunroof-bar-overlay" id="sunroof-modal" onclick="closeSunroofModal(event)">
     <div class="sunroof-floating-card" id="sunroof-bar-inner" onclick="event.stopPropagation()">
@@ -407,8 +395,19 @@
 
 </div>
 
-    <!-- Global Launcher Feedback Toast -->
+  <!-- Global Launcher Feedback Toast -->
   <div class="launcher-toast" id="launcher-toast"></div>
+  <!-- LOW FUEL & TPMS WARNING POPUP (outside ui-layer so z-index: 150 stacks above settings modal) -->
+  <div class="modal-overlay interactive" id="fuel-warn-modal" style="z-index: 150;">
+    <div class="modal-box ltr-mode fuel-warn-box" id="fuel-warn-box">
+      <div class="fuel-warn-title" id="fuel-warn-title">&#9981; Low fuel</div>
+      <div class="fuel-warn-msg" id="fuel-warn-msg"></div>
+      <div class="fuel-warn-actions">
+        <button class="fuel-warn-ok" id="fuel-warn-ok" onclick="closeFuelWarning()">OK</button>
+        <button class="fuel-warn-find" id="fuel-warn-find" onclick="findFuelStation()">Find a petrol station</button>
+      </div>
+    </div>
+  </div>
   <!-- SETTINGS MODAL (Categorized 3-Tab Structure + Multilingual + Borderless Luxury Dark Glass) -->
   <div class="modal-overlay interactive" id="settings-modal" onclick="closeSettings(event)">
     <div class="modal-box ltr-mode" id="modal-box-inner" onclick="event.stopPropagation()">
