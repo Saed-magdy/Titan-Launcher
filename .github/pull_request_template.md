@@ -22,4 +22,4 @@
 - [ ] It does not raise the version number (that happens only when `dev` is released to `main`).
 - [ ] It contains no signing keys, passwords or APK files.
 - [ ] Text that comes from outside (app names, station names, song titles) is shown with `escapeHtml()` or `textContent`.
-- [ ] **Contributor agreement:** I wrote this contribution (or have the right to send it). I agree that it is licensed under this project's [LICENSE](../LICENSE), and that Dr. Saed may also license it under other terms in the future, including commercial ones.
+- [ ] **Contributor agreement:** I wrote this contribution (or have the right to send it). I agree that it is licensed under this project's [LICENSE](https://github.com/Saed-magdy/Titan-Launcher/blob/dev/LICENSE), and that Dr. Saed may also license it under other terms in the future, including commercial ones.
