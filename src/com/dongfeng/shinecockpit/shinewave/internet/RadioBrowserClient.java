@@ -19,6 +19,7 @@ import java.util.Map;
  */
 public final class RadioBrowserClient {
     private static final List<String> API_SERVERS = Arrays.asList(
+            "https://stations.radioss.app",
             "https://de1.api.radio-browser.info",
             "https://all.api.radio-browser.info"
     );

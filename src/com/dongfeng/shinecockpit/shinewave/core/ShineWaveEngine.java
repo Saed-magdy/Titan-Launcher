@@ -1081,6 +1081,7 @@ public final class ShineWaveEngine {
     }
 
     public void playDabItem(String mediaId) {
+        selectSource(AudioSourceType.CAR_RADIO, false);
         dabController.playMediaId(mediaId);
     }
 

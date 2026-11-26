@@ -286,9 +286,461 @@
   };
 
   function pickSource(key) {
-    applySourceSelection(key);
     toggleSources(false);
+    openQuickPicker(key);
   }
+
+  /* ---------- Launcher-Style Mini-Player Source Quick-Picker Popup ---------- */
+  var qpSource = '';
+  var qpLocalFolder = '';
+  var qpLocalQuery = '';
+  var qpInetTab = 'arabic';
+  var qpInetQuery = '';
+  var qpCache = { LOCAL_MUSIC: null, CAR_RADIO: null, INTERNET_RADIO: null, EXTERNAL_APP: null };
+
+  function esc(str) {
+    return window.escapeHtml ? window.escapeHtml(str) : String(str || '');
+  }
+
+  function ensureQuickPickerDom() {
+    var existing = document.getElementById('swcard-picker-overlay');
+    if (existing) return existing;
+    var ov = document.createElement('div');
+    ov.id = 'swcard-picker-overlay';
+    ov.className = 'swqp-overlay interactive';
+    ov.innerHTML =
+      '<div class="swqp-box" id="swqp-box">' +
+        '<div class="swqp-header">' +
+          '<div class="swqp-title-wrap">' +
+            '<span class="swqp-title-ico" id="swqp-ico"></span>' +
+            '<div class="swqp-title" id="swqp-title"></div>' +
+          '</div>' +
+          '<div class="swqp-header-actions">' +
+            '<button type="button" class="swqp-studio-btn" id="swqp-open-studio"></button>' +
+            '<button type="button" class="swqp-close" id="swqp-close">&times;</button>' +
+          '</div>' +
+        '</div>' +
+        '<div class="swqp-controls" id="swqp-controls"></div>' +
+        '<div class="swqp-list" id="swqp-list"></div>' +
+      '</div>';
+    var host = document.getElementById('cockpit-viewport') || document.body;
+    host.appendChild(ov);
+
+    ov.addEventListener('click', function () { closeQuickPicker(); });
+    document.getElementById('swqp-box').addEventListener('click', function (e) { e.stopPropagation(); });
+    document.getElementById('swqp-close').addEventListener('click', function (e) { e.stopPropagation(); closeQuickPicker(); });
+    document.getElementById('swqp-open-studio').addEventListener('click', function (e) {
+      e.stopPropagation();
+      var targetSrc = qpSource || m.source;
+      closeQuickPicker();
+      if (typeof window.setShineWaveSource === 'function') window.setShineWaveSource(targetSrc);
+      openStudio(targetSrc);
+    });
+    return ov;
+  }
+
+  function closeQuickPicker() {
+    var ov = document.getElementById('swcard-picker-overlay');
+    if (ov) ov.classList.remove('active');
+  }
+  window.closeShineWaveQuickPicker = closeQuickPicker;
+
+  function fetchQuickPickerData(key) {
+    var b = bridge();
+    if (b) {
+      if (key === 'LOCAL_MUSIC' && b.browseShineWaveLocal) b.browseShineWaveLocal(qpLocalFolder, qpLocalQuery, false);
+      else if (key === 'CAR_RADIO' && b.getShineWaveRadioState) b.getShineWaveRadioState();
+      else if (key === 'INTERNET_RADIO' && b.searchShineWaveInternetRadio) b.searchShineWaveInternetRadio(qpInetTab, qpInetQuery);
+      else if (key === 'EXTERNAL_APP' && b.getShineWaveExternalApps) b.getShineWaveExternalApps();
+      return;
+    }
+    var db = window.ShineWaveSimDb;
+    if (!db) return;
+    if (key === 'LOCAL_MUSIC') {
+      var q = (qpLocalQuery || '').trim().toLowerCase();
+      var folders = [], tracks = [];
+      if (q) {
+        tracks = db.localTracks.filter(function (t) {
+          return t.title.toLowerCase().indexOf(q) >= 0 || t.artist.toLowerCase().indexOf(q) >= 0;
+        });
+      } else if (!qpLocalFolder) {
+        folders = [{ path: '/USB/Arabic Hits', name: 'Arabic Hits', count: 3 }, { path: '/USB/Chill Night', name: 'Chill Night', count: 2 }];
+      } else {
+        tracks = db.localTracks.filter(function (t) { return t.folder === qpLocalFolder; });
+      }
+      qpCache.LOCAL_MUSIC = { currentFolder: qpLocalFolder, currentFolderName: qpLocalFolder.split('/').pop(), parentFolder: '', hasSavedQueue: true, folders: folders, tracks: tracks };
+      renderQuickPickerList();
+    } else if (key === 'CAR_RADIO') {
+      qpCache.CAR_RADIO = db.radio;
+      renderQuickPickerList();
+    } else if (key === 'INTERNET_RADIO') {
+      var iq = (qpInetQuery || '').trim().toLowerCase();
+      qpCache.INTERNET_RADIO = { stations: db.internet.filter(function (s) {
+        if (qpInetTab === 'favorites' && !s.favorite) return false;
+        if (iq) return s.name.toLowerCase().indexOf(iq) >= 0;
+        return true;
+      }) };
+      renderQuickPickerList();
+    } else if (key === 'EXTERNAL_APP') {
+      qpCache.EXTERNAL_APP = { apps: db.apps };
+      renderQuickPickerList();
+    }
+  }
+
+  function openQuickPicker(key) {
+    qpSource = key;
+    var ov = ensureQuickPickerDom();
+    var box = document.getElementById('swqp-box');
+    var ar = isAr();
+    box.classList.toggle('rtl-mode', ar);
+    box.classList.toggle('ltr-mode', !ar);
+
+    var s = srcByKey(key);
+    var titles = {
+      LOCAL_MUSIC: ar ? 'الملفات والفلاشة' : 'USB & Local Files',
+      BLUETOOTH: ar ? 'صوت البلوتوث' : 'Bluetooth Audio',
+      CAR_RADIO: ar ? 'راديو السيارة FM / AM' : 'Car Radio FM / AM',
+      INTERNET_RADIO: ar ? 'راديو الإنترنت' : 'Internet Radio',
+      EXTERNAL_APP: ar ? 'تطبيقات الميديا' : 'Media Apps'
+    };
+    document.getElementById('swqp-ico').innerHTML = s ? svg(s.icon) : '';
+    document.getElementById('swqp-title').textContent = titles[key] || '';
+    document.getElementById('swqp-open-studio').textContent = ar ? 'المشغل الكامل' : 'Full Studio';
+
+    ov.classList.add('active');
+    renderQuickPickerControls();
+    renderQuickPickerList();
+    fetchQuickPickerData(key);
+  }
+
+  function renderQuickPickerControls() {
+    var ctrl = document.getElementById('swqp-controls');
+    if (!ctrl) return;
+    var ar = isAr();
+
+    if (qpSource === 'INTERNET_RADIO') {
+      var tabs = [
+        { id: 'arabic', en: 'Arabic', ar: 'عربية' },
+        { id: 'popular', en: 'Popular', ar: 'شائعة' },
+        { id: 'favorites', en: 'Favorites ★', ar: 'المفضلة ★' },
+        { id: 'recent', en: 'Recent', ar: 'الأخيرة' }
+      ];
+      ctrl.innerHTML =
+        '<div class="swqp-pills">' + tabs.map(function (t) {
+          return '<button type="button" class="swqp-pill' + (qpInetTab === t.id ? ' active' : '') + '" data-qp-itab="' + t.id + '">' + (ar ? t.ar : t.en) + '</button>';
+        }).join('') + '</div>' +
+        '<div class="swqp-search-row">' +
+          '<input type="text" class="swqp-search" id="swqp-inet-q" placeholder="' + (ar ? 'ابحث باسم الإذاعة...' : 'Search station...') + '" value="' + esc(qpInetQuery) + '">' +
+          '<button type="button" class="swqp-pill peach" id="swqp-inet-go">' + (ar ? 'بحث' : 'Search') + '</button>' +
+        '</div>';
+      ctrl.querySelectorAll('[data-qp-itab]').forEach(function (b) {
+        b.addEventListener('click', function () {
+          qpInetTab = b.getAttribute('data-qp-itab');
+          renderQuickPickerControls();
+          fetchQuickPickerData('INTERNET_RADIO');
+        });
+      });
+      var goBtn = document.getElementById('swqp-inet-go');
+      var qIn = document.getElementById('swqp-inet-q');
+      if (goBtn) goBtn.addEventListener('click', function () { qpInetQuery = qIn ? qIn.value : ''; fetchQuickPickerData('INTERNET_RADIO'); });
+      if (qIn) qIn.addEventListener('keydown', function (e) { if (e.key === 'Enter') { qpInetQuery = qIn.value; fetchQuickPickerData('INTERNET_RADIO'); } });
+    } else if (qpSource === 'LOCAL_MUSIC') {
+      ctrl.innerHTML =
+        '<div class="swqp-search-row">' +
+          '<input type="text" class="swqp-search" id="swqp-local-q" placeholder="' + (ar ? 'ابحث في الأغاني والملفات...' : 'Search tracks or artists...') + '" value="' + esc(qpLocalQuery) + '">' +
+        '</div>';
+      var lIn = document.getElementById('swqp-local-q');
+      if (lIn) lIn.addEventListener('input', function () { qpLocalQuery = lIn.value || ''; fetchQuickPickerData('LOCAL_MUSIC'); });
+    } else if (qpSource === 'CAR_RADIO') {
+      var r = qpCache.CAR_RADIO || (window.ShineWaveSimDb && window.ShineWaveSimDb.radio) || { radioType: 'FM', band: 'FM', freqKhz: 100600 };
+      var isDab = r.radioType === 'DAB';
+      var isAm = r.band === 'AM' && !isDab;
+      var freqDisp = isDab ? 'DAB+' : (isAm ? (r.freqKhz + ' kHz') : ((r.freqKhz / 1000).toFixed(1) + ' MHz'));
+      ctrl.innerHTML =
+        '<div class="swqp-pills" style="justify-content:space-between;">' +
+          '<div style="display:flex;gap:6px;direction:ltr;">' +
+            '<button type="button" class="swqp-pill' + (!isDab && !isAm ? ' active' : '') + '" data-qp-rband="FM">FM</button>' +
+            '<button type="button" class="swqp-pill' + (!isDab && isAm ? ' active' : '') + '" data-qp-rband="AM">AM</button>' +
+            '<button type="button" class="swqp-pill' + (isDab ? ' active' : '') + '" data-qp-rband="DAB">DAB+</button>' +
+          '</div>' +
+          '<span style="font-size:17px;font-weight:800;color:#bae6fd;direction:ltr;">' + esc(freqDisp) + '</span>' +
+          (!isDab ? ('<div style="display:flex;gap:6px;direction:ltr;">' +
+            '<button type="button" class="swqp-pill" id="swqp-r-dn">◀ ' + (ar ? 'بحث' : 'Seek') + '</button>' +
+            '<button type="button" class="swqp-pill" id="swqp-r-up">' + (ar ? 'بحث' : 'Seek') + ' ▶</button>' +
+          '</div>') : '') +
+        '</div>';
+      ctrl.querySelectorAll('[data-qp-rband]').forEach(function (btn) {
+        btn.addEventListener('click', function () {
+          var bnd = btn.getAttribute('data-qp-rband');
+          if (bridge() && bridge().selectShineWaveRadioBand) { bridge().selectShineWaveRadioBand(bnd); }
+          else if (window.ShineWaveSimDb) {
+            var sr = window.ShineWaveSimDb.radio;
+            sr.radioType = bnd;
+            if (bnd !== 'DAB') { sr.band = bnd; sr.freqKhz = (bnd === 'AM') ? sr.lastAmFreq : sr.lastFmFreq; sr.stations = (bnd === 'AM') ? sr.amStations : sr.fmStations; }
+            qpCache.CAR_RADIO = sr;
+            renderQuickPickerControls(); renderQuickPickerList();
+          }
+        });
+      });
+      var dn = document.getElementById('swqp-r-dn');
+      var up = document.getElementById('swqp-r-up');
+      if (dn) dn.addEventListener('click', function () { if (bridge()) bridge().seekShineWaveRadio(false); else if (window.simStepShineWaveTrack) { window.simSwitchShineWaveSource('CAR_RADIO'); window.simStepShineWaveTrack(-1); renderQuickPickerControls(); } });
+      if (up) up.addEventListener('click', function () { if (bridge()) bridge().seekShineWaveRadio(true); else if (window.simStepShineWaveTrack) { window.simSwitchShineWaveSource('CAR_RADIO'); window.simStepShineWaveTrack(1); renderQuickPickerControls(); } });
+    } else {
+      ctrl.innerHTML = '';
+    }
+  }
+
+  function renderQuickPickerList() {
+    var listEl = document.getElementById('swqp-list');
+    if (!listEl) return;
+    var ar = isAr();
+
+    if (qpSource === 'INTERNET_RADIO') {
+      var d = qpCache.INTERNET_RADIO;
+      var sts = (d && d.stations) || [];
+      var html = '<div class="swqp-row active" id="swqp-inet-resume">' +
+        '<div class="swqp-row-ico">▶</div>' +
+        '<div class="swqp-row-info"><div class="swqp-row-title">' + (ar ? 'استئناف آخر محطة' : 'Resume Last Station') + '</div>' +
+        '<div class="swqp-row-sub">' + (ar ? 'تشغيل آخر إذاعة إنترنت محفوظة' : 'Play last saved internet radio station') + '</div></div></div>';
+      if (!sts.length) {
+        html += '<div class="swqp-empty">' + (d ? (ar ? 'لا توجد محطات مطابقة' : 'No matching stations') : (ar ? 'جاري تحميل المحطات...' : 'Loading stations...')) + '</div>';
+      } else {
+        sts.forEach(function (st, idx) {
+          html += '<div class="swqp-row" data-qp-ist="' + idx + '">' +
+            '<div class="swqp-row-ico">📡</div>' +
+            '<div class="swqp-row-info"><div class="swqp-row-title">' + esc(st.name) + '</div>' +
+            '<div class="swqp-row-sub">' + esc(st.country || 'Internet Radio') + '</div></div>' +
+            (st.favorite ? '<div class="swqp-row-badge" style="color:#fde68a;background:rgba(253,230,138,0.16);">★</div>' : '') +
+            '</div>';
+        });
+      }
+      listEl.innerHTML = html;
+      document.getElementById('swqp-inet-resume').addEventListener('click', function () {
+        if (bridge() && bridge().resumeShineWaveQueue) bridge().resumeShineWaveQueue('INTERNET_RADIO');
+        else applySourceSelection('INTERNET_RADIO');
+        closeQuickPicker();
+      });
+      listEl.querySelectorAll('[data-qp-ist]').forEach(function (row) {
+        row.addEventListener('click', function () {
+          var st = sts[parseInt(row.getAttribute('data-qp-ist'), 10)];
+          if (!st) return;
+          m.source = 'INTERNET_RADIO';
+          try { localStorage.setItem('shine_wave_active_source', 'INTERNET_RADIO'); } catch (e) {}
+          if (bridge()) bridge().playShineWaveInternetStation(st.uuid, st.name, st.url, st.country);
+          else {
+            m.title = st.name; m.artist = 'Internet Radio'; m.dur = 0; m.pos = 0; m.playing = true;
+            render();
+            if (typeof window.syncShineWaveStudioState === 'function') window.syncShineWaveStudioState(m);
+          }
+          closeQuickPicker();
+        });
+      });
+    } else if (qpSource === 'LOCAL_MUSIC') {
+      var ld = qpCache.LOCAL_MUSIC;
+      if (!ld) {
+        listEl.innerHTML = '<div class="swqp-empty">' + (ar ? 'جاري فحص الذاكرة والفلاشة...' : 'Scanning USB & local files...') + '</div>';
+        return;
+      }
+      var lHtml = '';
+      if (!qpLocalFolder && !qpLocalQuery && ld.hasSavedQueue) {
+        lHtml += '<div class="swqp-row active" id="swqp-loc-resume">' +
+          '<div class="swqp-row-ico">▶</div>' +
+          '<div class="swqp-row-info"><div class="swqp-row-title">' + (ar ? 'استئناف آخر تشغيل' : 'Resume Last Track') + '</div>' +
+          '<div class="swqp-row-sub">' + (ar ? 'متابعة آخر قائمة تشغيل من الفلاشة' : 'Continue last local playback queue') + '</div></div></div>';
+      }
+      if (qpLocalFolder && !qpLocalQuery) {
+        lHtml += '<div class="swqp-row" id="swqp-loc-up">' +
+          '<div class="swqp-row-ico folder">‹</div>' +
+          '<div class="swqp-row-info"><div class="swqp-row-title">' + (ar ? 'المجلد السابق' : 'Parent Folder') + '</div>' +
+          '<div class="swqp-row-sub">' + esc(ld.currentFolderName || qpLocalFolder) + '</div></div></div>';
+      }
+      (ld.folders || []).forEach(function (f) {
+        lHtml += '<div class="swqp-row" data-qp-lfolder="' + esc(f.path) + '">' +
+          '<div class="swqp-row-ico folder">📁</div>' +
+          '<div class="swqp-row-info"><div class="swqp-row-title">' + esc(f.name) + '</div>' +
+          '<div class="swqp-row-sub">' + esc(f.count + (ar ? ' ملف صوتي' : ' tracks')) + '</div></div>' +
+          '<div class="swqp-row-badge">›</div></div>';
+      });
+      (ld.tracks || []).forEach(function (t, tidx) {
+        lHtml += '<div class="swqp-row" data-qp-ltrack="' + esc(t.id) + '" data-qp-tidx="' + tidx + '">' +
+          '<div class="swqp-row-ico">♪</div>' +
+          '<div class="swqp-row-info"><div class="swqp-row-title">' + esc(t.title) + '</div>' +
+          '<div class="swqp-row-sub">' + esc(t.artist) + '</div></div>' +
+          (t.durationSec > 0 ? '<div class="swqp-row-badge">' + esc(formatTime(t.durationSec)) + '</div>' : '') +
+          '</div>';
+      });
+      if (!lHtml) lHtml = '<div class="swqp-empty">' + (ar ? 'لا توجد ملفات مطابقة' : 'No matching tracks') + '</div>';
+      listEl.innerHTML = lHtml;
+
+      var rBtn = document.getElementById('swqp-loc-resume');
+      if (rBtn) rBtn.addEventListener('click', function () {
+        if (bridge() && bridge().resumeShineWaveQueue) bridge().resumeShineWaveQueue('LOCAL_MUSIC');
+        else applySourceSelection('LOCAL_MUSIC');
+        closeQuickPicker();
+      });
+      var upBtn = document.getElementById('swqp-loc-up');
+      if (upBtn) upBtn.addEventListener('click', function () {
+        qpLocalFolder = ld.parentFolder || '';
+        fetchQuickPickerData('LOCAL_MUSIC');
+      });
+      listEl.querySelectorAll('[data-qp-lfolder]').forEach(function (row) {
+        row.addEventListener('click', function () {
+          qpLocalFolder = row.getAttribute('data-qp-lfolder');
+          fetchQuickPickerData('LOCAL_MUSIC');
+        });
+      });
+      listEl.querySelectorAll('[data-qp-ltrack]').forEach(function (row) {
+        row.addEventListener('click', function () {
+          var tid = row.getAttribute('data-qp-ltrack');
+          m.source = 'LOCAL_MUSIC';
+          try { localStorage.setItem('shine_wave_active_source', 'LOCAL_MUSIC'); } catch (e) {}
+          if (bridge()) bridge().playShineWaveLocalTrack(qpLocalFolder, qpLocalQuery, tid);
+          else {
+            var db = window.ShineWaveSimDb;
+            if (db && db.localTracks) {
+              for (var i = 0; i < db.localTracks.length; i++) {
+                if (db.localTracks[i].id === tid) { db.localIdx = i; break; }
+              }
+            }
+            applySourceSelection('LOCAL_MUSIC');
+          }
+          closeQuickPicker();
+        });
+      });
+    } else if (qpSource === 'CAR_RADIO') {
+      var r = qpCache.CAR_RADIO || (window.ShineWaveSimDb && window.ShineWaveSimDb.radio) || { radioType: 'FM', band: 'FM', freqKhz: 100600, stations: [], dabItems: [] };
+      var isDab = r.radioType === 'DAB';
+      var isAm = r.band === 'AM' && !isDab;
+      var curLabel = isDab ? 'DAB+' : (isAm ? ('AM ' + r.freqKhz + ' kHz') : ('FM ' + (r.freqKhz / 1000).toFixed(1) + ' MHz'));
+      var rHtml = '<div class="swqp-row active" id="swqp-r-current">' +
+        '<div class="swqp-row-ico">▶</div>' +
+        '<div class="swqp-row-info"><div class="swqp-row-title">' + (ar ? 'تشغيل التردد الحالي: ' : 'Play Current: ') + esc(curLabel) + '</div>' +
+        '<div class="swqp-row-sub">' + (ar ? 'تفعيل صوت راديو السيارة مباشرة' : 'Activate Car Radio immediately') + '</div></div></div>';
+      if (isDab) {
+        (r.dabItems || []).forEach(function (it) {
+          rHtml += '<div class="swqp-row" data-qp-dab="' + esc(it.mediaId) + '" data-qp-dtitle="' + esc(it.title) + '">' +
+            '<div class="swqp-row-ico">📻</div>' +
+            '<div class="swqp-row-info"><div class="swqp-row-title">' + esc(it.title) + '</div>' +
+            '<div class="swqp-row-sub">DAB+ Digital Radio</div></div></div>';
+        });
+      } else {
+        var sortedSts = (r.stations || []).slice().sort(function (a, b) {
+          return (b.favorite ? 1 : 0) - (a.favorite ? 1 : 0);
+        });
+        if (!sortedSts.length) {
+          rHtml += '<div class="swqp-empty">' + (ar ? 'لا توجد محطات محفوظة حالياً — افتح المشغل الكامل للمسح التلقائي' : 'No saved stations yet') + '</div>';
+        } else {
+          sortedSts.forEach(function (st) {
+            var fText = isAm ? (st.freq + ' kHz') : ((st.freq / 1000).toFixed(1) + ' MHz');
+            rHtml += '<div class="swqp-row' + (st.freq === r.freqKhz ? ' active' : '') + '" data-qp-rfreq="' + st.freq + '" data-qp-rname="' + esc(st.name || fText) + '">' +
+              '<div class="swqp-row-ico">' + (st.favorite ? '★' : '📻') + '</div>' +
+              '<div class="swqp-row-info"><div class="swqp-row-title">' + esc(st.name || fText) + '</div>' +
+              '<div class="swqp-row-sub">' + esc(fText) + '</div></div></div>';
+          });
+        }
+      }
+      listEl.innerHTML = rHtml;
+
+      document.getElementById('swqp-r-current').addEventListener('click', function () {
+        if (bridge() && !isDab && bridge().tuneShineWaveRadio) {
+          m.source = 'CAR_RADIO';
+          try { localStorage.setItem('shine_wave_active_source', 'CAR_RADIO'); } catch (e) {}
+          bridge().tuneShineWaveRadio(r.band || 'FM', r.freqKhz);
+          render();
+        } else {
+          applySourceSelection('CAR_RADIO');
+        }
+        closeQuickPicker();
+      });
+      listEl.querySelectorAll('[data-qp-rfreq]').forEach(function (row) {
+        row.addEventListener('click', function () {
+          var fk = parseInt(row.getAttribute('data-qp-rfreq'), 10);
+          m.source = 'CAR_RADIO';
+          try { localStorage.setItem('shine_wave_active_source', 'CAR_RADIO'); } catch (e) {}
+          if (bridge() && bridge().tuneShineWaveRadio) {
+            bridge().tuneShineWaveRadio(r.band || 'FM', fk);
+            render();
+          } else {
+            if (window.ShineWaveSimDb) window.ShineWaveSimDb.radio.freqKhz = fk;
+            applySourceSelection('CAR_RADIO');
+          }
+          closeQuickPicker();
+        });
+      });
+      listEl.querySelectorAll('[data-qp-dab]').forEach(function (row) {
+        row.addEventListener('click', function () {
+          var mid = row.getAttribute('data-qp-dab');
+          m.source = 'CAR_RADIO';
+          try { localStorage.setItem('shine_wave_active_source', 'CAR_RADIO'); } catch (e) {}
+          if (bridge() && bridge().playShineWaveDab) bridge().playShineWaveDab(mid);
+          else applySourceSelection('CAR_RADIO');
+          closeQuickPicker();
+        });
+      });
+    } else if (qpSource === 'EXTERNAL_APP') {
+      var ad = qpCache.EXTERNAL_APP || (window.ShineWaveSimDb ? { apps: window.ShineWaveSimDb.apps } : null);
+      var apps = (ad && ad.apps) || [];
+      if (!apps.length) {
+        listEl.innerHTML = '<div class="swqp-empty">' + (ad ? (ar ? 'لا توجد تطبيقات ميديا مثبتة' : 'No installed media apps found') : (ar ? 'جاري تحميل التطبيقات...' : 'Loading media apps...')) + '</div>';
+        return;
+      }
+      listEl.innerHTML = apps.map(function (a, idx) {
+        return '<div class="swqp-row' + (a.selected ? ' active' : '') + '" data-qp-app="' + idx + '">' +
+          '<div class="swqp-row-ico">' + (a.icon ? '<img src="' + esc(a.icon) + '" alt="">' : '🎵') + '</div>' +
+          '<div class="swqp-row-info"><div class="swqp-row-title">' + esc(a.label) + (a.selected ? ' ✓' : '') + '</div>' +
+          '<div class="swqp-row-sub">' + esc(a.pkg) + '</div></div>' +
+          '<button type="button" class="swqp-pill mint" data-qp-appopen="' + idx + '">' + (ar ? 'فتح' : 'Open') + '</button>' +
+          '</div>';
+      }).join('');
+
+      listEl.querySelectorAll('[data-qp-app]').forEach(function (row) {
+        row.addEventListener('click', function (e) {
+          var launchNow = !!(e.target && e.target.getAttribute('data-qp-appopen') !== null);
+          var a = apps[parseInt(row.getAttribute('data-qp-app'), 10)];
+          if (!a) return;
+          m.source = 'EXTERNAL_APP';
+          try { localStorage.setItem('shine_wave_active_source', 'EXTERNAL_APP'); } catch (e2) {}
+          if (bridge() && bridge().selectShineWaveExternalApp) {
+            bridge().selectShineWaveExternalApp(a.pkg, a.label, launchNow);
+            render();
+          } else {
+            apps.forEach(function (x) { x.selected = (x.pkg === a.pkg); });
+            applySourceSelection('EXTERNAL_APP');
+          }
+          closeQuickPicker();
+        });
+      });
+    } else if (qpSource === 'BLUETOOTH') {
+      var liveTrack = m.title && m.source === 'BLUETOOTH' ? m.title : (ar ? 'صوت البلوتوث التلقائي' : 'Bluetooth Audio Stream');
+      listEl.innerHTML =
+        '<div class="swqp-row active" id="swqp-bt-play">' +
+          '<div class="swqp-row-ico">▶</div>' +
+          '<div class="swqp-row-info"><div class="swqp-row-title">' + (ar ? 'تفعيل وتشغيل البلوتوث' : 'Activate & Play Bluetooth') + '</div>' +
+          '<div class="swqp-row-sub">' + esc(liveTrack) + '</div></div></div>' +
+        '<div class="swqp-row" id="swqp-bt-settings">' +
+          '<div class="swqp-row-ico">⚙</div>' +
+          '<div class="swqp-row-info"><div class="swqp-row-title">' + (ar ? 'إعدادات اتصال البلوتوث' : 'Bluetooth Connection Settings') + '</div>' +
+          '<div class="swqp-row-sub">' + (ar ? 'فحص أو إقران الهاتف بالسيارة' : 'Manage paired phone & connection') + '</div></div></div>';
+      document.getElementById('swqp-bt-play').addEventListener('click', function () {
+        applySourceSelection('BLUETOOTH');
+        closeQuickPicker();
+      });
+      document.getElementById('swqp-bt-settings').addEventListener('click', function () {
+        closeQuickPicker();
+        if (typeof window.openConnectivityModal === 'function') window.openConnectivityModal('bluetooth');
+      });
+    }
+  }
+
+  window.__onSwQuickPickerData = function (key, data) {
+    qpCache[key] = data;
+    var ov = document.getElementById('swcard-picker-overlay');
+    if (ov && ov.classList.contains('active') && qpSource === key) {
+      if (key === 'CAR_RADIO') renderQuickPickerControls();
+      renderQuickPickerList();
+    }
+  };
 
   function toggleSources(force) {
     var open = typeof force === 'boolean' ? force : !el.root.classList.contains('src-open');

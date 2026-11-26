@@ -1323,7 +1323,12 @@
   };
 
   /* ---------- Native Async Callbacks ---------- */
-  window.onShineWaveLocalData = function (data) { localData = data; if (activeTab === 'LOCAL_MUSIC') renderBody(); };
+  window.ShineWaveSimDb = simDb;
+  window.onShineWaveLocalData = function (data) {
+    localData = data;
+    if (activeTab === 'LOCAL_MUSIC') renderBody();
+    if (typeof window.__onSwQuickPickerData === 'function') window.__onSwQuickPickerData('LOCAL_MUSIC', data);
+  };
   window.onShineWaveRadioData = function (data) {
     radioData = data;
     if (activeTab === 'CAR_RADIO') {
@@ -1335,13 +1340,22 @@
         var slEl = document.getElementById('swst-radio-slider');
         if (numEl && data) numEl.textContent = isDab ? 'DAB+' : (isAm ? String(data.freqKhz) : (data.freqKhz / 1000).toFixed(1));
         if (slEl && data) slEl.value = data.freqKhz;
-        return;
+      } else {
+        renderBody();
       }
-      renderBody();
     }
+    if (typeof window.__onSwQuickPickerData === 'function') window.__onSwQuickPickerData('CAR_RADIO', data);
   };
-  window.onShineWaveInternetData = function (data) { internetData = data; if (activeTab === 'INTERNET_RADIO') renderBody(); };
-  window.onShineWaveAppsData = function (data) { appsData = data; if (activeTab === 'EXTERNAL_APP') renderBody(); };
+  window.onShineWaveInternetData = function (data) {
+    internetData = data;
+    if (activeTab === 'INTERNET_RADIO') renderBody();
+    if (typeof window.__onSwQuickPickerData === 'function') window.__onSwQuickPickerData('INTERNET_RADIO', data);
+  };
+  window.onShineWaveAppsData = function (data) {
+    appsData = data;
+    if (activeTab === 'EXTERNAL_APP') renderBody();
+    if (typeof window.__onSwQuickPickerData === 'function') window.__onSwQuickPickerData('EXTERNAL_APP', data);
+  };
   window.onShineWaveQueueData = function (data) { queueData = data; if (queueViewOpen) renderBody(); };
 
   function loadTabData(tab) {

@@ -11,6 +11,8 @@ HERO_CAM_POS = new THREE.Vector3(4500, 2100, 5200);
 CAM_TARGET = new THREE.Vector3(0, 16, 0);
 var seatPaintCanvas = null;
 var seatPaintCtx = null;
+var seatWorkCanvas = null;
+var seatWorkCtx = null;
 var seatPaintTexture = null;
 var seatImages = { sport: null };
 var seatMaterials = [];
@@ -347,9 +349,14 @@ var _paintQueued = false;
       carPaintTexture.minFilter = THREE.LinearFilter;
       carPaintTexture.magFilter = THREE.LinearFilter;
 
+      seatWorkCanvas = document.createElement('canvas');
+      seatWorkCanvas.width = 512;
+      seatWorkCanvas.height = 512;
+      seatWorkCtx = seatWorkCanvas.getContext('2d');
+
       seatPaintCanvas = document.createElement('canvas');
-      seatPaintCanvas.width = 1024;
-      seatPaintCanvas.height = 1024;
+      seatPaintCanvas.width = 2048;
+      seatPaintCanvas.height = 2048;
       seatPaintCtx = seatPaintCanvas.getContext('2d');
       seatPaintTexture = new THREE.CanvasTexture(seatPaintCanvas);
       seatPaintTexture.flipY = false;
@@ -366,44 +373,98 @@ var _paintQueued = false;
     }
 
     function updateSeatUpholstery() {
-      if (!seatPaintCtx || !seatPaintTexture) return;
+      if (!seatPaintCtx || !seatPaintTexture || !seatWorkCtx) return;
       const sOpt = state.seatOption || 'sport';
       const baseImg = seatImages.sport || seatImages[sOpt];
       if (!isTexImgReady(baseImg)) return;
 
-      const W = seatPaintCanvas.width;
+      const W = seatWorkCanvas.width;   // 512
+      const HW = seatPaintCanvas.width; // 2048
+      const scaleF = HW / W;            // 4
       const totalPx = W * W;
-      seatPaintCtx.fillStyle = '#060607';
-      seatPaintCtx.fillRect(0, 0, W, W);
-      seatPaintCtx.imageSmoothingEnabled = true;
-      seatPaintCtx.drawImage(baseImg, 0, 0, W, W);
 
-      const imgData = seatPaintCtx.getImageData(0, 0, W, W);
+      seatWorkCtx.fillStyle = '#060607';
+      seatWorkCtx.fillRect(0, 0, W, W);
+      seatWorkCtx.imageSmoothingEnabled = true;
+      seatWorkCtx.drawImage(baseImg, 0, 0, W, W);
+
+      const imgData = seatWorkCtx.getImageData(0, 0, W, W);
       const d = imgData.data;
 
       if (sOpt === 'black') {
-        // Pre-build strict orange & light-grey masks at 1024x1024, rejecting dark-red UV gutter bleed
-        const orangeMask = new Uint8Array(totalPx);
-        const greyMask = new Uint8Array(totalPx);
-        const stitchMask = new Uint8Array(totalPx);
+        // 1. Extract smooth floating-point stitch trajectories from raw 512x512 pixels BEFORE darkening
+        const traceSmoothBand = function (bx0, bx1, by0, by1, mode) {
+          const pts = [];
+          const rawY = new Float32Array(W);
+          for (let x = 0; x < W; x++) rawY[x] = -1;
 
-        for (let p = 0; p < totalPx; p++) {
-          const i = p * 4;
-          const r = d[i], g = d[i + 1], b = d[i + 2];
-          const x = p % W;
-          const y = (p / W) | 0;
-          const inTopRightCollapsed = (x >= 924 && y <= 102);
-          const inTopRightBleed = (x >= 795 && y <= 98);
-          const isStrictOrange = !inTopRightCollapsed && !inTopRightBleed &&
-            (r >= 105 && r > g * 1.65 && r > b * 2.0 && b < 95);
-          if (isStrictOrange) {
-            orangeMask[p] = 1;
-          } else if (r >= 92 && g >= 92 && b >= 92 && Math.abs(r - g) < 32 && Math.abs(g - b) < 32) {
-            greyMask[p] = 1;
+          for (let x = bx0; x <= bx1; x++) {
+            let chosenY = -1;
+            if (mode === 'seam') {
+              let orangeMinY = -1, orangeMaxY = -1;
+              let greyMinY = -1, greyMaxY = -1;
+              for (let y = by0; y <= by1; y++) {
+                const i = (y * W + x) * 4;
+                const r = d[i], g = d[i + 1], b = d[i + 2];
+                if (r >= 110 && r > g * 1.55 && r > b * 1.8 && b < 95) {
+                  if (orangeMinY < 0) orangeMinY = y;
+                  orangeMaxY = y;
+                } else if (r >= 95 && g >= 95 && b >= 95 && Math.abs(r - g) < 32 && Math.abs(g - b) < 32) {
+                  if (greyMinY < 0) greyMinY = y;
+                  greyMaxY = y;
+                }
+              }
+              if (orangeMinY >= 0 && greyMinY >= 0) {
+                chosenY = (orangeMaxY <= greyMinY + 2) ? (orangeMaxY + greyMinY) * 0.5
+                  : ((greyMaxY <= orangeMinY + 2) ? (greyMaxY + orangeMinY) * 0.5 : (orangeMinY + orangeMaxY) * 0.5);
+              }
+            } else {
+              let bestChroma = -1;
+              for (let y = by0; y <= by1; y++) {
+                const i = (y * W + x) * 4;
+                const r = d[i], g = d[i + 1], b = d[i + 2];
+                if (r >= 115 && r > g * 1.65 && r > b * 2.0 && b < 95) {
+                  const chroma = (r - g) + (r - b) * 0.5;
+                  if (chroma > bestChroma) {
+                    bestChroma = chroma;
+                    chosenY = y;
+                  }
+                }
+              }
+            }
+            rawY[x] = chosenY;
           }
-        }
 
-        // Convert every pixel first to unified true deep black leather shading
+          // 11-point moving average for silky-smooth hairline trajectory
+          for (let x = bx0; x <= bx1; x++) {
+            if (rawY[x] < 0) continue;
+            let sum = 0, cnt = 0;
+            for (let dx = -5; dx <= 5; dx++) {
+              const nx = x + dx;
+              if (nx >= bx0 && nx <= bx1 && rawY[nx] >= 0) {
+                sum += rawY[nx];
+                cnt++;
+              }
+            }
+            if (cnt > 0) {
+              pts.push([x * scaleF, (sum / cnt) * scaleF]);
+            }
+          }
+          return pts;
+        };
+
+        const stitchPaths = [
+          // 4 piping welt strips (trimmed slightly from pinched UV tips)
+          traceSmoothBand(312, 436, 48, 66, 'peak'),
+          traceSmoothBand(400, 496, 72, 92, 'peak'),
+          traceSmoothBand(374, 482, 322, 350, 'peak'),
+          traceSmoothBand(344, 458, 413, 441, 'peak'),
+          // 2 front-seat shoulder bolster interior seams
+          traceSmoothBand(254, 330, 160, 194, 'seam'),
+          traceSmoothBand(328, 406, 240, 270, 'seam')
+        ];
+
+        // 2. Convert every pixel first to unified true deep black leather shading
         for (let p = 0; p < totalPx; p++) {
           const i = p * 4;
           const r = d[i], g = d[i + 1], b = d[i + 2];
@@ -422,78 +483,32 @@ var _paintQueued = false;
           d[i + 2] = v + 1;
           d[i + 3] = 255;
         }
+        seatWorkCtx.putImageData(imgData, 0, 0);
 
-        // Zone A: Front-seat shoulder bolsters & center bolster — 1px thinned seam stitch strictly where orange meets interior grey stripe
-        for (let y = 280; y <= 820; y++) {
-          const rowOff = y * W;
-          const maxX = (y >= 620) ? 659 : 834;
-          for (let x = 0; x <= maxX; x++) {
-            const p = rowOff + x;
-            if (!orangeMask[p]) continue;
-            const seamTouch =
-              (y > 0 && greyMask[p - W]) ||
-              (y + 1 < W && greyMask[p + W]) ||
-              (x > 0 && greyMask[p - 1] && !(y > 0 && orangeMask[p - W] && greyMask[p - W - 1]));
-            if (seamTouch) {
-              stitchMask[p] = 1;
-            }
-          }
-        }
+        seatPaintCtx.imageSmoothingEnabled = true;
+        seatPaintCtx.drawImage(seatWorkCanvas, 0, 0, HW, HW);
 
-        // Zone B: 4 seat piping welt strips — smoothed 1px midpoint spline per X column (zero gutter/teeth bleed)
-        const pipingBands = [
-          [600, 923, 98, 132],
-          [600, 999, 145, 188],
-          [660, 999, 625, 705],
-          [660, 999, 815, 885]
-        ];
-        for (let bIdx = 0; bIdx < pipingBands.length; bIdx++) {
-          const bx0 = pipingBands[bIdx][0];
-          const bx1 = Math.min(W - 1, pipingBands[bIdx][1]);
-          const by0 = pipingBands[bIdx][2];
-          const by1 = pipingBands[bIdx][3];
-          const midArr = new Int16Array(W);
-          midArr.fill(-1);
-          for (let x = bx0; x <= bx1; x++) {
-            let minY = -1, maxY = -1;
-            for (let y = by0; y <= by1; y++) {
-              if (orangeMask[y * W + x]) {
-                if (minY < 0) minY = y;
-                maxY = y;
-              }
-            }
-            if (minY >= 0 && (maxY - minY) <= 42) {
-              midArr[x] = (minY + maxY) >> 1;
+        // 3. Draw ultra-fine 0.9px orange hairline threads onto 2048x2048 texture
+        seatPaintCtx.save();
+        seatPaintCtx.strokeStyle = 'rgba(182, 56, 12, 0.85)';
+        seatPaintCtx.lineWidth = 0.9;
+        seatPaintCtx.lineCap = 'round';
+        seatPaintCtx.lineJoin = 'round';
+        for (let pIdx = 0; pIdx < stitchPaths.length; pIdx++) {
+          const pts = stitchPaths[pIdx];
+          if (pts.length < 2) continue;
+          seatPaintCtx.beginPath();
+          seatPaintCtx.moveTo(pts[0][0], pts[0][1]);
+          for (let k = 1; k < pts.length; k++) {
+            if (Math.abs(pts[k][0] - pts[k - 1][0]) > 10 * scaleF || Math.abs(pts[k][1] - pts[k - 1][1]) > 10 * scaleF) {
+              seatPaintCtx.moveTo(pts[k][0], pts[k][1]);
+            } else {
+              seatPaintCtx.lineTo(pts[k][0], pts[k][1]);
             }
           }
-          for (let x = bx0; x <= bx1; x++) {
-            if (midArr[x] < 0) continue;
-            let sumY = 0, cntY = 0;
-            for (let dx = -2; dx <= 2; dx++) {
-              const nx = x + dx;
-              if (nx >= bx0 && nx <= bx1 && midArr[nx] >= 0) {
-                sumY += midArr[nx];
-                cntY++;
-              }
-            }
-            if (cntY > 0) {
-              const sy = Math.round(sumY / cntY);
-              if (sy >= by0 && sy <= by1) {
-                stitchMask[sy * W + x] = 1;
-              }
-            }
-          }
+          seatPaintCtx.stroke();
         }
-
-        // Apply subtle warm hairline thread color rgb(190, 58, 12)
-        for (let p = 0; p < totalPx; p++) {
-          if (stitchMask[p]) {
-            const i = p * 4;
-            d[i]     = 190;
-            d[i + 1] = 58;
-            d[i + 2] = 12;
-          }
-        }
+        seatPaintCtx.restore();
       } else {
         for (let p = 0; p < totalPx; p++) {
           const i = p * 4;
@@ -518,10 +533,11 @@ var _paintQueued = false;
               d[i + 1] = Math.min(255, (192 * yScale) >> 8);
               d[i + 2] = (6 * maxC) >> 8;
             } else {
-              const gBase = 13 + shade * 7;
+              // Dark charcoal grey (not black, calibrated for ~2.5x scene lighting) for Sport Yellow leather bolsters & panels
+              const gBase = 24 + shade * 12;
               d[i]     = Math.round(gBase);
-              d[i + 1] = Math.round(gBase * 1.03);
-              d[i + 2] = Math.round(gBase * 1.08);
+              d[i + 1] = Math.round(gBase * 1.02);
+              d[i + 2] = Math.round(gBase * 1.06);
             }
           } else {
             // 'sport' (رياضي ملون): keep orange & light grey, darken black leather 4 shades
@@ -533,9 +549,11 @@ var _paintQueued = false;
           }
           d[i + 3] = 255;
         }
+        seatWorkCtx.putImageData(imgData, 0, 0);
+        seatPaintCtx.imageSmoothingEnabled = true;
+        seatPaintCtx.drawImage(seatWorkCanvas, 0, 0, HW, HW);
       }
 
-      seatPaintCtx.putImageData(imgData, 0, 0);
       seatPaintTexture.needsUpdate = true;
 
       const softCabinEmissive = (sOpt === 'black') ? 0x050608 : 0x050709;
@@ -552,7 +570,7 @@ var _paintQueued = false;
         nodes['C65_zuoyi'].material.needsUpdate = true;
       }
       if (nodes['C65_zhongkong'] && nodes['C65_zhongkong'].material && nodes['C65_zhongkong'].material.emissive) {
-        nodes['C65_zhongkong'].material.emissive.setHex(0x06080b);
+        nodes['C65_zhongkong'].material.emissive.setHex(0x020203);
         nodes['C65_zhongkong'].material.needsUpdate = true;
       }
       idleRenderCountdown = 120;
@@ -583,7 +601,7 @@ var _paintQueued = false;
       const isPureGlossyBlack = (colLower === '#0a0a0a' || colLower === '#050505' || colLower === '#000000');
       const isDarkerGrey = (colLower === '#4b5563' || colLower === '#343a42' || colLower === '#181c22');
       const isDarkGrey = (colLower === '#9ca3af' || colLower === '#5f6b7c' || colLower === '#6c7684');
-      const isLightGrey = (colLower === '#ffffff' || colLower === '#e2e8f0');
+      const isPearlWhite = (colLower === '#ffffff' || colLower === '#e2e8f0');
 
       if (isPureGlossyBlack) {
         bodyRgb = { r: 6, g: 7, b: 8 };
@@ -591,8 +609,8 @@ var _paintQueued = false;
         bodyRgb = { r: 22, g: 25, b: 30 };
       } else if (isDarkGrey) {
         bodyRgb = { r: 55, g: 61, b: 70 };
-      } else if (isLightGrey) {
-        bodyRgb = { r: 96, g: 106, b: 120 };
+      } else if (isPearlWhite) {
+        bodyRgb = { r: 176, g: 173, b: 166 };
       }
       const roofOpt = state.roofOption || 'black';
       const lipOpt = state.lipOption || 'orange';
@@ -604,9 +622,10 @@ var _paintQueued = false;
       for (let l = 0; l < 256; l++) {
         const lum = l / 255.0;
         const cLum = 0.98 * Math.pow(Math.min(lum, 0.96), 1.06);
-        bodyLutR[l] = Math.min(255, Math.round(bodyRgb.r * cLum));
-        bodyLutG[l] = Math.min(255, Math.round(bodyRgb.g * cLum));
-        bodyLutB[l] = Math.min(255, Math.round(bodyRgb.b * cLum));
+        const effLum = isPearlWhite ? (0.24 + 0.76 * cLum) : cLum;
+        bodyLutR[l] = Math.min(255, Math.round(bodyRgb.r * effLum));
+        bodyLutG[l] = Math.min(255, Math.round(bodyRgb.g * effLum));
+        bodyLutB[l] = Math.min(255, Math.round(bodyRgb.b * effLum));
         darkLutR[l] = Math.round(9 * lum);
         darkLutG[l] = Math.round(10 * lum);
         darkLutB[l] = Math.round(12 * lum);
@@ -670,18 +689,24 @@ var _paintQueued = false;
         nodes['C65_cheqi'].material.map = carPaintTexture;
         nodes['C65_cheqi'].material.color.set('#ffffff');
         if (nodes['C65_cheqi'].material.reflectivity !== undefined) {
-          nodes['C65_cheqi'].material.reflectivity = isPureGlossyBlack ? 0.24 : (isDarkerGrey ? 0.19 : (isDarkGrey ? 0.16 : 0.13));
+          nodes['C65_cheqi'].material.reflectivity = isPureGlossyBlack ? 0.24 : (isPearlWhite ? 0.21 : (isDarkerGrey ? 0.19 : 0.16));
+        }
+        if (nodes['C65_cheqi'].material.userData && nodes['C65_cheqi'].material.userData.pearlUniform) {
+          nodes['C65_cheqi'].material.userData.pearlUniform.value = isPearlWhite ? 1.0 : 0.0;
         }
         nodes['C65_cheqi'].material.needsUpdate = true;
       }
       if (nodes['C65_chejia'] && nodes['C65_chejia'].material) {
-        let frameHex = '#6c7684';
+        let frameHex = isPearlWhite ? '#cfd5de' : '#6c7684';
         if (isPureGlossyBlack) frameHex = '#080808';
         else if (isDarkerGrey) frameHex = '#16191e';
         else if (isDarkGrey) frameHex = '#373d46';
         nodes['C65_chejia'].material.color.set(frameHex);
         if (nodes['C65_chejia'].material.reflectivity !== undefined) {
-          nodes['C65_chejia'].material.reflectivity = isPureGlossyBlack ? 0.22 : (isDarkerGrey ? 0.16 : 0.12);
+          nodes['C65_chejia'].material.reflectivity = isPureGlossyBlack ? 0.22 : (isPearlWhite ? 0.20 : (isDarkerGrey ? 0.16 : 0.12));
+        }
+        if (nodes['C65_chejia'].material.userData && nodes['C65_chejia'].material.userData.pearlUniform) {
+          nodes['C65_chejia'].material.userData.pearlUniform.value = isPearlWhite ? 1.0 : 0.0;
         }
         nodes['C65_chejia'].material.needsUpdate = true;
       }
@@ -814,6 +839,33 @@ var _paintQueued = false;
           reflectivity: isPaintOrFrame ? 0.18 : 0.0,
           side: isCriticalDoubleSide ? THREE.DoubleSide : THREE.FrontSide
         });
+        if (isPaintOrFrame) {
+          lam.userData.pearlUniform = { value: 0.0 };
+          lam.onBeforeCompile = function (shader) {
+            shader.uniforms.uIsPearlWhite = lam.userData.pearlUniform;
+            shader.vertexShader = 'varying vec3 vPearlNormal;\nvarying vec3 vPearlViewPos;\n' + shader.vertexShader;
+            shader.vertexShader = shader.vertexShader.replace(
+              '#include <project_vertex>',
+              '#include <project_vertex>\n  vPearlNormal = normalize(transformedNormal);\n  vPearlViewPos = -mvPosition.xyz;\n'
+            );
+            shader.fragmentShader = 'uniform float uIsPearlWhite;\nvarying vec3 vPearlNormal;\nvarying vec3 vPearlViewPos;\n' + shader.fragmentShader;
+            shader.fragmentShader = shader.fragmentShader.replace(
+              '#include <dithering_fragment>',
+              `#include <dithering_fragment>
+               if (uIsPearlWhite > 0.5) {
+                 float pLuma = dot(gl_FragColor.rgb, vec3(0.299, 0.587, 0.114));
+                 float pChroma = max(gl_FragColor.r, gl_FragColor.g) - gl_FragColor.b;
+                 float pMask = smoothstep(0.18, 0.44, pLuma) * (1.0 - smoothstep(0.14, 0.28, pChroma));
+                 vec3 c = (gl_FragColor.rgb * (1.0 + gl_FragColor.rgb * 0.20)) / (1.0 + gl_FragColor.rgb * 0.56);
+                 float ndv = clamp(abs(dot(normalize(vPearlNormal), normalize(vPearlViewPos))), 0.0, 1.0);
+                 c += vec3(0.068, 0.055, 0.028) * pow(ndv, 2.5);
+                 c += vec3(0.038, 0.056, 0.085) * pow(1.0 - ndv, 2.2);
+                 gl_FragColor.rgb = mix(gl_FragColor.rgb, clamp(c, 0.0, 1.0), pMask);
+               }
+              `
+            );
+          };
+        }
         lambertByUuid[stdMat.uuid] = lam;
         return lam;
       }
@@ -887,6 +939,46 @@ var _paintQueued = false;
 
       if (nodes['C65_dipan']) {
         nodes['C65_dipan'].visible = true;
+      }
+
+      // Convert white/light-beige/grey trim on dashboard & center console (C65_zhongkong) into deep off-black anthracite (closer to black than grey)
+      if (nodes['C65_zhongkong'] && nodes['C65_zhongkong'].material && nodes['C65_zhongkong'].material.map && nodes['C65_zhongkong'].material.map.image) {
+        const dashMat = nodes['C65_zhongkong'].material;
+        const dashCanvas = document.createElement('canvas');
+        dashCanvas.width = 512;
+        dashCanvas.height = 512;
+        const dashCtx = dashCanvas.getContext('2d');
+        dashCtx.drawImage(dashMat.map.image, 0, 0, 512, 512);
+        const dashData = dashCtx.getImageData(0, 0, 512, 512);
+        const dd = dashData.data;
+        for (let y = 0; y < 512; y++) {
+          for (let x = 0; x < 512; x++) {
+            // Preserve the center infotainment screen artwork UV rect
+            if (x >= 270 && x <= 336 && y >= 80 && y <= 140) continue;
+            const i = (y * 512 + x) * 4;
+            const r = dd[i], g = dd[i + 1], b = dd[i + 2];
+            const lum = (r * 77 + g * 150 + b * 29) >> 8;
+            const maxC = r > g ? (r > b ? r : b) : (g > b ? g : b);
+            const minC = r < g ? (r < b ? r : b) : (g < b ? g : b);
+            const sat = maxC - minC;
+            if (lum >= 18 && sat < 68) {
+              const t = (lum - 18) / 237.0;
+              const dg = 8 + t * 7;
+              dd[i]     = Math.round(dg);
+              dd[i + 1] = Math.round(dg * 1.02);
+              dd[i + 2] = Math.round(dg * 1.05);
+            }
+          }
+        }
+        dashCtx.putImageData(dashData, 0, 0);
+        const dashTex = new THREE.CanvasTexture(dashCanvas);
+        dashTex.flipY = false;
+        dashTex.generateMipmaps = false;
+        dashTex.minFilter = THREE.LinearFilter;
+        dashTex.magFilter = THREE.LinearFilter;
+        dashMat.map = dashTex;
+        if (dashMat.emissive) dashMat.emissive.setHex(0x020203);
+        dashMat.needsUpdate = true;
       }
 
       // 4-Wheel Axle Pivots Setup (Front Steering + 4-Wheel Rolling around intrinsic centers)
@@ -987,15 +1079,16 @@ var _paintQueued = false;
         depthWrite: false
       });
 
-      // 2. Rear tailgate windshield: 100% opaque deep black privacy tint
+      // 2. Rear tailgate windshield: semi-transparent from BOTH inside & outside matching side & front glass
       const rearDarkGlassMaterial = new THREE.MeshLambertMaterial({
-        color: 0x010203,
-        envMap: studioEnvTex,
+        color: 0x060a0f,
+        envMap: doorGlassEnvTex,
         combine: THREE.AddOperation,
-        reflectivity: 0.06,
-        transparent: false,
-        opacity: 1.0,
-        side: THREE.FrontSide
+        reflectivity: 0.12,
+        transparent: true,
+        opacity: 0.54,
+        side: THREE.DoubleSide,
+        depthWrite: false
       });
 
       // 3. All 4 door windows + C-pillar quarter glass: unified semi-transparent from BOTH inside & outside

@@ -80,6 +80,8 @@ public final class NativeStreamPlayer {
     private final Random random = new Random();
 
     private MediaPlayer mediaPlayer;
+    private LiveHttpStreamEngine liveStreamEngine;
+    private volatile boolean liveStreamActive = false;
     private MediaSession mediaSession;
     private AudioFocusRequest audioFocusRequest;
 
@@ -102,7 +104,7 @@ public final class NativeStreamPlayer {
         @Override
         public void run() {
             synchronized (NativeStreamPlayer.this) {
-                if (mediaPlayer != null && prepared && isPlaying()) {
+                if ((mediaPlayer != null || liveStreamActive) && prepared && isPlaying()) {
                     notifyStateChanged();
                     mainHandler.postDelayed(this, 1000L);
                 }
@@ -200,6 +202,17 @@ public final class NativeStreamPlayer {
         }
         if (mediaSession != null) mediaSession.setActive(true);
 
+        if (liveStreamActive && liveStreamEngine != null && liveStreamEngine.isPlaying()) {
+            if (ducked) {
+                liveStreamEngine.setVolume(1.0f);
+                ducked = false;
+            }
+            playWhenPrepared = false;
+            startProgressTicker();
+            notifyStateChanged();
+            return;
+        }
+
         if (mediaPlayer != null && prepared) {
             try {
                 if (ducked) {
@@ -221,6 +234,13 @@ public final class NativeStreamPlayer {
     public synchronized void pause() {
         playWhenPrepared = false;
         stopProgressTicker();
+        if (liveStreamActive) {
+            releaseLiveEngineOnly();
+            pendingSeekMs = 0L;
+            saveQueueSnapshot(0L);
+            notifyStateChanged();
+            return;
+        }
         if (mediaPlayer != null && prepared) {
             try {
                 long pos = getCurrentPositionMs();
@@ -339,6 +359,9 @@ public final class NativeStreamPlayer {
 
     public synchronized boolean isPlaying() {
         if (playWhenPrepared && !prepared) return true;
+        if (liveStreamActive && liveStreamEngine != null) {
+            return liveStreamEngine.isPlaying();
+        }
         if (mediaPlayer == null || !prepared) return false;
         try {
             return mediaPlayer.isPlaying();
@@ -348,6 +371,9 @@ public final class NativeStreamPlayer {
     }
 
     public synchronized long getCurrentPositionMs() {
+        if (liveStreamActive && liveStreamEngine != null && liveStreamEngine.isPlaying()) {
+            return liveStreamEngine.getElapsedMs();
+        }
         if (mediaPlayer != null && prepared) {
             try {
                 return Math.max(0L, mediaPlayer.getCurrentPosition());
@@ -401,6 +427,87 @@ public final class NativeStreamPlayer {
             if (mediaSession != null) mediaSession.setActive(true);
         }
 
+        boolean isHttpStream = item.isStream
+                && (item.uriString.startsWith("http://") || item.uriString.startsWith("https://"));
+        if (isHttpStream) {
+            if (!autoPlay) {
+                notifyStateChanged();
+                return;
+            }
+            liveStreamActive = true;
+            LiveHttpStreamEngine engine = new LiveHttpStreamEngine(
+                    appContext,
+                    item.uriString,
+                    new LiveHttpStreamEngine.Callback() {
+                        @Override
+                        public void onFirstAudioPlaying() {
+                            mainHandler.post(new Runnable() {
+                                @Override
+                                public void run() {
+                                    synchronized (NativeStreamPlayer.this) {
+                                        if (gen != prepareGeneration || !liveStreamActive) return;
+                                        prepared = true;
+                                        if (ducked && liveStreamEngine != null) {
+                                            liveStreamEngine.setVolume(0.25f);
+                                        }
+                                        startProgressTicker();
+                                        notifyStateChanged();
+                                    }
+                                }
+                            });
+                        }
+
+                        @Override
+                        public void onFallbackRequired(final String resolvedUrl) {
+                            mainHandler.post(new Runnable() {
+                                @Override
+                                public void run() {
+                                    synchronized (NativeStreamPlayer.this) {
+                                        if (gen != prepareGeneration) return;
+                                        liveStreamActive = false;
+                                        liveStreamEngine = null;
+                                        String fallbackSource = (resolvedUrl != null && !resolvedUrl.isEmpty())
+                                                ? resolvedUrl : item.uriString;
+                                        prepareWithMediaPlayer(item, gen, fallbackSource, true, 0L);
+                                    }
+                                }
+                            });
+                        }
+
+                        @Override
+                        public void onStreamError(String message) {
+                            Log.w(TAG, "LiveHttpStreamEngine error: " + message + " uri=" + item.uriString);
+                            mainHandler.post(new Runnable() {
+                                @Override
+                                public void run() {
+                                    synchronized (NativeStreamPlayer.this) {
+                                        if (gen != prepareGeneration) return;
+                                        liveStreamActive = false;
+                                        liveStreamEngine = null;
+                                        prepared = false;
+                                        playWhenPrepared = false;
+                                        notifyStateChanged();
+                                    }
+                                }
+                            });
+                        }
+                    }
+            );
+            if (ducked) {
+                engine.setVolume(0.25f);
+            }
+            liveStreamEngine = engine;
+            engine.start();
+            notifyStateChanged();
+            return;
+        }
+
+        prepareWithMediaPlayer(item, gen, item.uriString, false, seekMs);
+    }
+
+    private void prepareWithMediaPlayer(
+            final QueueItem item, final int gen, final String sourceUri,
+            final boolean isStreamFallback, final long seekMs) {
         final MediaPlayer mp = new MediaPlayer();
         mediaPlayer = mp;
         try {
@@ -449,7 +556,7 @@ public final class NativeStreamPlayer {
             mp.setOnErrorListener(new MediaPlayer.OnErrorListener() {
                 @Override
                 public boolean onError(MediaPlayer player, int what, int extra) {
-                    Log.w(TAG, "MediaPlayer error what=" + what + " extra=" + extra + " uri=" + item.uriString);
+                    Log.w(TAG, "MediaPlayer error what=" + what + " extra=" + extra + " uri=" + sourceUri);
                     synchronized (NativeStreamPlayer.this) {
                         if (gen != prepareGeneration || mediaPlayer != player) return true;
                         prepared = false;
@@ -463,16 +570,18 @@ public final class NativeStreamPlayer {
                 }
             });
 
-            if (item.uriString.startsWith("http://") || item.uriString.startsWith("https://")) {
-                String proxied = LocalStreamProxy.getInstance().getProxyStreamUrl(item.uriString);
+            if (sourceUri.startsWith("http://") || sourceUri.startsWith("https://")) {
+                String proxied = LocalStreamProxy.getInstance().getProxyStreamUrl(sourceUri);
                 mp.setDataSource(proxied);
             } else {
-                mp.setDataSource(appContext, Uri.parse(item.uriString));
+                mp.setDataSource(appContext, Uri.parse(sourceUri));
             }
             mp.prepareAsync();
-            notifyStateChanged();
+            if (!isStreamFallback) {
+                notifyStateChanged();
+            }
         } catch (Throwable t) {
-            Log.e(TAG, "prepareCurrentItem failed: " + t.getMessage());
+            Log.e(TAG, "prepareWithMediaPlayer failed: " + t.getMessage());
             releaseMediaPlayerOnly();
             playWhenPrepared = false;
             if (item.isStream) {
@@ -615,7 +724,10 @@ public final class NativeStreamPlayer {
                 pause();
                 break;
             case AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK:
-                if (mediaPlayer != null && prepared) {
+                if (liveStreamActive && liveStreamEngine != null) {
+                    liveStreamEngine.setVolume(0.25f);
+                    ducked = true;
+                } else if (mediaPlayer != null && prepared) {
                     try {
                         mediaPlayer.setVolume(0.25f, 0.25f);
                         ducked = true;
@@ -623,11 +735,16 @@ public final class NativeStreamPlayer {
                 }
                 break;
             case AudioManager.AUDIOFOCUS_GAIN:
-                if (mediaPlayer != null && prepared && ducked) {
-                    try {
-                        mediaPlayer.setVolume(1.0f, 1.0f);
+                if (ducked) {
+                    if (liveStreamActive && liveStreamEngine != null) {
+                        liveStreamEngine.setVolume(1.0f);
                         ducked = false;
-                    } catch (Throwable ignored) {}
+                    } else if (mediaPlayer != null && prepared) {
+                        try {
+                            mediaPlayer.setVolume(1.0f, 1.0f);
+                            ducked = false;
+                        } catch (Throwable ignored) {}
+                    }
                 }
                 break;
         }
@@ -748,17 +865,36 @@ public final class NativeStreamPlayer {
         }
     }
 
+    private void releaseLiveEngineOnly() {
+        liveStreamActive = false;
+        LiveHttpStreamEngine oldEngine = liveStreamEngine;
+        liveStreamEngine = null;
+        if (oldEngine != null) {
+            oldEngine.stop();
+        }
+    }
+
     private void releaseMediaPlayerOnly() {
         stopProgressTicker();
         prepared = false;
-        if (mediaPlayer != null) {
-            try {
-                if (mediaPlayer.isPlaying()) mediaPlayer.stop();
-            } catch (Throwable ignored) {}
-            try {
-                mediaPlayer.release();
-            } catch (Throwable ignored) {}
-            mediaPlayer = null;
+        releaseLiveEngineOnly();
+        LocalStreamProxy.getInstance().stopActiveSession();
+        final MediaPlayer oldMp = mediaPlayer;
+        mediaPlayer = null;
+        if (oldMp != null) {
+            Thread reaper = new Thread(new Runnable() {
+                @Override
+                public void run() {
+                    try {
+                        if (oldMp.isPlaying()) oldMp.stop();
+                    } catch (Throwable ignored) {}
+                    try {
+                        oldMp.release();
+                    } catch (Throwable ignored) {}
+                }
+            }, "SW-MpReaper");
+            reaper.setDaemon(true);
+            reaper.start();
         }
     }
 

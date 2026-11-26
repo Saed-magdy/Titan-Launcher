@@ -120,6 +120,141 @@ public final class LocalStreamProxy {
         return openFollowingRedirectsWithFinalUrl(urlStr, connectTimeoutMs, readTimeoutMs, false).conn;
     }
 
+    public static final class ResolvedStream {
+        public final HttpURLConnection conn;
+        public final InputStream inputStream;
+        public final String finalUrl;
+        public final String contentType;
+
+        ResolvedStream(HttpURLConnection conn, InputStream inputStream, String finalUrl, String contentType) {
+            this.conn = conn;
+            this.inputStream = inputStream;
+            this.finalUrl = finalUrl;
+            this.contentType = contentType;
+        }
+    }
+
+    /**
+     * Opens a resolved audio HTTP(S) connection (using cached redirect target when valid,
+     * unwrapping .pls/.m3u playlists, and stripping forced Shoutcast ICY metadata blocks).
+     */
+    public static ResolvedStream openResolvedAudioStream(
+            String rawUrl, int connectTimeoutMs, int readTimeoutMs) throws IOException {
+        LocalStreamProxy proxy = getInstance();
+        String cleanUrl = rawUrl != null ? rawUrl.trim() : "";
+        if (cleanUrl.isEmpty()) {
+            throw new IOException("Empty stream URL");
+        }
+        String cached = proxy.resolvedUrlCache.get(cleanUrl);
+        RedirectResult res = null;
+        if (cached != null) {
+            try {
+                RedirectResult candidate = openAudioTargetStatic(cached, connectTimeoutMs, readTimeoutMs);
+                if (candidate.code >= 200 && candidate.code < 300) {
+                    res = candidate;
+                } else {
+                    candidate.conn.disconnect();
+                }
+            } catch (IOException ignored) {
+            }
+            if (res == null) {
+                proxy.resolvedUrlCache.remove(cleanUrl);
+            }
+        }
+        if (res == null) {
+            res = openAudioTargetStatic(cleanUrl, connectTimeoutMs, readTimeoutMs);
+        }
+        if (res.code < 200 || res.code >= 300) {
+            res.conn.disconnect();
+            throw new IOException("HTTP " + res.code + " from " + res.finalUrl);
+        }
+        if (!isEphemeralUrl(cleanUrl) && !isEphemeralUrl(res.finalUrl)) {
+            if (proxy.resolvedUrlCache.size() > 128) {
+                proxy.resolvedUrlCache.clear();
+            }
+            proxy.resolvedUrlCache.put(cleanUrl, res.finalUrl);
+        }
+        int metaint = 0;
+        String metaHeader = res.conn.getHeaderField("icy-metaint");
+        if (metaHeader != null) {
+            try {
+                metaint = Integer.parseInt(metaHeader.trim());
+            } catch (NumberFormatException ignored) {
+                metaint = 0;
+            }
+        }
+        InputStream rawIn = res.conn.getInputStream();
+        InputStream cleanIn = (metaint > 0) ? new IcyMetadataStripInputStream(rawIn, metaint) : rawIn;
+        return new ResolvedStream(res.conn, cleanIn, res.finalUrl, sanitizeContentType(res.conn.getContentType()));
+    }
+
+    private static RedirectResult openAudioTargetStatic(
+            String startUrl, int connectTimeoutMs, int readTimeoutMs) throws IOException {
+        RedirectResult res = openFollowingRedirectsWithFinalUrl(
+                startUrl, connectTimeoutMs, readTimeoutMs, true);
+        if (res.code >= 200 && res.code < 300 && isPlaylistResponse(res.finalUrl, res.conn.getContentType())) {
+            String resolvedStream = extractFirstPlaylistStreamUrl(res.conn, res.finalUrl);
+            res.conn.disconnect();
+            if (resolvedStream == null || resolvedStream.isEmpty()) {
+                throw new IOException("Empty playlist at " + res.finalUrl);
+            }
+            res = openFollowingRedirectsWithFinalUrl(
+                    resolvedStream, connectTimeoutMs, readTimeoutMs, true);
+        }
+        return res;
+    }
+
+    private static final class IcyMetadataStripInputStream extends InputStream {
+        private final InputStream delegate;
+        private final int metaint;
+        private int audioBytesRemaining;
+
+        IcyMetadataStripInputStream(InputStream delegate, int metaint) {
+            this.delegate = delegate;
+            this.metaint = metaint;
+            this.audioBytesRemaining = metaint;
+        }
+
+        @Override
+        public int read() throws IOException {
+            byte[] one = new byte[1];
+            int n = read(one, 0, 1);
+            return n <= 0 ? -1 : (one[0] & 0xFF);
+        }
+
+        @Override
+        public int read(byte[] b, int off, int len) throws IOException {
+            if (len <= 0) return 0;
+            if (audioBytesRemaining == 0) {
+                int lenByte = delegate.read();
+                if (lenByte < 0) return -1;
+                int metaLen = (lenByte & 0xFF) * 16;
+                while (metaLen > 0) {
+                    long skipped = delegate.skip(metaLen);
+                    if (skipped > 0) {
+                        metaLen -= (int) skipped;
+                    } else {
+                        int d = delegate.read();
+                        if (d < 0) return -1;
+                        metaLen--;
+                    }
+                }
+                audioBytesRemaining = metaint;
+            }
+            int toRead = Math.min(len, audioBytesRemaining);
+            int n = delegate.read(b, off, toRead);
+            if (n > 0) {
+                audioBytesRemaining -= n;
+            }
+            return n;
+        }
+
+        @Override
+        public void close() throws IOException {
+            delegate.close();
+        }
+    }
+
     private static RedirectResult openFollowingRedirectsWithFinalUrl(
             String urlStr, int connectTimeoutMs, int readTimeoutMs, boolean disableIcyMeta) throws IOException {
         String current = urlStr;
