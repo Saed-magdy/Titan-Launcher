@@ -1992,6 +1992,7 @@
         findBtn.innerText = dict['tyre-warn-open-tpms'] || 'TPMS Screen';
         findBtn.onclick = function () {
           closeFuelWarning();
+          if (typeof closeSettings === 'function') closeSettings();
           if (typeof openTpmsModal === 'function') openTpmsModal();
         };
         findBtn.style.display = '';
