@@ -87,6 +87,8 @@
           <span class="tele-unit-large" id="unit-inst-fuel">L/100</span>
         </div>
       </div>
+      <!-- Gentle driving tip: thin bar under the consumption (green = smooth, yellow = hard acceleration) -->
+      <div class="drive-tip-track" id="drive-tip-track"><div class="drive-tip-fill" id="drive-tip-fill"></div></div>
       <!-- Row 2: Estimated Remaining Range (Icon | Value | Unit) -->
       <div class="tele-grid-row">
         <div class="tele-col-icon">
@@ -443,6 +445,17 @@
         <div style="margin-top: 18px;">
           <div class="modal-sec-title" id="m-sec-plate">License Plate Text</div>
           <input type="text" class="text-input-field" id="plate-input" value="EGY | 123" oninput="updateLicensePlateText(this.value)">
+        </div>
+
+        <!-- Gentle driving tip bar on/off -->
+        <div class="lock-control-card" style="margin-top: 18px;">
+          <div class="lock-info-col">
+            <span class="toggle-label" id="lbl-drive-tip">Smooth Driving Bar</span>
+            <span class="lock-can-stat" id="desc-drive-tip">Thin bar under the consumption: green when smooth, yellow on hard acceleration</span>
+          </div>
+          <div class="lock-action-wrap">
+            <label class="switch"><input type="checkbox" id="chk-drive-tip" checked onchange="onDrivingTipToggle()"><span class="slider-toggle"></span></label>
+          </div>
         </div>
       </div>
 

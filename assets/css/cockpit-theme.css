@@ -792,6 +792,25 @@
     }
 
     /* Col 2: Middle Numeric / Primary Data */
+    /* Gentle driving tip bar (between the consumption and range rows) */
+    .drive-tip-track {
+      height: 6px;
+      margin: 2px 8px 4px 44px;
+      border-radius: 3px;
+      background: rgba(255, 255, 255, 0.12);
+      overflow: hidden;
+      visibility: hidden;
+    }
+    .drive-tip-track.visible { visibility: visible; }
+    .drive-tip-fill {
+      height: 100%;
+      width: 0;
+      border-radius: 3px;
+      background: #86efac;
+      transition: width 0.8s ease, background-color 0.8s ease;
+    }
+    .drive-tip-fill.hard { background: #facc15; }
+
     .tele-col-mid {
       display: flex;
       align-items: baseline;
