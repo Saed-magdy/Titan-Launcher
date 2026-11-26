@@ -2671,6 +2671,14 @@
       letter-spacing: 0.2px;
     }
 
+    /* Night mode (Settings > Screen Theme): only the background and the 3D car get darker.
+       Text, buttons, popups and warnings keep their full brightness and colours. */
+    #cockpit-viewport.night-mode .bg-ambient-layer { filter: brightness(0.5); }
+    #cockpit-viewport.night-mode .petroleum-ambient-glow { opacity: 0.35 !important; }
+    #cockpit-viewport.night-mode .bottom-seamless-gradient { opacity: 0.6 !important; }
+    #cockpit-viewport.night-mode .car-ground-shadow { opacity: 0.6 !important; }
+    #cockpit-viewport.night-mode #canvas-container { opacity: 0.6; }
+
     /* Global Toast Notification */
     .launcher-toast {
       position: fixed;

@@ -1372,6 +1372,7 @@
       const settings = {
         lang: state.lang,
         numFormat: state.numFormat || 'western',
+        screenTheme: screenTheme,
         defaultPage: state.defaultPage || 'main',
         carColor: state.carColor,
         roofOption: state.roofOption,
@@ -1476,6 +1477,7 @@
       try {
         const s = typeof jsonStr === 'string' ? JSON.parse(jsonStr) : jsonStr;
         if (s.lang) setLanguage(s.lang);
+        if (s.screenTheme) setScreenTheme(s.screenTheme);
         if (s.numFormat) {
           if (typeof setNumberFormat === 'function') setNumberFormat(s.numFormat);
         } else {
@@ -1666,7 +1668,54 @@
     }
     setInterval(calculateInstantRange, 5000);
 
+    /* ========================================================
+       NIGHT MODE (Settings > Screen Theme)
+       Day = normal look (default). Night = darker background and 3D car.
+       Auto = darker while the headlights (low or high beam) are on. In Auto
+       the lights must stay on/off for 5 seconds before the screen changes,
+       so a short tunnel or flashing the lights does not make it flicker.
+       Text, buttons and warnings keep their brightness and colours.
+       ======================================================== */
+    var screenTheme = 'day';
+    var autoNightActive = false;
+    var autoLightsPending = null;
+    var autoLightsSince = 0;
+    var AUTO_THEME_DELAY_MS = 5000;
+
+    function applyScreenTheme() {
+      const night = screenTheme === 'night' || (screenTheme === 'auto' && autoNightActive);
+      const vp = document.getElementById('cockpit-viewport');
+      if (vp) vp.classList.toggle('night-mode', night);
+      ['day', 'night', 'auto'].forEach(function (t) {
+        const b = document.getElementById('theme-' + t);
+        if (b) b.classList.toggle('active', screenTheme === t);
+      });
+    }
+
+    function setScreenTheme(t) {
+      if (t !== 'day' && t !== 'night' && t !== 'auto') t = 'day';
+      screenTheme = t;
+      applyScreenTheme();
+    }
+    window.setScreenTheme = setScreenTheme;
+
+    // Called with every car update: follows the headlights in Auto mode.
+    function updateAutoNightFromLights(data) {
+      if (!data || !data.lights || data.canConnected === false) return;
+      const on = !!(data.lights.lowBeam || data.lights.highBeam);
+      const now = Date.now();
+      if (on === autoNightActive) { autoLightsPending = null; return; }
+      if (autoLightsPending !== on) { autoLightsPending = on; autoLightsSince = now; return; }
+      if (now - autoLightsSince >= AUTO_THEME_DELAY_MS) {
+        autoNightActive = on;
+        autoLightsPending = null;
+        if (screenTheme === 'auto') applyScreenTheme();
+      }
+    }
+    window.updateAutoNightFromLights = updateAutoNightFromLights;
+
     window.onCanTelemetry = function(data) {
+      updateAutoNightFromLights(data);
       if (data.canConnected !== undefined) {
         updateCanStatusBadge(data.canConnected);
       }
