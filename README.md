@@ -25,6 +25,7 @@ Since version `2.1.0` the launcher fully merges the **Shine Wave** audio engine 
   - Automatically pauses 3D WebGL rendering (`window.setCar3DFrozen(true)`) while full-screen overlays (such as the Shine Wave Studio) are open to maximize responsiveness.
 - **Native Hardware Bridges:**
   - Direct Qinggan CAN-Bus telemetry (`CanBusClient.java`) and vehicle controls (doors, lights, sunroof, locks, TPMS, temperatures).
+  - Low-fuel warning popup (`FuelWarningMonitor.java`): shows once when the tank goes down to each level set in Settings → Launcher (default 50% and 25%), also on top of other apps such as Maps. OK closes it; it closes by itself after 20 seconds.
   - Unified Steering-Wheel Control (SWC) handling, notification `MediaSession` listener (`CockpitMediaListenerService.java`), start-on-boot (`BootReceiver.java`), and a crash watchdog (`LauncherWatchdog.java`) that restarts the launcher after a crash and falls back to the car's original launcher if it keeps crashing.
 - **Desktop Browser Simulation Mode:**
   - Opening `assets/app.html` over any local static HTTP server automatically runs interactive frontend simulations for telemetry and all 5 Shine Wave audio sources when `window.AndroidBridge` is absent.

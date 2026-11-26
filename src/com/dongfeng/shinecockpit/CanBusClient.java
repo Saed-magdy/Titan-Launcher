@@ -288,6 +288,8 @@ public class CanBusClient {
         public float fuelRemain = 17.1f;
         public float fuelCapacity = 55.0f;
         public float fuelPercentage = 31.0f;
+        /** True only when fuelPercentage really came from the car (31% is a made-up placeholder). */
+        public boolean fuelPctValid = false;
         public float instFuel = 0.0f;
         public float avgFuel = 6.3f;
         public int dte = 290;
@@ -447,8 +449,10 @@ public class CanBusClient {
                     float rawPct = reply8.readFloat();
                     if (rawPct > 0.0f && rawPct <= 1.0f) {
                         snap.fuelPercentage = rawPct * 100.0f;
+                        snap.fuelPctValid = true;
                     } else if (rawPct > 1.0f && rawPct <= 100.0f) {
                         snap.fuelPercentage = rawPct;
+                        snap.fuelPctValid = true;
                     }
                     snap.isFuelShortage = (reply8.readInt() == 1);
                     float inst = reply8.readFloat();

@@ -244,6 +244,7 @@ window.setNumberFormat = function(fmt) {
 
   if (typeof updateClock === 'function') updateClock();
   if (typeof updateFuelDisplays === 'function') updateFuelDisplays();
+  if (typeof renderFuelWarnLevels === 'function') renderFuelWarnLevels();
   if (typeof updateTpmsOverallBadge === 'function') updateTpmsOverallBadge();
   if (typeof renderQuickAppsDeck === 'function') renderQuickAppsDeck();
   if (typeof window.refreshShineWaveLanguage === 'function') {
@@ -335,6 +336,13 @@ const I18N = {
     'desc-auto-boot': 'فتح اللانشر تلقائياً عند إقلاع النظام',
     'lbl-watchdog': 'حماية إعادة التشغيل التلقائي',
     'desc-watchdog': 'إعادة التشغيل مرتين فقط عند أي خطأ، ثم التحويل للانشر السيارة الأصلي لمنع التعليق',
+    'lbl-fuel-warn': 'تنبيه انخفاض الوقود',
+    'desc-fuel-warn': 'رسالة تنبيه عندما ينخفض الوقود إلى هذه المستويات',
+    'btn-fuel-warn-try': 'تجربة',
+    'fuel-warn-ok': 'حسناً',
+    'fuelwarn_title_tpl': '⛽ وقود منخفض',
+    'fuelwarn_body_tpl': 'الوقود في الخزان {p}٪.\nخطط للتوقف في محطة وقود.',
+    'fuelwarn_body_soon_tpl': 'الوقود في الخزان {p}٪.\nتزوّد بالوقود قريباً.',
     'sunroof-modal-title': 'التحكم في فتحة السقف',
     'app-drawer-title': 'التطبيقات المثبتة',
     'quick-app-modal-title': 'اختر التطبيق',
@@ -402,6 +410,13 @@ const I18N = {
     'desc-auto-boot': 'Launch automatically on system boot / screen wake',
     'lbl-watchdog': 'Auto-Restart & Crash Loop Breaker',
     'desc-watchdog': 'Restart max 2 times on crash, then fallback to factory car launcher',
+    'lbl-fuel-warn': 'Low Fuel Warning',
+    'desc-fuel-warn': 'Popup when the tank goes down to these levels',
+    'btn-fuel-warn-try': 'Try',
+    'fuel-warn-ok': 'OK',
+    'fuelwarn_title_tpl': '⛽ Low fuel',
+    'fuelwarn_body_tpl': 'Fuel tank is at {p}%.\nPlan a stop at a petrol station.',
+    'fuelwarn_body_soon_tpl': 'Fuel tank is at {p}%.\nRefuel soon.',
     'sunroof-modal-title': 'Sunroof Control',
     'app-drawer-title': 'Installed Applications',
     'quick-app-modal-title': 'Choose Application',
@@ -479,6 +494,13 @@ const I18N = {
     'desc-auto-boot': 'Автоматический запуск при включении экрана',
     'lbl-watchdog': 'Защита от сбоев (Watchdog)',
     'desc-watchdog': 'Перезапуск до 2 раз, затем возврат к заводскому лаунчеру',
+    'lbl-fuel-warn': 'Предупреждение о топливе',
+    'desc-fuel-warn': 'Окно, когда уровень в баке опускается до этих значений',
+    'btn-fuel-warn-try': 'Тест',
+    'fuel-warn-ok': 'ОК',
+    'fuelwarn_title_tpl': '⛽ Мало топлива',
+    'fuelwarn_body_tpl': 'В баке {p}%.\nЗапланируйте заправку.',
+    'fuelwarn_body_soon_tpl': 'В баке {p}%.\nЗаправьтесь как можно скорее.',
     'sunroof-modal-title': 'Управление люком',
     'app-drawer-title': 'Установленные приложения',
     'quick-app-modal-title': 'Выберите приложение',
@@ -529,7 +551,8 @@ function setLanguage(lang) {
     document.getElementById('modal-box-inner'),
     document.querySelector('#tpms-modal .modal-box'),
     document.querySelector('#tpms-confirm-modal .modal-box'),
-    document.querySelector('#quick-app-select-modal .modal-box')
+    document.querySelector('#quick-app-select-modal .modal-box'),
+    document.getElementById('fuel-warn-box')
   ];
 
   if (bAr) bAr.classList.toggle('active', lang === 'ar');
@@ -570,6 +593,7 @@ function setLanguage(lang) {
     updateAmbientDisplay(cachedAmbient);
   }
   if (typeof updateFuelDisplays === 'function') updateFuelDisplays();
+  if (typeof renderFuelWarnLevels === 'function') renderFuelWarnLevels();
   if (typeof updateCanStatusBadge === 'function' && typeof cachedCanConnected !== 'undefined') {
     updateCanStatusBadge(cachedCanConnected);
   }

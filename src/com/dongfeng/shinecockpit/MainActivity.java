@@ -7,6 +7,8 @@ package com.dongfeng.shinecockpit;
 
 import android.Manifest;
 import android.app.Activity;
+import android.app.AlertDialog;
+import android.app.Dialog;
 import android.bluetooth.BluetoothAdapter;
 import android.content.BroadcastReceiver;
 import android.content.Context;
@@ -78,6 +80,13 @@ public class MainActivity extends Activity implements CockpitMediaListenerServic
     private double mLastSentFuelRemain = -1.0;
     private int mLastSentFuelPct = -1;
     private String mLastFastSig = "";
+    private FuelWarningMonitor mFuelWarning;
+    private long mLastBackgroundFuelCheckMs = 0L;
+    private Dialog mFuelWarningDialog;
+    /** How long the low-fuel popup stays on screen if OK is not pressed. */
+    private static final long FUEL_POPUP_AUTO_CLOSE_MS = 20000L;
+    /** While another app (e.g. Maps) is on screen, check the fuel this often. */
+    private static final long BACKGROUND_FUEL_CHECK_MS = 15000L;
     private long mLastFullTelemetryMs = 0L;
 
     private final BroadcastReceiver mCar3DFreezeReceiver = new BroadcastReceiver() {
@@ -162,6 +171,7 @@ public class MainActivity extends Activity implements CockpitMediaListenerServic
 
         long canInitStartMs = SystemClock.elapsedRealtime();
         mCanBusClient = new CanBusClient(this);
+        mFuelWarning = new FuelWarningMonitor(getSharedPreferences(PREF_HUB, MODE_PRIVATE));
         Log.i(TAG, "Startup: CAN client initialized in " + (SystemClock.elapsedRealtime() - canInitStartMs)
                 + "ms; connected=" + mCanBusClient.isConnected());
 
@@ -892,7 +902,10 @@ public class MainActivity extends Activity implements CockpitMediaListenerServic
             @Override
             public void run() {
                 try {
-                    if (!mIsForeground) return;
+                    if (!mIsForeground) {
+                        backgroundFuelCheck();
+                        return;
+                    }
                     refreshAvmOverlayState();
                     final long nowElapsed = SystemClock.elapsedRealtime();
                     final boolean needFullPoll = (mLastFullTelemetryMs == 0L) || ((nowElapsed - mLastFullTelemetryMs) >= 1000L);
@@ -911,6 +924,7 @@ public class MainActivity extends Activity implements CockpitMediaListenerServic
                         }
                         mLastFullTelemetryMs = nowElapsed;
                         CanBusClient.TelemetrySnapshot snap = mCanBusClient.getTelemetrySnapshot(false);
+                        if (snap.fuelPctValid) checkFuelWarning(snap.fuelPercentage);
                         mLastFastSig = buildFastControlSig(snap);
                         appendFastControlFields(tele, snap);
                         tele.put("coolant", snap.coolantTemp > 0 ? snap.coolantTemp : 90);
@@ -977,6 +991,141 @@ public class MainActivity extends Activity implements CockpitMediaListenerServic
                 }
             }
         }, 1500, 120, TimeUnit.MILLISECONDS);
+    }
+
+    /* ========================================================
+       LOW FUEL WARNING POPUP
+       ======================================================== */
+
+    /** While another app is on screen, the normal 1-second poll is paused; check the fuel every 15 s instead. */
+    private void backgroundFuelCheck() {
+        long now = SystemClock.elapsedRealtime();
+        if (now - mLastBackgroundFuelCheckMs < BACKGROUND_FUEL_CHECK_MS) return;
+        mLastBackgroundFuelCheckMs = now;
+        if (mCanBusClient == null) return;
+        try {
+            CanBusClient.TelemetrySnapshot snap = mCanBusClient.getTelemetrySnapshot(true);
+            if (snap.canConnected && snap.fuelPctValid) checkFuelWarning(snap.fuelPercentage);
+        } catch (Exception e) {
+            Log.e(TAG, "Background fuel check failed", e);
+        }
+    }
+
+    /** Called with every real fuel reading; shows the popup when a warning level is reached. */
+    private void checkFuelWarning(final float pct) {
+        if (mFuelWarning == null) return;
+        String settings = "";
+        try {
+            settings = getSharedPreferences(PREF_HUB, MODE_PRIVATE).getString("user_settings", "");
+        } catch (Exception ignored) {}
+        final int level = mFuelWarning.onReading(pct, SystemClock.elapsedRealtime(), settings);
+        if (level <= 0) return;
+        final int shownPct = Math.max(0, Math.min(100, Math.round(pct)));
+        final String lang = readSettingString(settings, "lang", "en");
+        final boolean eastern = "eastern".equals(readSettingString(settings, "numFormat", "western"));
+        final boolean urgent = mFuelWarning.isLowestLevel(level);
+        Log.i(TAG, "Low fuel warning: tank " + shownPct + "% reached level " + level + "%");
+        mHandler.post(new Runnable() {
+            @Override
+            public void run() {
+                if (mIsForeground && mWebView != null) {
+                    // Launcher on screen: the launcher's own popup (OK button, closes after 20 s).
+                    mWebView.evaluateJavascript("if (typeof window.showFuelWarning === 'function') { window.showFuelWarning("
+                            + level + ", " + shownPct + "); }", null);
+                } else {
+                    // Another app on screen: a system popup on top of it.
+                    showFuelWarningOverOtherApps(urgent, shownPct, lang, eastern);
+                }
+            }
+        });
+    }
+
+    private static String readSettingString(String json, String key, String fallback) {
+        try {
+            if (json != null && !json.isEmpty()) return new JSONObject(json).optString(key, fallback);
+        } catch (Exception ignored) {}
+        return fallback;
+    }
+
+    /**
+     * Popup shown above other apps (Maps, music...): about 65% of the screen wide and 25% high.
+     * OK closes it; it also closes by itself after 20 seconds.
+     */
+    private void showFuelWarningOverOtherApps(boolean urgent, int pct, String lang, boolean eastern) {
+        // First level: "Plan a stop at a petrol station." Lowest level: "Refuel soon."
+        String title, body, ok;
+        String p = digits(pct, eastern);
+        if ("ar".equals(lang)) {
+            title = "⛽ وقود منخفض";
+            body = "الوقود في الخزان " + p + "٪.\n"
+                    + (urgent ? "تزوّد بالوقود قريباً." : "خطط للتوقف في محطة وقود.");
+            ok = "حسناً";
+        } else if ("ru".equals(lang)) {
+            title = "⛽ Мало топлива";
+            body = "В баке " + p + "%.\n"
+                    + (urgent ? "Заправьтесь как можно скорее." : "Запланируйте заправку.");
+            ok = "ОК";
+        } else {
+            title = "⛽ Low fuel";
+            body = "Fuel tank is at " + p + "%.\n"
+                    + (urgent ? "Refuel soon." : "Plan a stop at a petrol station.");
+            ok = "OK";
+        }
+        try {
+            dismissFuelWarningDialog();
+            @SuppressWarnings("deprecation")
+            AlertDialog dialog = new AlertDialog.Builder(getApplicationContext(), AlertDialog.THEME_DEVICE_DEFAULT_DARK)
+                    .setTitle(title)
+                    .setMessage(body)
+                    .setPositiveButton(ok, null)
+                    .create();
+            Window w = dialog.getWindow();
+            if (w != null) {
+                if (Build.VERSION.SDK_INT >= 26) {
+                    w.setType(WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY);
+                } else {
+                    @SuppressWarnings("deprecation")
+                    int phoneType = WindowManager.LayoutParams.TYPE_PHONE;
+                    w.setType(phoneType);
+                }
+            }
+            dialog.show();
+            if (w != null) {
+                android.util.DisplayMetrics dm = getResources().getDisplayMetrics();
+                // 65% of the screen wide; at least 25% of the screen high (taller only if the text needs it).
+                w.setLayout((int) (dm.widthPixels * 0.65f), ViewGroup.LayoutParams.WRAP_CONTENT);
+                w.getDecorView().setMinimumHeight((int) (dm.heightPixels * 0.25f));
+            }
+            mFuelWarningDialog = dialog;
+            final Dialog shown = dialog;
+            mHandler.postDelayed(new Runnable() {
+                @Override
+                public void run() {
+                    if (mFuelWarningDialog == shown) dismissFuelWarningDialog();
+                }
+            }, FUEL_POPUP_AUTO_CLOSE_MS);
+        } catch (Exception e) {
+            // No permission to draw over other apps: fall back to a plain message.
+            Log.w(TAG, "Fuel popup over other apps not allowed; showing a toast instead", e);
+            try {
+                Toast.makeText(getApplicationContext(), title + "\n" + body, Toast.LENGTH_LONG).show();
+            } catch (Exception ignored) {}
+        }
+    }
+
+    private void dismissFuelWarningDialog() {
+        try {
+            if (mFuelWarningDialog != null && mFuelWarningDialog.isShowing()) mFuelWarningDialog.dismiss();
+        } catch (Exception ignored) {}
+        mFuelWarningDialog = null;
+    }
+
+    private static String digits(int value, boolean eastern) {
+        String s = String.valueOf(value);
+        if (!eastern) return s;
+        StringBuilder b = new StringBuilder();
+        for (char c : s.toCharArray()) b.append(c >= '0' && c <= '9' ? (char) ('٠' + (c - '0')) : c);
+        return b.toString();
     }
 
     private void buildSimulatedTelemetry(JSONObject tele) throws JSONException {
@@ -1063,6 +1212,7 @@ public class MainActivity extends Activity implements CockpitMediaListenerServic
         if (mSwcHandler != null) mSwcHandler.release();
         if (mCanBusClient != null) mCanBusClient.release();
         mHandler.removeCallbacksAndMessages(null);
+        dismissFuelWarningDialog();
         if (!mTelemetryExecutor.isShutdown()) mTelemetryExecutor.shutdown();
         if (!mExecutor.isShutdown()) mExecutor.shutdown();
         if (!mNetExecutor.isShutdown()) mNetExecutor.shutdownNow();

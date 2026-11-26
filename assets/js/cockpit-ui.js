@@ -1362,12 +1362,99 @@
       showLauncherToast((state.lang === 'ar' ? '\u062D\u0645\u0627\u064A\u0629 \u0625\u0639\u0627\u062F\u0629 \u0627\u0644\u062A\u0634\u063A\u064A\u0644: ' : 'Crash Loop Breaker: ') + (enabled ? (state.lang === 'ar' ? '\u0645\u0641\u0639\u0644' : 'ENABLED') : (state.lang === 'ar' ? '\u0645\u0639\u0637\u0644' : 'DISABLED')));
     }
 
+    /* ========================================================
+       LOW FUEL WARNING
+       The car-side check is in Java (FuelWarningMonitor). Java calls
+       window.showFuelWarning(level, pct) when a level is reached while the
+       launcher is on screen. Settings: fuelWarnEnabled + fuelWarnLevels.
+       ======================================================== */
+    var FUEL_WARN_DEFAULT_LEVELS = [50, 25];
+    var FUEL_WARN_AUTO_CLOSE_MS = 20000;
+    var fuelWarnLevels = FUEL_WARN_DEFAULT_LEVELS.slice();
+    var fuelWarnTimer = null;
+
+    function renderFuelWarnLevels() {
+      for (let i = 0; i < 2; i++) {
+        const el = document.getElementById('fuel-warn-level-' + i);
+        if (el) el.innerText = window.toLangDigits(fuelWarnLevels[i]) + (state.lang === 'ar' ? '\u066A' : '%');
+      }
+    }
+
+    // Upper level: 10-95%. Lower level: 5% up to 5% below the upper one.
+    function stepFuelWarnLevel(index, delta) {
+      const next = fuelWarnLevels.slice();
+      next[index] = next[index] + delta;
+      if (index === 0) next[0] = Math.max(next[1] + 5, Math.min(95, next[0]));
+      else next[1] = Math.max(5, Math.min(next[0] - 5, next[1]));
+      fuelWarnLevels = next;
+      renderFuelWarnLevels();
+    }
+
+    function applyFuelWarnSettings(s) {
+      const chk = document.getElementById('chk-fuel-warn');
+      if (chk) chk.checked = (s.fuelWarnEnabled !== false);
+      if (Array.isArray(s.fuelWarnLevels) && s.fuelWarnLevels.length >= 2) {
+        const hi = Math.round(Number(s.fuelWarnLevels[0]));
+        const lo = Math.round(Number(s.fuelWarnLevels[1]));
+        if (hi >= 10 && hi <= 95 && lo >= 5 && lo <= hi - 5) fuelWarnLevels = [hi, lo];
+      }
+      renderFuelWarnLevels();
+      onFuelWarnToggle();
+    }
+
+    // When the switch is off, hide the levels and the Try button so the card is one line.
+    function onFuelWarnToggle() {
+      const chk = document.getElementById('chk-fuel-warn');
+      const levels = document.querySelector('.fuel-warn-levels');
+      if (levels) levels.style.display = (chk && !chk.checked) ? 'none' : '';
+    }
+
+    function showFuelWarning(level, pct) {
+      const modal = document.getElementById('fuel-warn-modal');
+      const box = document.getElementById('fuel-warn-box');
+      if (!modal) return;
+      const dict = I18N[state.lang] || I18N['en'];
+      const ar = state.lang === 'ar';
+      const fmt = (v) => window.toLangDigits(Math.round(v));
+      const title = document.getElementById('fuel-warn-title');
+      const msg = document.getElementById('fuel-warn-msg');
+      if (title) title.innerText = dict['fuelwarn_title_tpl'] || '\u26FD Low fuel';
+      // First (higher) level: yellow, "Plan a stop...". Second (lowest) level: orange, "Refuel soon."
+      const urgent = level <= Math.min.apply(null, fuelWarnLevels);
+      const tpl = urgent ? (dict['fuelwarn_body_soon_tpl'] || 'Fuel tank is at {p}%.\nRefuel soon.')
+                         : (dict['fuelwarn_body_tpl'] || 'Fuel tank is at {p}%.');
+      if (msg) msg.innerText = tpl.replace('{p}', fmt(pct));
+      if (box) {
+        box.classList.toggle('critical', urgent);
+        box.classList.toggle('rtl-mode', ar);
+        box.classList.toggle('ltr-mode', !ar);
+      }
+      modal.style.display = 'flex';
+      if (fuelWarnTimer) clearTimeout(fuelWarnTimer);
+      fuelWarnTimer = setTimeout(closeFuelWarning, FUEL_WARN_AUTO_CLOSE_MS);
+      if (typeof requestRender === 'function') requestRender();
+    }
+    window.showFuelWarning = showFuelWarning;
+
+    function closeFuelWarning() {
+      const modal = document.getElementById('fuel-warn-modal');
+      if (modal) modal.style.display = 'none';
+      if (fuelWarnTimer) { clearTimeout(fuelWarnTimer); fuelWarnTimer = null; }
+    }
+    window.closeFuelWarning = closeFuelWarning;
+
+    // "Try" button in Settings: shows the popup for the lower level, so the driver can see it.
+    function previewFuelWarning() {
+      showFuelWarning(fuelWarnLevels[1], fuelWarnLevels[1]);
+    }
+
     function saveAllSettings() {
       const chkSpeed = document.getElementById('chk-speed-lock');
       const chkWalk = document.getElementById('chk-walk-lock');
       const chkOff = document.getElementById('chk-off-unlock');
       const chkAutoBoot = document.getElementById('chk-auto-boot');
       const chkWatchdog = document.getElementById('chk-watchdog');
+      const chkFuelWarn = document.getElementById('chk-fuel-warn');
 
       const settings = {
         lang: state.lang,
@@ -1382,7 +1469,9 @@
         walkLock: chkWalk ? chkWalk.checked : false,
         offUnlock: chkOff ? chkOff.checked : false,
         autoBoot: chkAutoBoot ? chkAutoBoot.checked : true,
-        watchdogEnabled: chkWatchdog ? chkWatchdog.checked : true
+        watchdogEnabled: chkWatchdog ? chkWatchdog.checked : true,
+        fuelWarnEnabled: chkFuelWarn ? chkFuelWarn.checked : true,
+        fuelWarnLevels: fuelWarnLevels.slice()
       };
 
       const jsonStr = JSON.stringify(settings);
@@ -1519,6 +1608,7 @@
           const chkWd = document.getElementById('chk-watchdog');
           if (chkWd) chkWd.checked = !!s.watchdogEnabled;
         }
+        applyFuelWarnSettings(s);
       } catch(e) {
         console.error('[Settings] Error applying saved settings JSON:', e);
       }

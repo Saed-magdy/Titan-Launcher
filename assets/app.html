@@ -319,6 +319,15 @@
     </div>
   </div>
 
+  <!-- LOW FUEL WARNING POPUP (about 65% of the screen wide, 25% high; OK closes it, or it closes by itself after 20 s) -->
+  <div class="modal-overlay interactive" id="fuel-warn-modal" style="z-index: 150;">
+    <div class="modal-box ltr-mode fuel-warn-box" id="fuel-warn-box">
+      <div class="fuel-warn-title" id="fuel-warn-title">&#9981; Low fuel</div>
+      <div class="fuel-warn-msg" id="fuel-warn-msg"></div>
+      <button class="fuel-warn-ok" id="fuel-warn-ok" onclick="closeFuelWarning()">OK</button>
+    </div>
+  </div>
+
   <!-- SUNROOF FLOATING CARD OVER 3D CAR (Ultra-minimalist, borderless text commands, no title, no close button, no icons, centered directly above TPMS) -->
   <div class="sunroof-bar-overlay" id="sunroof-modal" onclick="closeSunroofModal(event)">
     <div class="sunroof-floating-card" id="sunroof-bar-inner" onclick="event.stopPropagation()">
@@ -504,6 +513,28 @@
             </div>
             <div class="lock-action-wrap">
               <label class="switch"><input type="checkbox" id="chk-watchdog" checked onchange="onWatchdogChanged(this.checked)"><span class="slider-toggle"></span></label>
+            </div>
+          </div>
+          <div class="lock-control-card fuel-warn-card" style="margin-top: 12px;">
+            <div class="lock-info-col">
+              <span class="toggle-label" id="lbl-fuel-warn">Low Fuel Warning</span>
+              <span class="lock-can-stat" id="desc-fuel-warn">Popup when the tank goes down to these levels</span>
+              <div class="fuel-warn-levels">
+                <div class="fuel-level-stepper">
+                  <button type="button" class="fuel-step-btn" onclick="stepFuelWarnLevel(0, -5)">&minus;</button>
+                  <span class="fuel-step-val" id="fuel-warn-level-0">50%</span>
+                  <button type="button" class="fuel-step-btn" onclick="stepFuelWarnLevel(0, 5)">+</button>
+                </div>
+                <div class="fuel-level-stepper">
+                  <button type="button" class="fuel-step-btn" onclick="stepFuelWarnLevel(1, -5)">&minus;</button>
+                  <span class="fuel-step-val" id="fuel-warn-level-1">25%</span>
+                  <button type="button" class="fuel-step-btn" onclick="stepFuelWarnLevel(1, 5)">+</button>
+                </div>
+                <button type="button" class="settings-btn" id="btn-fuel-warn-try" onclick="previewFuelWarning()">Try</button>
+              </div>
+            </div>
+            <div class="lock-action-wrap">
+              <label class="switch"><input type="checkbox" id="chk-fuel-warn" checked onchange="onFuelWarnToggle()"><span class="slider-toggle"></span></label>
             </div>
           </div>
         </div>
