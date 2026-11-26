@@ -788,9 +788,12 @@ public class CanBusClient {
                 if (reply66.readInt() != 0) {
                     snap.tpmsValid = true;
                     reply66.readInt(); // a: mTirePositionStatus
+                    // Qinggan TPMSInfo defaults unpopulated int fields to -1:
+                    // tempWarn: 0=NO_WARNING, 1=TEMPERATURE_WARNING
+                    // sysWarn: 0=NO_ANY_ERROR, 1=SYSTEM_ERROR, 2=SYSTEM_CHECKING, 3=SYSTEM_CHECKCOMPLETED
                     int tempWarn = reply66.readInt(); // b: mTemperatureWarningStatus
                     int sysWarn = reply66.readInt();  // c: mSystemWaringStatus
-                    snap.tpmsSystemWarn = (sysWarn != 0 || tempWarn != 0);
+                    snap.tpmsSystemWarn = (sysWarn == 1 || tempWarn == 1);
                     int warnFL = reply66.readInt(); // d: mLeftFrontTireWarningStatus
                     int warnFR = reply66.readInt(); // e: mRightFrontTireWarningStatus
                     int warnRL = reply66.readInt(); // f: mLeftRearTireWarningStatus
@@ -805,10 +808,11 @@ public class CanBusClient {
                     if (pRL > 0.5f && pRL < 5.0f) { snap.tpmsRL = Math.round(pRL * 10.0f) / 10.0f; snap.tpmsPressureValid[2] = true; }
                     if (pRR > 0.5f && pRR < 5.0f) { snap.tpmsRR = Math.round(pRR * 10.0f) / 10.0f; snap.tpmsPressureValid[3] = true; }
 
-                    snap.tpmsFLWarn = (warnFL != 0);
-                    snap.tpmsFRWarn = (warnFR != 0);
-                    snap.tpmsRLWarn = (warnRL != 0);
-                    snap.tpmsRRWarn = (warnRR != 0);
+                    // Wheel warning status: -1=uninitialized, 0=PRESSURE_NO_WARNING, 1..6=PRESSURE_*_WARNING
+                    snap.tpmsFLWarn = (warnFL >= 1 && warnFL <= 6);
+                    snap.tpmsFRWarn = (warnFR >= 1 && warnFR <= 6);
+                    snap.tpmsRLWarn = (warnRL >= 1 && warnRL <= 6);
+                    snap.tpmsRRWarn = (warnRR >= 1 && warnRR <= 6);
                 }
             }
         } catch (Exception ignored) {}
