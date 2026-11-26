@@ -44,7 +44,7 @@ The launcher builds without Gradle using standard Android SDK Build-Tools (`aapt
    ```powershell
    powershell -ExecutionPolicy Bypass -File .\build_apk.ps1 -PlatformKey "D:\keys\platform.pk8" -PlatformCert "D:\keys\platform.x509.pem"
    ```
-   Or set `TITAN_PLATFORM_KEY` and `TITAN_PLATFORM_CERT` once and run the script without those two options.
+   Or set `TITAN_PLATFORM_KEY` and `TITAN_PLATFORM_CERT` once, or copy `build.local.example.ps1` to `build.local.ps1` and write the two locations there (that file stays on your PC: git ignores it). Then run the script without those two options.
 4. **Check-only build** (no platform key needed). It is signed with a throwaway test key, so it will not install over the car's launcher:
    ```powershell
    powershell -ExecutionPolicy Bypass -File .\build_apk.ps1 -TestSign
