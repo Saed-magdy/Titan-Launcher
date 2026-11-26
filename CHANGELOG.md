@@ -1,5 +1,51 @@
 # Titan Cockpit Launcher - Changelog
 
+## Release v2.1.7 – 2026-11-26
+
+### أولاً: اللغة العربية
+
+#### 1. منظومة التنبيهات الذكية ومساعدة السائق
+- **تنبيه انخفاض الوقود:** إظهار رسالة تحذير واضحة على الشاشة مع إمكانية تفعيل التنبيه الصوتي عند نزول مستوى الوقود عن النسب المحددة (المضبوطة افتراضياً على `25%` و`15%` مع قابلية تعديلها بسهولة من الإعدادات)، بالإضافة إلى زر سريع للبحث عن أقرب محطة وقود عبر تطبيق الملاحة.
+- **تنبيه ضغط الإطارات الذكي:** إضافة رسالة تحذير وتنبيه صوتي اختياري فور رصد السيارة أي خلل في ضغط الإطارات، مع زر **"شاشة ضبط الإطارات"** للانتقال المباشر إلى شاشة فحص وإعادة ضبط الإطارات، وتصفير حالة التحذير تلقائياً بعد إجراء إعادة الضبط.
+- **تنبيه تجاوز السرعة:** إضافة تنبيه مرئي وصوتي قابل للتخصيص لإعلام السائق عند تجاوز حد السرعة المحدد من الإعدادات.
+
+#### 2. كمبيوتر الرحلة وحساب استهلاك وتكلفة الوقود
+- إتاحة شاشة **كمبيوتر الرحلة (الرحلة A والرحلة B)** بمجرد الضغط على بطاقة استهلاك الوقود في الشاشة الرئيسية، لعرض المسافة المقطوعة، ووقت القيادة، وكمية الوقود المستهلك، ومتوسط الاستهلاك، مع إمكانية إدخال سعر لتر الوقود لحساب تكلفة كل رحلة وتصفير كل رحلة بشكل مستقل.
+
+#### 3. حفظ التوقيت المحلي والطقس والنسخ الاحتياطي للإعدادات
+- **حفظ التوقيت المحلي بدون إنترنت:** إضافة خيار في الإعدادات لتثبيت التوقيت المحلي للسيارة (`تلقائي`، `شتوي +2`، `صيفي +3`، `+4`) ومنع رجوع الساعة تلقائياً إلى التوقيت الصيني عند انقطاع الاتصال بالإنترنت.
+- **حالة الطقس على الشاشة الرئيسية:** إضافة خيار لعرض درجة الحرارة وحالة الطقس الحالية حسب المدينة التي يختارها المستخدم عند توفر الإنترنت.
+- **النسخ الاحتياطي واستعادة الإعدادات:** إمكانية حفظ جميع إعدادات الواجهة والتفضيلات الشخصية وأزرار الاختصارات في ملف أو على فلاشة خارجية، واستعادتها بضغطة واحدة في أي وقت.
+
+#### 4. تحسينات راديو السيارة وأزرار التحكم والمظهر العام
+- معالجة واستعادة التشغيل الكامل والمستقر لراديو السيارة (`FM / AM`) مع ضمان خروج الصوت فوراً عند التنقل بين المصادر وتحسين البحث وحفظ المحطات.
+- ضبط استجابة أزرار التقديم والترجيع في الشاشة والمقود بحيث تؤدي الضغطة الواحدة إلى الانتقال للمقطع التالي أو السابق بشكل طبيعي، بينما يؤدي الضغط المطوّل إلى التمرير السريع (`±10 ثوانٍ`) في المصادر الداعمة لذلك.
+- تحسين سرعة وثبات عودة الشاشة الرئيسية والمجسم ثلاثي الأبعاد للسيارة تلقائياً بعد إغلاق جميع التطبيقات من قائمة التطبيقات المفتوحة، مع إعادة التظليل الداكن (`فاميه`) للزجاج الخلفي فقط بما يطابق السيارة الحقيقية والحفاظ على وضوح الزجاج الأمامي والجانبي.
+
+---
+
+### Second: English
+
+#### 1. Smart Safety Alerts and Driver Assistance
+- **Low Fuel Warning:** Added a clear on-screen popup alert with optional voice notifications when the fuel level drops to two customizable thresholds (defaulting to `25%` and `15%`), along with a quick button to locate nearby petrol stations in your navigation app.
+- **Smart Tyre Pressure Warning:** Added a dedicated warning popup and optional voice alert tailored to the vehicle's tyre monitoring system whenever an abnormal tyre condition is reported, featuring a direct **"TPMS Screen"** shortcut button to inspect and reset the system, with automatic alert clearing once reset.
+- **Customizable Speed Alert:** Added a configurable speed-limit alert with an on-screen banner and optional voice warning when driving above your chosen speed threshold.
+
+#### 2. Dual Trip Computer and Fuel Cost Tracker
+- Added an interactive **Trip Computer (`Trip A` & `Trip B`)** accessible directly by tapping the fuel economy card on the main screen, displaying trip distance, driving time, fuel consumed, average consumption, and optional trip cost based on your entered fuel price, with independent reset controls for each trip.
+
+#### 3. Offline Local Time Guard, Live Weather, and Settings Backup
+- **Keep Local Time Offline:** Added a setting to lock the head unit to your local time zone (`Auto`, `UTC+2`, `UTC+3`, `UTC+4`) and prevent the clock from reverting to China time whenever the car loses internet connectivity.
+- **Main Screen Weather:** Added an optional live weather and temperature readout on the home screen based on your manually selected city when connected to the internet.
+- **Settings Backup & Restore:** Added one-tap backup and restore so you can export all launcher settings, layouts, and quick-access shortcuts to storage or a USB drive and restore them anytime.
+
+#### 4. Car Radio, Media Controls, and Visual Refinements
+- Restored full `FM / AM` Car Radio stability, smooth station scanning, and instant sound output across source switches.
+- Corrected Next/Previous control behavior from both the screen and steering wheel buttons so a single tap skips tracks normally, while press-and-hold fast-forwards or rewinds (`±10 seconds`) on supported media sources.
+- Added automatic instant recovery of the home screen and 3D vehicle view after using "Clear All" in recent apps, and restored the factory-style dark smoked tint on the rear tailgate glass while keeping the front and side windows clear.
+
+---
+
 ## Release v2.1.6 – 2026-11-25
 
 ### أولاً: اللغة العربية
