@@ -1338,6 +1338,143 @@
     }
     window.setDefaultPageOption = setDefaultPageOption;
 
+    /* ========================================================
+       BACK UP AND RESTORE SETTINGS
+       The backup holds only the launcher's own settings (no passwords, no Wi-Fi):
+       the saved settings plus a fixed list of page-storage keys. Restoring checks
+       the file, asks "Replace your current settings?", then reloads the screen.
+       ======================================================== */
+    var SETTINGS_BACKUP_KEYS = [
+      'shine_cockpit_settings', 'shine_cockpit_lang', 'shine_cockpit_num_format',
+      'shine_default_page', 'shine_quick_apps_slots_v3', 'shinewave_mascot_enabled',
+      'shine_wave_active_source'
+    ];
+    var pendingRestore = null;
+
+    function settingsDict() { return I18N[state.lang] || I18N['en']; }
+
+    function buildSettingsBackup() {
+      let userSettings = null;
+      try {
+        const raw = (window.AndroidBridge && window.AndroidBridge.getSettings) ? window.AndroidBridge.getSettings()
+          : localStorage.getItem('shine_cockpit_settings');
+        if (raw) userSettings = JSON.parse(raw);
+      } catch (e) {}
+      const store = {};
+      SETTINGS_BACKUP_KEYS.forEach(function (k) {
+        try { const v = localStorage.getItem(k); if (v !== null) store[k] = v; } catch (e) {}
+      });
+      return JSON.stringify({
+        app: 'Titan Launcher', type: 'settings-backup', version: 1,
+        created: new Date().toISOString(), userSettings: userSettings, localStorage: store
+      }, null, 2);
+    }
+
+    function backupLauncherSettings() {
+      const json = buildSettingsBackup();
+      if (window.AndroidBridge && window.AndroidBridge.backupSettings) {
+        try { window.AndroidBridge.backupSettings(json); } catch (e) {}
+        return;
+      }
+      // Desktop browser preview: download the file instead.
+      try {
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(new Blob([json], { type: 'application/json' }));
+        a.download = 'titan-launcher-settings-' + new Date().toISOString().slice(0, 10) + '.json';
+        document.body.appendChild(a); a.click(); a.remove();
+        window.onSettingsBackupResult(true, '');
+      } catch (e) { window.onSettingsBackupResult(false, ''); }
+    }
+
+    window.onSettingsBackupResult = function (ok, where) {
+      const d = settingsDict();
+      if (where === 'cancelled') return;
+      let msg = ok ? (where ? (d['backup_ok_where'] || '\u2713 Settings saved to {w}').replace('{w}', where)
+                            : (d['backup_ok'] || '\u2713 Settings saved'))
+                   : (d['backup_fail'] || 'Could not save the settings');
+      if (typeof showLauncherToast === 'function') showLauncherToast(msg, 3500);
+    };
+
+    function restoreLauncherSettings() {
+      if (window.AndroidBridge && window.AndroidBridge.restoreSettings) {
+        try { window.AndroidBridge.restoreSettings(); } catch (e) {}
+        return;
+      }
+      // Desktop browser preview: pick a file.
+      const input = document.createElement('input');
+      input.type = 'file';
+      input.accept = '.json,application/json';
+      input.onchange = function () {
+        const f = input.files && input.files[0];
+        if (!f) return;
+        const r = new FileReader();
+        r.onload = function () { window.onSettingsRestoreFile(String(r.result || '')); };
+        r.readAsText(f);
+      };
+      input.click();
+    }
+
+    // Checks the file; only known keys with plain text values are accepted.
+    function parseSettingsBackup(text) {
+      if (typeof text !== 'string' || !text || text.length > 262144) return null;
+      let obj;
+      try { obj = JSON.parse(text); } catch (e) { return null; }
+      if (!obj || obj.app !== 'Titan Launcher' || obj.type !== 'settings-backup' || typeof obj.version !== 'number') return null;
+      const store = {};
+      const src = (obj.localStorage && typeof obj.localStorage === 'object') ? obj.localStorage : {};
+      SETTINGS_BACKUP_KEYS.forEach(function (k) {
+        if (typeof src[k] === 'string' && src[k].length <= 65536) store[k] = src[k];
+      });
+      const us = (obj.userSettings && typeof obj.userSettings === 'object' && !Array.isArray(obj.userSettings)) ? obj.userSettings : null;
+      if (!us && !Object.keys(store).length) return null;
+      return { created: typeof obj.created === 'string' ? obj.created : '', userSettings: us, store: store };
+    }
+
+    window.onSettingsRestoreFile = function (text) {
+      const d = settingsDict();
+      if (text === null || text === undefined) {
+        if (typeof showLauncherToast === 'function') showLauncherToast(d['restore_none'] || 'No settings backup found', 3500);
+        return;
+      }
+      const parsed = parseSettingsBackup(text);
+      if (!parsed) {
+        if (typeof showLauncherToast === 'function') showLauncherToast(d['restore_bad'] || 'This file is not a Titan Launcher settings backup', 4000);
+        return;
+      }
+      pendingRestore = parsed;
+      const when = parsed.created ? parsed.created.slice(0, 10) : '?';
+      const msg = document.getElementById('settings-restore-msg');
+      if (msg) msg.innerText = (d['restore_confirm'] || 'Replace your current settings with this backup ({d})?').replace('{d}', window.toLangDigits(when));
+      const modal = document.getElementById('settings-restore-modal');
+      if (modal) modal.style.display = 'flex';
+    };
+
+    function closeRestoreConfirm() {
+      pendingRestore = null;
+      const modal = document.getElementById('settings-restore-modal');
+      if (modal) modal.style.display = 'none';
+    }
+
+    function confirmRestoreSettings() {
+      const p = pendingRestore;
+      closeRestoreConfirm();
+      if (!p) return;
+      Object.keys(p.store).forEach(function (k) {
+        try { localStorage.setItem(k, p.store[k]); } catch (e) {}
+      });
+      if (p.userSettings) {
+        const json = JSON.stringify(p.userSettings);
+        try { localStorage.setItem('shine_cockpit_settings', json); } catch (e) {}
+        if (window.AndroidBridge && window.AndroidBridge.saveSettings) {
+          try { window.AndroidBridge.saveSettings(json); } catch (e) {}
+        }
+      }
+      const d = settingsDict();
+      if (typeof showLauncherToast === 'function') showLauncherToast(d['restore_done'] || '\u2713 Settings restored', 2000);
+      // Reload so every screen picks up the restored settings.
+      setTimeout(function () { location.reload(); }, 1200);
+    }
+
     function setDefaultLauncher() {
       if (window.AndroidBridge && typeof window.AndroidBridge.setDefaultLauncher === 'function') {
         window.AndroidBridge.setDefaultLauncher();

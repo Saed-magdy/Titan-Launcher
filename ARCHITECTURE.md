@@ -110,7 +110,7 @@ To prevent synchronous parsing of `three.min.js`, `OrbitControls.js`, `GLTFLoade
 - **WebView → Native (`window.AndroidBridge`):**
   - Vehicle: `postCanCommand(cmd, data)` (the trunk is refused above 5 km/h or when the speed cannot be read).
   - Apps & System: `launchApp(pkg)`, `getInstalledAppsJson()`, `getConnectivityStatusJson()`, `openConnectivitySettings(type)`, `setWifiEnabled(bool)`, `setBluetoothEnabled(bool)`, `cleanMemory()`, `dispatchSystemNav(action)`, `controlMedia(...)`, `seekMediaBy(sec)`.
-  - Settings & Maintenance: `saveSettings(json)`, `getSettings()`, `setDefaultLauncher()`, `setAutoBoot(bool)`, `isWatchdogEnabled()`, `setWatchdogEnabled(bool)`, `checkForUpdates()`.
+  - Settings & Maintenance: `saveSettings(json)`, `getSettings()`, `setDefaultLauncher()`, `backupSettings(json)`, `restoreSettings()`, `setAutoBoot(bool)`, `isWatchdogEnabled()`, `setWatchdogEnabled(bool)`, `checkForUpdates()`.
   - Shine Wave Engine: `sendShineWaveCommand(cmd)`, `seekMediaTo(sec)`, `toggleShineWaveShuffle()`, `cycleShineWaveRepeat()`, `browseShineWaveLocal(...)`, `getShineWaveRadioState()`, `saveShineWaveRadioFavorite(freqKhz, name)`, `searchShineWaveInternetRadio(...)`, `getShineWaveExternalApps()`, `requestShineWaveQueue()`, `getAudioVisualizerData()`, plus the radio (`tuneShineWaveRadio`, `stepShineWaveRadio`, `seekShineWaveRadio`, `startShineWaveRadioAutoScan`, `playShineWaveDab`...) and queue/station helpers.
   - The complete, always-current list is every method marked `@JavascriptInterface` in `MainActivity.java`.
 
