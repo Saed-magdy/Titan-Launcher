@@ -194,6 +194,8 @@
     var timer = null;
     var repeatTimer = null;
     var isLong = false;
+    var lastTouchAt = 0;
+    var HOLD_DELAY_MS = 750;
     var deltaSec = (cmd === 'next') ? 10 : -10;
 
     function doSeek() {
@@ -220,7 +222,7 @@
         isLong = true;
         doSeek();
         repeatTimer = setInterval(doSeek, 450);
-      }, 500);
+      }, HOLD_DELAY_MS);
     }
 
     function cancel() {
@@ -228,26 +230,43 @@
       if (repeatTimer) { clearInterval(repeatTimer); repeatTimer = null; }
     }
 
-    btn.addEventListener('touchstart', function (e) { start(e); }, { passive: true });
+    btn.addEventListener('touchstart', function (e) {
+      lastTouchAt = Date.now();
+      start(e);
+    }, { passive: true });
     btn.addEventListener('touchend', function (e) {
+      lastTouchAt = Date.now();
       cancel();
       if (isLong) {
         if (e.cancelable) e.preventDefault();
         e.stopPropagation();
       }
     });
-    btn.addEventListener('mousedown', function (e) { if (e.button === 0) start(e); });
+    btn.addEventListener('touchcancel', function () {
+      lastTouchAt = Date.now();
+      cancel();
+      isLong = false;
+    });
+    btn.addEventListener('mousedown', function (e) {
+      if (Date.now() - lastTouchAt < 900) return;
+      if (e.button === 0) start(e);
+    });
     btn.addEventListener('mouseup', function (e) {
+      if (Date.now() - lastTouchAt < 900) return;
       cancel();
       if (isLong) {
         if (e.cancelable) e.preventDefault();
         e.stopPropagation();
       }
     });
-    btn.addEventListener('mouseleave', cancel);
+    btn.addEventListener('mouseleave', function () {
+      if (Date.now() - lastTouchAt < 900) return;
+      cancel();
+    });
 
     btn.addEventListener('click', function (e) {
       e.stopPropagation();
+      cancel();
       if (isLong) {
         isLong = false;
         return;
@@ -1071,6 +1090,7 @@
   }
 
   function setArt(url) {
+    if (!el.art || !el.disc) return;
     if (url && typeof url === 'string' && url.length > 30) {
       if (el.art.getAttribute('src') !== url) el.art.src = url;
       el.disc.classList.add('has-art');
@@ -1102,6 +1122,7 @@
       if (j.repeatMode) m.repeatMode = j.repeatMode;
       if (typeof j.shuffle === 'boolean') m.shuffle = j.shuffle;
       m.albumArt = j.albumArt || null;
+      if (!el.root) return;
       setArt(m.albumArt);
       render();
       if (typeof window.syncShineWaveStudioState === 'function') {

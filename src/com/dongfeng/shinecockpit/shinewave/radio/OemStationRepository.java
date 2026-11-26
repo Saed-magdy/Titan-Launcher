@@ -329,8 +329,8 @@ public final class OemStationRepository {
     }
 
     /**
-     * Resolves unambiguous text band markers without relying on conflicting numeric ordinals
-     * (RadioConstants.RadioType FM=0/AM=1 vs ITunerService BAND_FM=1/BAND_AM=0).
+     * Resolves unambiguous text band markers without relying on database schema ordinals
+     * (OEM ITunerService / TunerManager / LocalRadioAdapter use FM=0, AM=1).
      */
     private static Boolean classifyExplicitBandText(String raw) {
         if (raw == null) return null;

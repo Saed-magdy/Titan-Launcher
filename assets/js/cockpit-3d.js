@@ -141,6 +141,9 @@ var _paintQueued = false;
         }
       }
 
+      if (!renderer) {
+        return false;
+      }
       if (renderer) {
         renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 0.92));
         renderer.setSize(w, h);
@@ -239,6 +242,7 @@ var _paintQueued = false;
       scene.add(dirLightRear);
 
       // Initialize System Clock
+      return true;
     }
 
     function loadSingleLightTexture(key) {
@@ -752,6 +756,12 @@ var _paintQueued = false;
           if (typeof updateLights === 'function') updateLights();
           window.__cockpit3DReady = true;
           window.__carGlbBufferPromise = null;
+          idleRenderCountdown = 120;
+          renderRequested = true;
+          ensureAnimLoop();
+          if (renderer && scene && camera) {
+            renderer.render(scene, camera);
+          }
         }, function(err) {
           console.error('[Cockpit3D] GLTF parser error:', err);
         });
@@ -1079,16 +1089,15 @@ var _paintQueued = false;
         depthWrite: false
       });
 
-      // 2. Rear tailgate windshield: semi-transparent from BOTH inside & outside matching side & front glass
+      // 2. Rear tailgate windshield ONLY: deep black privacy tint (فاميه)
       const rearDarkGlassMaterial = new THREE.MeshLambertMaterial({
-        color: 0x060a0f,
-        envMap: doorGlassEnvTex,
+        color: 0x010203,
+        envMap: studioEnvTex,
         combine: THREE.AddOperation,
-        reflectivity: 0.12,
-        transparent: true,
-        opacity: 0.54,
-        side: THREE.DoubleSide,
-        depthWrite: false
+        reflectivity: 0.06,
+        transparent: false,
+        opacity: 1.0,
+        side: THREE.DoubleSide
       });
 
       // 3. All 4 door windows + C-pillar quarter glass: unified semi-transparent from BOTH inside & outside
@@ -1752,14 +1761,46 @@ var _paintQueued = false;
     window.__cockpitPaused = !!window.__cockpitPaused;
     window.__avmOverlayActive = !!window.__avmOverlayActive;
     window.__uiRequested3DFreeze = false;
+    let animLoopScheduled = false;
+    let wasIdleStopped = true;
     function applyCar3DFrozen(frozen) {
       const wasFrozen = window.isCar3DFrozen;
       window.isCar3DFrozen = !!frozen;
-      if (wasFrozen && !window.isCar3DFrozen) {
-        idleRenderCountdown = Math.max(idleRenderCountdown, 24);
+      if (!window.isCar3DFrozen) {
+        idleRenderCountdown = Math.max(idleRenderCountdown, 36);
+        renderRequested = true;
         ensureAnimLoop();
+        if (wasFrozen && renderer && scene && camera) {
+          renderer.render(scene, camera);
+        }
       }
     }
+    window.forceWakeAndRender3D = function() {
+      if (window.isCar3DFrozen) return;
+      idleRenderCountdown = Math.max(idleRenderCountdown, 36);
+      renderRequested = true;
+      ensureAnimLoop();
+      if (renderer && scene && camera) {
+        renderer.render(scene, camera);
+        setTimeout(function() {
+          if (!window.isCar3DFrozen && renderer && scene && camera) {
+            renderer.render(scene, camera);
+          }
+        }, 120);
+      }
+    };
+    document.addEventListener('visibilitychange', function() {
+      if (!document.hidden) {
+        window.__cockpitPaused = false;
+        syncCar3DPauseState();
+        window.forceWakeAndRender3D();
+      }
+    });
+    window.addEventListener('pageshow', function() {
+      window.__cockpitPaused = false;
+      syncCar3DPauseState();
+      window.forceWakeAndRender3D();
+    });
     function syncCar3DPauseState() {
       const pagePaused = document.body.classList.contains('journey-pip-active')
           || document.body.classList.contains('widgets-page-active');
@@ -1788,8 +1829,6 @@ var _paintQueued = false;
       syncCar3DPauseState();
     };
     syncCar3DPauseState();
-    let animLoopScheduled = false;
-    let wasIdleStopped = true;
     function ensureAnimLoop() {
       if (!window.isCar3DFrozen && !animLoopScheduled) {
         animLoopScheduled = true;
@@ -2008,7 +2047,14 @@ window.startCockpit3DEngine = function() {
   if (window.__cockpit3DEngineStarted) return;
   window.__cockpit3DEngineStarted = true;
   console.log('[Cockpit3D] Starting 3D WebGL Vehicle Scene...');
-  init3DScene();
+  if (!init3DScene()) {
+    window.__cockpit3DEngineStarted = false;
+    window.__webglRetryCount = (window.__webglRetryCount || 0) + 1;
+    if (window.__webglRetryCount <= 6) {
+      setTimeout(window.startCockpit3DEngine, 300);
+    }
+    return;
+  }
   initPlateTexture();
   preloadHeadlightTextures();
   initDynamicPaintEngine();

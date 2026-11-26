@@ -2163,6 +2163,16 @@
       align-items: center;
       gap: 10px;
     }
+    #settings-modal .settings-btn.tz-pill-btn {
+      height: 38px !important;
+      font-size: 15px !important;
+      padding: 4px 10px !important;
+      flex: 1;
+    }
+    #offline-tz-pills-row.disabled {
+      opacity: 0.42;
+      pointer-events: none;
+    }
     .lock-pill-badge {
       font-size: 11px;
       font-family: 'Plus Jakarta Sans', 'Noto Sans Arabic', sans-serif;

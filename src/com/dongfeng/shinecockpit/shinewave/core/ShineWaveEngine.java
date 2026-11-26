@@ -42,7 +42,7 @@ public final class ShineWaveEngine {
     private static final String PREFS = "shine_wave_integrated_prefs";
     private static final String KEY_SOURCE = "selected_source";
     private static final String KEY_RADIO_TYPE = "radio_type";
-    private static final String KEY_FM_BAND = "radio_fm_band";
+    private static final String KEY_FM_BAND = "radio_tuner_band_v2";
     private static final String KEY_FM_FREQ = "radio_fm_freq_khz";
     private static final String KEY_LAST_FM_FREQ = "radio_last_fm_freq_khz";
     private static final String KEY_LAST_AM_FREQ = "radio_last_am_freq_khz";
@@ -158,10 +158,14 @@ public final class ShineWaveEngine {
 
         AudioSourceType savedSource = AudioSourceType.fromKey(prefs.getString(KEY_SOURCE, "BLUETOOTH"));
         stateModel.setSource(savedSource);
-        int initBand = prefs.getInt(KEY_FM_BAND, FmAmTunerController.BAND_FM);
+        String savedRadioType = prefs.getString(KEY_RADIO_TYPE, "FM");
+        int initBand = "AM".equalsIgnoreCase(savedRadioType)
+                ? FmAmTunerController.BAND_AM
+                : FmAmTunerController.BAND_FM;
+        prefs.edit().putInt(KEY_FM_BAND, initBand).apply();
         int initFreq = getSavedFreqForBand(initBand);
         stateModel.setRadioState(
-                prefs.getString(KEY_RADIO_TYPE, initBand == FmAmTunerController.BAND_AM ? "AM" : "FM"),
+                "DAB".equalsIgnoreCase(savedRadioType) ? "DAB" : (initBand == FmAmTunerController.BAND_AM ? "AM" : "FM"),
                 initFreq,
                 "جاهز"
         );
@@ -228,14 +232,17 @@ public final class ShineWaveEngine {
             @Override
             public void onBandChanged(int band) {
                 String rType = (band == FmAmTunerController.BAND_FM) ? "FM" : "AM";
-                prefs.edit().putInt(KEY_FM_BAND, band).apply();
                 if (!"DAB".equals(stateModel.getRadioType())) {
-                    stateModel.setRadioState(rType, 0, null);
+                    prefs.edit().putInt(KEY_FM_BAND, band).putString(KEY_RADIO_TYPE, rType).apply();
+                    int bandFreq = getSavedFreqForBand(band);
+                    stateModel.setRadioState(rType, bandFreq, null);
                     if (stateModel.getSource() == AudioSourceType.CAR_RADIO) {
                         updateCarRadioTitle();
                         emitState();
                         emitRadioDataAsync();
                     }
+                } else {
+                    prefs.edit().putInt(KEY_FM_BAND, band).apply();
                 }
             }
 
@@ -269,6 +276,7 @@ public final class ShineWaveEngine {
                 }
             }
         });
+        this.fmAmTuner.rememberDesiredBandAndFreq(initBand, initFreq);
 
         this.oemStationRepo = new OemStationRepository(appContext);
         this.dabController = new DabBrowserController(appContext, new DabBrowserController.Callback() {
@@ -503,15 +511,17 @@ public final class ShineWaveEngine {
                     dabController.connectAndBrowse(null);
                 } else {
                     radioPolicyRouter.requestRadioPolicy();
-                    fmAmTuner.connectAsync();
-                    fmAmTuner.setMuteAsync(false);
-                    int band = prefs.getInt(KEY_FM_BAND, FmAmTunerController.BAND_FM);
+                    int band = "AM".equalsIgnoreCase(rType) ? FmAmTunerController.BAND_AM : FmAmTunerController.BAND_FM;
+                    prefs.edit().putInt(KEY_FM_BAND, band).apply();
                     int freq = getSavedFreqForBand(band);
                     fmAmTuner.rememberDesiredBandAndFreq(band, freq);
                     stateModel.setRadioState(band == FmAmTunerController.BAND_FM ? "FM" : "AM", freq, "راديو السيارة");
                     updateCarRadioTitle();
                     if (autoActivate) {
                         fmAmTuner.tuneAsync(band, freq);
+                    } else {
+                        fmAmTuner.getFactoryBridge().prewarm();
+                        fmAmTuner.setMuteAsync(false);
                     }
                     mainHandler.removeCallbacks(radioSyncRunnable);
                     mainHandler.postDelayed(radioSyncRunnable, 3000L);
@@ -997,8 +1007,12 @@ public final class ShineWaveEngine {
     }
 
     public void stepCarRadio(int deltaKhz) {
-        int band = prefs.getInt(KEY_FM_BAND, FmAmTunerController.BAND_FM);
-        int cur = getSavedFreqForBand(band);
+        String rType = prefs.getString(KEY_RADIO_TYPE, "FM");
+        int band = "AM".equalsIgnoreCase(rType) ? FmAmTunerController.BAND_AM : FmAmTunerController.BAND_FM;
+        int liveFreq = fmAmTuner.getCurrentFreqKhz();
+        int cur = (fmAmTuner.getCurrentBand() == band && FmAmTunerController.isValidFreq(band, liveFreq))
+                ? liveFreq
+                : getSavedFreqForBand(band);
         int step = (deltaKhz != 0) ? deltaKhz : (band == FmAmTunerController.BAND_FM ? 100 : 9);
         tuneCarRadio(band == FmAmTunerController.BAND_FM ? "FM" : "AM", cur + step);
     }

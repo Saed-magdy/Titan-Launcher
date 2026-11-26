@@ -59,11 +59,73 @@
     /* ========================================================
        DIGITAL CLOCK & DATE (Top-Left HUD Column)
        ======================================================== */
+    window.__nativeClockSync = null;
+
+    function updateOfflineTimeUi(guardEnabled, tzMode) {
+      const chk = document.getElementById('chk-offline-time-guard');
+      if (chk) chk.checked = !!guardEnabled;
+      const pillsRow = document.getElementById('offline-tz-pills-row');
+      if (pillsRow) pillsRow.classList.toggle('disabled', !guardEnabled);
+      const norm = (tzMode === 'utc2' || tzMode === 'utc3' || tzMode === 'utc4') ? tzMode : 'auto';
+      ['auto', 'utc2', 'utc3', 'utc4'].forEach(function (m) {
+        const b = document.getElementById('tz-mode-' + m);
+        if (b) b.classList.toggle('active', m === norm);
+      });
+    }
+
+    window.onNativeClockSync = function (syncObj) {
+      try {
+        const parsed = typeof syncObj === 'string' ? JSON.parse(syncObj) : syncObj;
+        if (!parsed || typeof parsed !== 'object') return;
+        window.__nativeClockSync = {
+          guardEnabled: !!parsed.guardEnabled,
+          tzMode: parsed.tzMode || 'auto',
+          tzId: parsed.tzId || '',
+          tzOffsetMs: typeof parsed.tzOffsetMs === 'number' ? parsed.tzOffsetMs : null,
+          utcMs: typeof parsed.utcMs === 'number' ? parsed.utcMs : Date.now(),
+          receivedPerfMs: performance.now()
+        };
+        if (typeof state !== 'undefined') {
+          state.offlineTimeGuard = !!parsed.guardEnabled;
+          state.offlineTzMode = parsed.tzMode || 'auto';
+        }
+        updateOfflineTimeUi(!!parsed.guardEnabled, parsed.tzMode || 'auto');
+        if (typeof window.updateClock === 'function') window.updateClock();
+      } catch (e) {}
+    };
+
+    window.pollNativeClockSync = function () {
+      if (window.AndroidBridge && typeof window.AndroidBridge.getClockSyncJson === 'function') {
+        try {
+          const raw = window.AndroidBridge.getClockSyncJson();
+          if (raw) window.onNativeClockSync(raw);
+        } catch (e) {}
+      }
+    };
+
     function startDigitalClock() {
       function updateClock() {
-        const now = new Date();
-        let hours = now.getHours();
-        const minutes = String(now.getMinutes()).padStart(2, '0');
+        const sync = window.__nativeClockSync;
+        const useNativeOffset = !!(sync && sync.guardEnabled && typeof sync.tzOffsetMs === 'number' && typeof sync.utcMs === 'number');
+        let hours, minutes, dayIdx, dateNum, monthIdx, yearNum;
+        if (useNativeOffset) {
+          const liveUtcMs = sync.utcMs + (performance.now() - sync.receivedPerfMs);
+          const shifted = new Date(liveUtcMs + sync.tzOffsetMs);
+          hours = shifted.getUTCHours();
+          minutes = String(shifted.getUTCMinutes()).padStart(2, '0');
+          dayIdx = shifted.getUTCDay();
+          dateNum = shifted.getUTCDate();
+          monthIdx = shifted.getUTCMonth();
+          yearNum = shifted.getUTCFullYear();
+        } else {
+          const now = new Date();
+          hours = now.getHours();
+          minutes = String(now.getMinutes()).padStart(2, '0');
+          dayIdx = now.getDay();
+          dateNum = now.getDate();
+          monthIdx = now.getMonth();
+          yearNum = now.getFullYear();
+        }
         const isPM = hours >= 12;
         hours = hours % 12;
         hours = hours ? hours : 12;
@@ -84,15 +146,15 @@
         ];
         const isArabic = (state.lang === 'ar');
         const fmtDigits = (v) => (typeof window.toLangDigits === 'function' ? window.toLangDigits(v) : String(v));
-        const dayStr = isArabic ? daysAr[now.getDay()] : daysEn[now.getDay()];
+        const dayStr = isArabic ? daysAr[dayIdx] : daysEn[dayIdx];
         const ampmStr = isArabic ? (isPM ? '\u0645' : '\u0635') : (isPM ? 'PM' : 'AM');
         const monthDayStr = isArabic
-          ? fmtDigits(now.getDate() + ' ' + monthsAr[now.getMonth()])
-          : (monthsEn[now.getMonth()] + ' ' + String(now.getDate()).padStart(2, '0'));
+          ? fmtDigits(dateNum + ' ' + monthsAr[monthIdx])
+          : (monthsEn[monthIdx] + ' ' + String(dateNum).padStart(2, '0'));
 
         const fullDateStr = isArabic
-          ? fmtDigits(daysAr[now.getDay()] + '\u060C ' + now.getDate() + ' ' + monthsAr[now.getMonth()] + ' ' + now.getFullYear())
-          : (daysFullEn[now.getDay()] + ', ' + now.getDate() + ' ' + monthsFullEn[now.getMonth()] + ' ' + now.getFullYear());
+          ? fmtDigits(daysAr[dayIdx] + '\u060C ' + dateNum + ' ' + monthsAr[monthIdx] + ' ' + yearNum)
+          : (daysFullEn[dayIdx] + ', ' + dateNum + ' ' + monthsFullEn[monthIdx] + ' ' + yearNum);
 
         const displayTimeDigits = fmtDigits(timeDigits);
 
@@ -1362,12 +1424,33 @@
       showLauncherToast((state.lang === 'ar' ? '\u062D\u0645\u0627\u064A\u0629 \u0625\u0639\u0627\u062F\u0629 \u0627\u0644\u062A\u0634\u063A\u064A\u0644: ' : 'Crash Loop Breaker: ') + (enabled ? (state.lang === 'ar' ? '\u0645\u0641\u0639\u0644' : 'ENABLED') : (state.lang === 'ar' ? '\u0645\u0639\u0637\u0644' : 'DISABLED')));
     }
 
+    function onOfflineTimeGuardChanged(enabled) {
+      state.offlineTimeGuard = !!enabled;
+      updateOfflineTimeUi(!!enabled, state.offlineTzMode || 'auto');
+      if (window.AndroidBridge && typeof window.AndroidBridge.setOfflineTimeGuard === 'function') {
+        window.AndroidBridge.setOfflineTimeGuard(!!enabled);
+      }
+      showLauncherToast((state.lang === 'ar' ? '\u062A\u062B\u0628\u064A\u062A \u0627\u0644\u062A\u0648\u0642\u064A\u062A \u0627\u0644\u0645\u062D\u0644\u064A: ' : 'Offline Time Guard: ') + (enabled ? (state.lang === 'ar' ? '\u0645\u0641\u0639\u0644' : 'ON') : (state.lang === 'ar' ? '\u0645\u0639\u0637\u0644' : 'OFF')));
+    }
+    window.onOfflineTimeGuardChanged = onOfflineTimeGuardChanged;
+
+    function setOfflineTzMode(mode) {
+      const norm = (mode === 'utc2' || mode === 'utc3' || mode === 'utc4') ? mode : 'auto';
+      state.offlineTzMode = norm;
+      updateOfflineTimeUi(state.offlineTimeGuard !== false, norm);
+      if (window.AndroidBridge && typeof window.AndroidBridge.setOfflineTimeZoneMode === 'function') {
+        window.AndroidBridge.setOfflineTimeZoneMode(norm);
+      }
+    }
+    window.setOfflineTzMode = setOfflineTzMode;
+
     function saveAllSettings() {
       const chkSpeed = document.getElementById('chk-speed-lock');
       const chkWalk = document.getElementById('chk-walk-lock');
       const chkOff = document.getElementById('chk-off-unlock');
       const chkAutoBoot = document.getElementById('chk-auto-boot');
       const chkWatchdog = document.getElementById('chk-watchdog');
+      const chkOfflineTime = document.getElementById('chk-offline-time-guard');
 
       const settings = {
         lang: state.lang,
@@ -1382,7 +1465,9 @@
         walkLock: chkWalk ? chkWalk.checked : false,
         offUnlock: chkOff ? chkOff.checked : false,
         autoBoot: chkAutoBoot ? chkAutoBoot.checked : true,
-        watchdogEnabled: chkWatchdog ? chkWatchdog.checked : true
+        watchdogEnabled: chkWatchdog ? chkWatchdog.checked : true,
+        offlineTimeGuard: chkOfflineTime ? chkOfflineTime.checked : (state.offlineTimeGuard !== false),
+        offlineTzMode: state.offlineTzMode || 'auto'
       };
 
       const jsonStr = JSON.stringify(settings);
@@ -1399,6 +1484,12 @@
       }
       if (window.AndroidBridge && window.AndroidBridge.setWatchdogEnabled) {
         window.AndroidBridge.setWatchdogEnabled(settings.watchdogEnabled);
+      }
+      if (window.AndroidBridge && window.AndroidBridge.setOfflineTimeGuard) {
+        window.AndroidBridge.setOfflineTimeGuard(settings.offlineTimeGuard);
+      }
+      if (window.AndroidBridge && window.AndroidBridge.setOfflineTimeZoneMode) {
+        window.AndroidBridge.setOfflineTimeZoneMode(settings.offlineTzMode);
       }
 
       toggleVehicleConfig('speed_lock', settings.speedLock);
@@ -1519,6 +1610,13 @@
           const chkWd = document.getElementById('chk-watchdog');
           if (chkWd) chkWd.checked = !!s.watchdogEnabled;
         }
+        if (s.offlineTimeGuard !== undefined) {
+          state.offlineTimeGuard = !!s.offlineTimeGuard;
+        }
+        if (s.offlineTzMode !== undefined) {
+          state.offlineTzMode = s.offlineTzMode;
+        }
+        updateOfflineTimeUi(state.offlineTimeGuard !== false, state.offlineTzMode || 'auto');
       } catch(e) {
         console.error('[Settings] Error applying saved settings JSON:', e);
       }
@@ -1559,6 +1657,7 @@
           if (chkWd) chkWd.checked = wd;
         } catch(e) {}
       }
+      window.pollNativeClockSync();
 
       // Initialize persistent sunroof state (default to 'close')
       try {
@@ -2092,6 +2191,7 @@
 
     setTimeout(window.syncConnectivityFromAndroid, 1200);
     setInterval(window.syncConnectivityFromAndroid, 10000);
+    setInterval(window.pollNativeClockSync, 15000);
 
 /* ============================================================================
    PHASE 1 INSTANT BOOT (HUD, Clock, Telemetry, Controls & Quick Apps)

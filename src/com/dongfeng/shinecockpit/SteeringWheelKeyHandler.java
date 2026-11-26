@@ -19,7 +19,7 @@ import com.dongfeng.shinecockpit.shinewave.core.ShineWaveEngine;
 public final class SteeringWheelKeyHandler {
     private static final String TAG = "TitanSWC";
 
-    private static final long SWC_LONG_PRESS_DELAY_MS = 650L;
+    private static final long SWC_LONG_PRESS_DELAY_MS = 900L;
     private static final long SWC_SEEK_INTERVAL_MS = 450L;
     private static final long SWC_SEEK_STEP_MS = 10000L;
     private static final long SWC_SEEK_WATCHDOG_MS = 12000L;
@@ -126,14 +126,29 @@ public final class SteeringWheelKeyHandler {
                                     @Override public void run() { handleQingganShortClick(keyCode); }
                                 });
                                 return true;
-                            } else if ("onKeyHoldPressStart".equals(name) || "onKeyLongPressStart".equals(name)) {
+                            } else if ("onKeyHoldPressStart".equals(name)) {
+                                // 500ms hold phase: consume without starting 10s seek; true long-seek starts at 1000ms onKeyLongPressStart.
+                                return true;
+                            } else if ("onKeyLongPressStart".equals(name)) {
                                 if (keyCode == QG_KEY_NEXT || keyCode == QG_LONG_NEXT_KEY) {
                                     startQingganSeek(1);
                                 } else if (keyCode == QG_KEY_PREVIOUS || keyCode == QG_LONG_PREVIOUS_KEY) {
                                     startQingganSeek(-1);
                                 }
                                 return true;
-                            } else if ("onKeyLongPressStop".equals(name) || "onKeyHoldPressStop".equals(name)
+                            } else if ("onKeyHoldPressStop".equals(name)) {
+                                // Released between 500ms and 999ms: KeyManagerReader does not emit onKeyShortClick here,
+                                // so treat as a normal single-press track skip if long-seek has not started.
+                                final boolean wasSeeking = mQingganSeekActive;
+                                stopQingganSeek();
+                                if (!wasSeeking && (keyCode == QG_KEY_NEXT || keyCode == QG_KEY_PREVIOUS
+                                        || keyCode == QG_KEY_PLAY_PAUSE || keyCode == QG_KEY_MEDIA_OK)) {
+                                    mHandler.post(new Runnable() {
+                                        @Override public void run() { handleQingganShortClick(keyCode); }
+                                    });
+                                }
+                                return true;
+                            } else if ("onKeyLongPressStop".equals(name)
                                     || "onKeyRelease".equals(name) || "onKeyUp".equals(name)) {
                                 if (keyCode == QG_KEY_NEXT || keyCode == QG_LONG_NEXT_KEY
                                         || keyCode == QG_KEY_PREVIOUS || keyCode == QG_LONG_PREVIOUS_KEY) {

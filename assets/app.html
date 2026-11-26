@@ -506,6 +506,23 @@
               <label class="switch"><input type="checkbox" id="chk-watchdog" checked onchange="onWatchdogChanged(this.checked)"><span class="slider-toggle"></span></label>
             </div>
           </div>
+          <div class="lock-control-card" style="margin-top: 12px; flex-direction: column; align-items: stretch; gap: 10px;">
+            <div style="display: flex; justify-content: space-between; align-items: center;">
+              <div class="lock-info-col">
+                <span class="toggle-label" id="lbl-offline-time">Keep Local Time Offline</span>
+                <span class="lock-can-stat" id="desc-offline-time">Prevent reverting to China time when offline</span>
+              </div>
+              <div class="lock-action-wrap">
+                <label class="switch"><input type="checkbox" id="chk-offline-time-guard" checked onchange="onOfflineTimeGuardChanged(this.checked)"><span class="slider-toggle"></span></label>
+              </div>
+            </div>
+            <div id="offline-tz-pills-row" style="display: flex; gap: 8px;">
+              <button type="button" class="settings-btn tz-pill-btn active" id="tz-mode-auto" onclick="setOfflineTzMode('auto')">Auto</button>
+              <button type="button" class="settings-btn tz-pill-btn" id="tz-mode-utc2" onclick="setOfflineTzMode('utc2')">UTC+2</button>
+              <button type="button" class="settings-btn tz-pill-btn" id="tz-mode-utc3" onclick="setOfflineTzMode('utc3')">UTC+3</button>
+              <button type="button" class="settings-btn tz-pill-btn" id="tz-mode-utc4" onclick="setOfflineTzMode('utc4')">UTC+4</button>
+            </div>
+          </div>
         </div>
       </div>
       

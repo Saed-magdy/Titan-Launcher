@@ -57,7 +57,13 @@ public class MainActivity extends Activity implements CockpitMediaListenerServic
     private static final String TAG = "DongfengCockpit";
     private static final String PREF_HUB = "ShineHubPrefs";
 
+    private static android.content.MutableContextWrapper sWebViewContext;
+    private static WebView sSharedWebView;
+    private static volatile MainActivity sActiveInstance;
+    private static volatile boolean sRestoreScheduled = false;
+
     private long mStartupStartMs;
+    private boolean mFinishedWhileForeground = false;
     private WebView mWebView;
     private CanBusClient mCanBusClient;
     private ShineWaveEngine mShineWave;
@@ -73,6 +79,7 @@ public class MainActivity extends Activity implements CockpitMediaListenerServic
 
     private volatile boolean mIsForeground = true;
     private volatile int mLastAvmState = -1;
+    private volatile long mLastTimeGuardCheckMs = 0L;
     private int mSimSpeed = 0;
     private boolean mSpeedIncreasing = true;
     private double mLastSentFuelRemain = -1.0;
@@ -96,10 +103,26 @@ public class MainActivity extends Activity implements CockpitMediaListenerServic
         }
     };
 
+    private final Runnable mClockSyncPushRunnable = new Runnable() {
+        @Override
+        public void run() {
+            evalWebViewJs("if (typeof window.onNativeClockSync === 'function') { window.onNativeClockSync(" + OfflineTimeKeeper.getClockSyncJson(MainActivity.this) + "); }");
+        }
+    };
+
     private final BroadcastReceiver mConnectivityReceiver = new BroadcastReceiver() {
         @Override
         public void onReceive(Context context, Intent intent) {
             evalWebViewJs("window.syncConnectivityFromAndroid && window.syncConnectivityFromAndroid();");
+            OfflineTimeKeeper.enforceTimeZoneAndClock(MainActivity.this, "connectivity", mClockSyncPushRunnable);
+        }
+    };
+
+    private final BroadcastReceiver mTimeGuardReceiver = new BroadcastReceiver() {
+        @Override
+        public void onReceive(Context context, Intent intent) {
+            String act = intent != null ? intent.getAction() : "";
+            OfflineTimeKeeper.onSystemBroadcast(MainActivity.this, act, mClockSyncPushRunnable);
         }
     };
 
@@ -131,10 +154,24 @@ public class MainActivity extends Activity implements CockpitMediaListenerServic
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        sActiveInstance = this;
+        sRestoreScheduled = false;
+        mFinishedWhileForeground = false;
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+            try {
+                android.app.ActivityManager am = (android.app.ActivityManager) getSystemService(Context.ACTIVITY_SERVICE);
+                if (am != null && am.getAppTasks() != null) {
+                    for (android.app.ActivityManager.AppTask task : am.getAppTasks()) {
+                        task.setExcludeFromRecents(true);
+                    }
+                }
+            } catch (Throwable ignored) {}
+        }
         mStartupStartMs = SystemClock.elapsedRealtime();
         Log.i(TAG, "Startup: onCreate started");
 
         LauncherWatchdog.install(this, mHandler);
+        OfflineTimeKeeper.enforceTimeZoneAndClock(this, "onCreate", mClockSyncPushRunnable);
         mHandler.postDelayed(new Runnable() {
             @Override
             public void run() {
@@ -152,13 +189,6 @@ public class MainActivity extends Activity implements CockpitMediaListenerServic
         root.setLayoutParams(new ViewGroup.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.MATCH_PARENT));
-        mWebView = new WebView(this);
-        root.addView(mWebView, new FrameLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT,
-                ViewGroup.LayoutParams.MATCH_PARENT));
-        setContentView(root);
-
-        hideSystemUI();
 
         long canInitStartMs = SystemClock.elapsedRealtime();
         mCanBusClient = new CanBusClient(this);
@@ -177,13 +207,43 @@ public class MainActivity extends Activity implements CockpitMediaListenerServic
             }
         });
 
-        setupWebView();
         startTelemetryLoop();
         SystemControlHelper.ensureNotificationListenerAccess(this);
         CockpitMediaListenerService.setListener(this);
         startShineWaveEngine();
         mSwcHandler.registerQingganKeys();
         registerReceivers();
+
+        if (sSharedWebView != null) {
+            if (sWebViewContext != null) {
+                sWebViewContext.setBaseContext(this);
+            }
+            ViewGroup prevParent = (sSharedWebView.getParent() instanceof ViewGroup)
+                    ? (ViewGroup) sSharedWebView.getParent() : null;
+            if (prevParent != null) {
+                prevParent.removeView(sSharedWebView);
+            }
+            mWebView = sSharedWebView;
+            root.addView(mWebView, new FrameLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                    ViewGroup.LayoutParams.MATCH_PARENT));
+            setContentView(root);
+            hideSystemUI();
+            Log.i(TAG, "Startup: Reattached warm sSharedWebView in 0ms (3D WebGL context preserved)");
+            evalWebViewJs("window.__cockpitPaused = false; if (typeof window.setCockpitPaused === 'function') { window.setCockpitPaused(false); } if (typeof window.forceWakeAndRender3D === 'function') { window.forceWakeAndRender3D(); }");
+            pushShineWaveState();
+        } else {
+            sWebViewContext = new android.content.MutableContextWrapper(getApplicationContext());
+            sWebViewContext.setBaseContext(this);
+            sSharedWebView = new WebView(sWebViewContext);
+            mWebView = sSharedWebView;
+            root.addView(mWebView, new FrameLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                    ViewGroup.LayoutParams.MATCH_PARENT));
+            setContentView(root);
+            hideSystemUI();
+            setupWebView();
+        }
     }
 
     private void startShineWaveEngine() {
@@ -199,7 +259,6 @@ public class MainActivity extends Activity implements CockpitMediaListenerServic
         try {
             if (mShineWave != null) {
                 mShineWave.removeListener(mShineWaveListener);
-                mShineWave.release();
             }
         } catch (Throwable ignored) {}
     }
@@ -219,6 +278,13 @@ public class MainActivity extends Activity implements CockpitMediaListenerServic
             connFilter.addAction("android.bluetooth.device.action.ACL_DISCONNECTED");
             connFilter.addAction(ConnectivityManager.CONNECTIVITY_ACTION);
             registerReceiver(mConnectivityReceiver, connFilter);
+        } catch (Throwable ignored) {}
+
+        try {
+            IntentFilter timeFilter = new IntentFilter();
+            timeFilter.addAction(Intent.ACTION_TIMEZONE_CHANGED);
+            timeFilter.addAction(Intent.ACTION_TIME_CHANGED);
+            registerReceiver(mTimeGuardReceiver, timeFilter);
         } catch (Throwable ignored) {}
 
         try {
@@ -292,24 +358,34 @@ public class MainActivity extends Activity implements CockpitMediaListenerServic
         super.onResume();
         mIsForeground = true;
         hideSystemUI();
-        evalWebViewJs("if (typeof window.setCockpitPaused === 'function') { window.setCockpitPaused(false); }");
+        evalWebViewJs("window.__cockpitPaused = false; if (typeof window.setCockpitPaused === 'function') { window.setCockpitPaused(false); } if (typeof window.forceWakeAndRender3D === 'function') { window.forceWakeAndRender3D(); }");
         if (mLastAvmState >= 0) applyAvmOverlayStateToWebView(mLastAvmState != 0);
         pushShineWaveState();
+        mClockSyncPushRunnable.run();
     }
 
     @Override
     protected void onPause() {
         super.onPause();
+        boolean wasFg = mIsForeground;
         mIsForeground = false;
+        if (wasFg && isFinishing()) {
+            mFinishedWhileForeground = true;
+            Log.i(TAG, "Detected task clear while launcher in foreground; scheduling instant warm restore");
+        }
         mAudioAnalyzer.release();
-        evalWebViewJs("if (typeof window.setCockpitPaused === 'function') { window.setCockpitPaused(true); }");
+        if (!mFinishedWhileForeground) {
+            evalWebViewJs("if (typeof window.setCockpitPaused === 'function') { window.setCockpitPaused(true); }");
+        }
     }
 
     @Override
     public void onWindowFocusChanged(boolean hasFocus) {
         super.onWindowFocusChanged(hasFocus);
-        if (hasFocus) hideSystemUI();
-        evalWebViewJs("if (typeof window.setCockpitPaused === 'function') { window.setCockpitPaused(" + (!hasFocus) + "); }");
+        if (hasFocus) {
+            hideSystemUI();
+            evalWebViewJs("window.__cockpitPaused = false; if (typeof window.setCockpitPaused === 'function') { window.setCockpitPaused(false); } if (typeof window.forceWakeAndRender3D === 'function') { window.forceWakeAndRender3D(); }");
+        }
     }
 
     @Override
@@ -401,17 +477,24 @@ public class MainActivity extends Activity implements CockpitMediaListenerServic
             public boolean onRenderProcessGone(WebView view, RenderProcessGoneDetail detail) {
                 boolean didCrash = (detail != null && detail.didCrash());
                 Log.e(TAG, "WebViewClient.onRenderProcessGone: didCrash=" + didCrash);
-                LauncherWatchdog.handleFatalCrashAndRecovery(MainActivity.this, "RenderProcessGone (didCrash=" + didCrash + ")");
+                sSharedWebView = null;
+                sWebViewContext = null;
+                MainActivity act = sActiveInstance != null ? sActiveInstance : MainActivity.this;
+                LauncherWatchdog.handleFatalCrashAndRecovery(act, "RenderProcessGone (didCrash=" + didCrash + ")");
                 return true;
             }
 
             @Override
             public void onPageFinished(WebView view, String url) {
                 super.onPageFinished(view, url);
-                Log.i(TAG, "Startup: WebView page finished at " + (SystemClock.elapsedRealtime() - mStartupStartMs) + "ms");
-                if (mLastAvmState >= 0) applyAvmOverlayStateToWebView(mLastAvmState != 0);
+                MainActivity act = sActiveInstance != null ? sActiveInstance : MainActivity.this;
+                Log.i(TAG, "Startup: WebView page finished at " + (SystemClock.elapsedRealtime() - act.mStartupStartMs) + "ms");
+                view.evaluateJavascript("window.__cockpitPaused = " + (!act.mIsForeground) + "; if (typeof window.setCockpitPaused === 'function') { window.setCockpitPaused(" + (!act.mIsForeground) + "); }", null);
+                if (act.mLastAvmState >= 0) act.applyAvmOverlayStateToWebView(act.mLastAvmState != 0);
+                act.pushShineWaveState();
+                act.mClockSyncPushRunnable.run();
                 try {
-                    String s = getSharedPreferences(PREF_HUB, MODE_PRIVATE).getString("user_settings", "");
+                    String s = act.getSharedPreferences(PREF_HUB, MODE_PRIVATE).getString("user_settings", "");
                     if (s != null && !s.isEmpty()) {
                         String escaped = JSONObject.quote(s);
                         view.evaluateJavascript("if (typeof applySavedSettingsJson === 'function') { applySavedSettingsJson(" + escaped + "); }", null);
@@ -425,11 +508,12 @@ public class MainActivity extends Activity implements CockpitMediaListenerServic
         final AndroidBridge bridge = new AndroidBridge();
         mWebView.addJavascriptInterface(bridge, "AndroidBridge");
 
-        mExecutor.execute(new Runnable() {
+        final MainActivity initAct = sActiveInstance != null ? sActiveInstance : MainActivity.this;
+        initAct.mExecutor.execute(new Runnable() {
             @Override
             public void run() {
                 try {
-                    mAppRepo.getInstalledAppsJson(MainActivity.this);
+                    initAct.mAppRepo.getInstalledAppsJson(initAct);
                 } catch (Exception ignored) {}
             }
         });
@@ -476,193 +560,224 @@ public class MainActivity extends Activity implements CockpitMediaListenerServic
      * JavaScript Bridge exposed as window.AndroidBridge in the WebView.
      */
     public class AndroidBridge {
+        private MainActivity host() {
+            MainActivity act = sActiveInstance;
+            return act != null ? act : MainActivity.this;
+        }
+
         @JavascriptInterface
         public String getAudioVisualizerData() {
-            return mAudioAnalyzer.getSpectrumCsv(mIsForeground);
+            MainActivity h = host();
+            return h.mAudioAnalyzer.getSpectrumCsv(h.mIsForeground);
         }
 
         @JavascriptInterface
         public boolean sendShineWaveCommand(final String cmd) {
-            if (mShineWave == null || cmd == null) return false;
-            mShineWave.handleCommand(cmd);
+            MainActivity h = host();
+            if (h.mShineWave == null || cmd == null) return false;
+            h.mShineWave.handleCommand(cmd);
             return true;
         }
 
         @JavascriptInterface
         public void requestShineWaveState() {
-            pushShineWaveState();
+            host().pushShineWaveState();
         }
 
         @JavascriptInterface
         public void cycleShineWaveRepeat() {
-            if (mShineWave != null) mShineWave.handleCommand("repeat_cycle");
+            MainActivity h = host();
+            if (h.mShineWave != null) h.mShineWave.handleCommand("repeat_cycle");
         }
 
         @JavascriptInterface
         public void toggleShineWaveShuffle() {
-            if (mShineWave != null) mShineWave.handleCommand("shuffle_toggle");
+            MainActivity h = host();
+            if (h.mShineWave != null) h.mShineWave.handleCommand("shuffle_toggle");
         }
 
         @JavascriptInterface
         public void browseShineWaveLocal(final String folderPath, final String query, final boolean forceRescan) {
-            if (mShineWave == null) return;
-            mExecutor.execute(new Runnable() {
+            final MainActivity h = host();
+            if (h.mShineWave == null) return;
+            h.mExecutor.execute(new Runnable() {
                 @Override
                 public void run() {
-                    JSONObject data = mShineWave.browseLocalMusic(folderPath, query, forceRescan);
-                    evalSwJsCallback("onShineWaveLocalData", data.toString());
+                    JSONObject data = h.mShineWave.browseLocalMusic(folderPath, query, forceRescan);
+                    h.evalSwJsCallback("onShineWaveLocalData", data.toString());
                 }
             });
         }
 
         @JavascriptInterface
         public void playShineWaveLocalTrack(final String folderPath, final String query, final String trackId) {
-            if (mShineWave != null) mShineWave.playLocalTrack(folderPath, query, trackId);
+            MainActivity h = host();
+            if (h.mShineWave != null) h.mShineWave.playLocalTrack(folderPath, query, trackId);
         }
 
         @JavascriptInterface
         public void resumeShineWaveQueue(final String source) {
-            if (mShineWave != null) mShineWave.selectSource(AudioSourceType.fromKey(source), true);
+            MainActivity h = host();
+            if (h.mShineWave != null) h.mShineWave.selectSource(AudioSourceType.fromKey(source), true);
         }
 
         @JavascriptInterface
         public void requestShineWaveQueue() {
-            if (mShineWave == null) return;
-            evalSwJsCallback("onShineWaveQueueData", mShineWave.getActiveQueueJson().toString());
+            MainActivity h = host();
+            if (h.mShineWave == null) return;
+            h.evalSwJsCallback("onShineWaveQueueData", h.mShineWave.getActiveQueueJson().toString());
         }
 
         @JavascriptInterface
         public void playShineWaveQueueIndex(final int index) {
-            if (mShineWave == null) return;
-            mShineWave.playQueueIndex(index);
+            MainActivity h = host();
+            if (h.mShineWave == null) return;
+            h.mShineWave.playQueueIndex(index);
         }
 
         @JavascriptInterface
         public void getShineWaveRadioState() {
-            if (mShineWave == null) return;
-            mExecutor.execute(new Runnable() {
+            final MainActivity h = host();
+            if (h.mShineWave == null) return;
+            h.mExecutor.execute(new Runnable() {
                 @Override
                 public void run() {
-                    JSONObject data = mShineWave.buildRadioDataJson();
-                    evalSwJsCallback("onShineWaveRadioData", data.toString());
+                    JSONObject data = h.mShineWave.buildRadioDataJson();
+                    h.evalSwJsCallback("onShineWaveRadioData", data.toString());
                 }
             });
         }
 
         @JavascriptInterface
         public void tuneShineWaveRadio(final String band, final int freqKhz) {
-            if (mShineWave == null) return;
-            mShineWave.tuneCarRadio(band, freqKhz);
+            MainActivity h = host();
+            if (h.mShineWave == null) return;
+            h.mShineWave.tuneCarRadio(band, freqKhz);
         }
 
         @JavascriptInterface
         public void selectShineWaveRadioBand(final String band) {
-            if (mShineWave == null) return;
-            mShineWave.selectCarRadioBand(band);
+            MainActivity h = host();
+            if (h.mShineWave == null) return;
+            h.mShineWave.selectCarRadioBand(band);
         }
 
         @JavascriptInterface
         public void stepShineWaveRadio(final int deltaKhz) {
-            if (mShineWave == null) return;
-            mShineWave.stepCarRadio(deltaKhz);
+            MainActivity h = host();
+            if (h.mShineWave == null) return;
+            h.mShineWave.stepCarRadio(deltaKhz);
         }
 
         @JavascriptInterface
         public void seekShineWaveRadio(final boolean up) {
-            if (mShineWave != null) mShineWave.seekCarRadio(up);
+            MainActivity h = host();
+            if (h.mShineWave != null) h.mShineWave.seekCarRadio(up);
         }
 
         @JavascriptInterface
         public void startShineWaveRadioAutoScan() {
-            if (mShineWave != null) mShineWave.startRadioAutoScan();
+            MainActivity h = host();
+            if (h.mShineWave != null) h.mShineWave.startRadioAutoScan();
         }
 
         @JavascriptInterface
         public void saveShineWaveRadioFavorite(final int freqKhz, final String name) {
-            if (mShineWave == null) return;
-            mShineWave.saveCarRadioFavorite(freqKhz, name);
+            MainActivity h = host();
+            if (h.mShineWave == null) return;
+            h.mShineWave.saveCarRadioFavorite(freqKhz, name);
             getShineWaveRadioState();
         }
 
         @JavascriptInterface
         public void toggleShineWaveRadioFav(final int freqKhz, final String name) {
-            if (mShineWave == null) return;
-            mShineWave.toggleCarRadioFavorite(freqKhz, name);
+            MainActivity h = host();
+            if (h.mShineWave == null) return;
+            h.mShineWave.toggleCarRadioFavorite(freqKhz, name);
             getShineWaveRadioState();
         }
 
         @JavascriptInterface
         public void playShineWaveDab(final String mediaId) {
-            if (mShineWave != null) mShineWave.playDabItem(mediaId);
+            MainActivity h = host();
+            if (h.mShineWave != null) h.mShineWave.playDabItem(mediaId);
         }
 
         @JavascriptInterface
         public void searchShineWaveInternetRadio(final String tab, final String query) {
-            if (mShineWave == null) return;
-            mNetExecutor.execute(new Runnable() {
+            final MainActivity h = host();
+            if (h.mShineWave == null) return;
+            h.mNetExecutor.execute(new Runnable() {
                 @Override
                 public void run() {
-                    JSONObject data = mShineWave.queryInternetRadio(tab, query);
-                    evalSwJsCallback("onShineWaveInternetData", data.toString());
+                    JSONObject data = h.mShineWave.queryInternetRadio(tab, query);
+                    h.evalSwJsCallback("onShineWaveInternetData", data.toString());
                 }
             });
         }
 
         @JavascriptInterface
         public void playShineWaveInternetStation(final String uuid, final String name, final String url, final String country) {
-            if (mShineWave != null) mShineWave.playInternetStation(uuid, name, url, country);
+            MainActivity h = host();
+            if (h.mShineWave != null) h.mShineWave.playInternetStation(uuid, name, url, country);
         }
 
         @JavascriptInterface
         public void toggleShineWaveInternetFav(final String uuid, final String name, final String url,
                                                final String country, final String tab, final String query) {
-            if (mShineWave == null) return;
-            mShineWave.toggleInternetFavorite(uuid, name, url, country);
+            MainActivity h = host();
+            if (h.mShineWave == null) return;
+            h.mShineWave.toggleInternetFavorite(uuid, name, url, country);
             searchShineWaveInternetRadio(tab, query);
         }
 
         @JavascriptInterface
         public void addShineWaveCustomStation(final String name, final String url) {
-            if (mShineWave == null) return;
-            mShineWave.addCustomInternetStation(name, url);
+            MainActivity h = host();
+            if (h.mShineWave == null) return;
+            h.mShineWave.addCustomInternetStation(name, url);
             searchShineWaveInternetRadio("custom", "");
         }
 
         @JavascriptInterface
         public void getShineWaveExternalApps() {
-            if (mShineWave == null) return;
-            mExecutor.execute(new Runnable() {
+            final MainActivity h = host();
+            if (h.mShineWave == null) return;
+            h.mExecutor.execute(new Runnable() {
                 @Override
                 public void run() {
-                    JSONObject data = mShineWave.getExternalMediaAppsJson();
-                    evalSwJsCallback("onShineWaveAppsData", data.toString());
+                    JSONObject data = h.mShineWave.getExternalMediaAppsJson();
+                    h.evalSwJsCallback("onShineWaveAppsData", data.toString());
                 }
             });
         }
 
         @JavascriptInterface
         public void selectShineWaveExternalApp(final String pkg, final String label, final boolean launchNow) {
-            if (mShineWave == null) return;
-            mShineWave.selectExternalMediaApp(pkg, label, launchNow);
+            MainActivity h = host();
+            if (h.mShineWave == null) return;
+            h.mShineWave.selectExternalMediaApp(pkg, label, launchNow);
             getShineWaveExternalApps();
         }
 
         @JavascriptInterface
         public void openCamera360() {
-            evalWebViewJs("if (typeof window.setCockpitPaused === 'function') { window.setCockpitPaused(true); }");
+            final MainActivity h = host();
+            h.evalWebViewJs("if (typeof window.setCockpitPaused === 'function') { window.setCockpitPaused(true); }");
             Log.i(TAG, "openCamera360 requested from JS bridge");
-            mExecutor.execute(new Runnable() {
+            h.mExecutor.execute(new Runnable() {
                 @Override
                 public void run() {
-                    if (mCanBusClient != null) mCanBusClient.openCamera360();
+                    if (h.mCanBusClient != null) h.mCanBusClient.openCamera360();
                 }
             });
         }
 
         @JavascriptInterface
         public boolean launchApp(final String keyOrPkg) {
+            final MainActivity h = host();
             Log.i(TAG, "launchApp requested: " + keyOrPkg);
-            return mAppRepo.launchApp(MainActivity.this, keyOrPkg, new Runnable() {
+            return h.mAppRepo.launchApp(h, keyOrPkg, new Runnable() {
                 @Override
                 public void run() {
                     openCamera360();
@@ -672,32 +787,34 @@ public class MainActivity extends Activity implements CockpitMediaListenerServic
 
         @JavascriptInterface
         public String getInstalledAppsJson() {
-            return mAppRepo.getInstalledAppsJson(MainActivity.this);
+            MainActivity h = host();
+            return h.mAppRepo.getInstalledAppsJson(h);
         }
 
         @JavascriptInterface
         public String getConnectivityStatusJson() {
-            return SystemControlHelper.getConnectivityStatusJson(MainActivity.this);
+            return SystemControlHelper.getConnectivityStatusJson(host());
         }
 
         @JavascriptInterface
         public void openConnectivitySettings(final String type) {
-            SystemControlHelper.openConnectivitySettings(MainActivity.this, type);
+            SystemControlHelper.openConnectivitySettings(host(), type);
         }
 
         @JavascriptInterface
         public void setWifiEnabled(final boolean enabled) {
-            runOnUiThread(new Runnable() {
+            final MainActivity h = host();
+            h.runOnUiThread(new Runnable() {
                 @Override
                 public void run() {
-                    SystemControlHelper.setWifiEnabled(MainActivity.this, enabled);
+                    SystemControlHelper.setWifiEnabled(h, enabled);
                 }
             });
         }
 
         @JavascriptInterface
         public void setBluetoothEnabled(final boolean enabled) {
-            runOnUiThread(new Runnable() {
+            host().runOnUiThread(new Runnable() {
                 @Override
                 public void run() {
                     SystemControlHelper.setBluetoothEnabled(enabled);
@@ -707,38 +824,42 @@ public class MainActivity extends Activity implements CockpitMediaListenerServic
 
         @JavascriptInterface
         public String cleanMemory() {
-            return SystemControlHelper.cleanMemory(MainActivity.this);
+            return SystemControlHelper.cleanMemory(host());
         }
 
         @JavascriptInterface
         public void controlMedia(final String cmd) {
-            if (mShineWave != null) mShineWave.handleCommand(cmd);
+            MainActivity h = host();
+            if (h.mShineWave != null) h.mShineWave.handleCommand(cmd);
         }
 
         @JavascriptInterface
         public void seekMediaTo(final long targetSec) {
-            if (mShineWave != null) mShineWave.seekToSec(targetSec);
+            MainActivity h = host();
+            if (h.mShineWave != null) h.mShineWave.seekToSec(targetSec);
         }
 
         @JavascriptInterface
         public void seekMediaBy(final long deltaSec) {
-            if (mShineWave != null) mShineWave.seekBySec(deltaSec);
+            MainActivity h = host();
+            if (h.mShineWave != null) h.mShineWave.seekBySec(deltaSec);
         }
 
         @JavascriptInterface
         public void dispatchSystemNav(final String action) {
             if (action == null || action.isEmpty()) return;
-            runOnUiThread(new Runnable() {
+            final MainActivity h = host();
+            h.runOnUiThread(new Runnable() {
                 @Override
                 public void run() {
                     try {
                         if ("back".equalsIgnoreCase(action)) {
-                            onBackPressed();
+                            h.onBackPressed();
                         } else if ("home".equalsIgnoreCase(action)) {
                             Intent startMain = new Intent(Intent.ACTION_MAIN);
                             startMain.addCategory(Intent.CATEGORY_HOME);
                             startMain.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-                            startActivity(startMain);
+                            h.startActivity(startMain);
                         } else if ("recents".equalsIgnoreCase(action) || "tasks".equalsIgnoreCase(action)) {
                             try {
                                 Runtime.getRuntime().exec("input keyevent 187");
@@ -753,6 +874,7 @@ public class MainActivity extends Activity implements CockpitMediaListenerServic
 
         @JavascriptInterface
         public void postCanCommand(final String command, final String dataJson) {
+            final MainActivity h = host();
             Log.i(TAG, "postCanCommand: " + command + " data: " + dataJson);
             try {
                 int value = 0;
@@ -766,10 +888,10 @@ public class MainActivity extends Activity implements CockpitMediaListenerServic
                 }
 
                 final int fVal = value;
-                mExecutor.execute(new Runnable() {
+                h.mExecutor.execute(new Runnable() {
                     @Override
                     public void run() {
-                        int result = mCanBusClient.dispatchCommand(command, fVal);
+                        int result = h.mCanBusClient.dispatchCommand(command, fVal);
                         final String message;
                         if (result == CanBusClient.COMMAND_REFUSED_MOVING) {
                             message = "لا يمكن فتح الشنطة أثناء سير السيارة"
@@ -781,11 +903,11 @@ public class MainActivity extends Activity implements CockpitMediaListenerServic
                             message = null;
                         }
                         if (message != null) {
-                            runOnUiThread(new Runnable() {
+                            h.runOnUiThread(new Runnable() {
                                 @Override
                                 public void run() {
-                                    evalWebViewJs("if (typeof window.__onTrunkRefused === 'function') window.__onTrunkRefused();");
-                                    Toast.makeText(MainActivity.this, message, Toast.LENGTH_LONG).show();
+                                    h.evalWebViewJs("if (typeof window.__onTrunkRefused === 'function') window.__onTrunkRefused();");
+                                    Toast.makeText(h, message, Toast.LENGTH_LONG).show();
                                 }
                             });
                         }
@@ -799,7 +921,7 @@ public class MainActivity extends Activity implements CockpitMediaListenerServic
         @JavascriptInterface
         public void saveSettings(final String settingsJson) {
             try {
-                getSharedPreferences(PREF_HUB, MODE_PRIVATE)
+                host().getSharedPreferences(PREF_HUB, MODE_PRIVATE)
                         .edit()
                         .putString("user_settings", settingsJson)
                         .apply();
@@ -811,7 +933,7 @@ public class MainActivity extends Activity implements CockpitMediaListenerServic
         @JavascriptInterface
         public String getSettings() {
             try {
-                return getSharedPreferences(PREF_HUB, MODE_PRIVATE).getString("user_settings", "");
+                return host().getSharedPreferences(PREF_HUB, MODE_PRIVATE).getString("user_settings", "");
             } catch (Exception e) {
                 Log.e(TAG, "Error reading settings", e);
                 return "";
@@ -820,13 +942,13 @@ public class MainActivity extends Activity implements CockpitMediaListenerServic
 
         @JavascriptInterface
         public void setDefaultLauncher() {
-            SystemControlHelper.openDefaultLauncherSettings(MainActivity.this);
+            SystemControlHelper.openDefaultLauncherSettings(host());
         }
 
         @JavascriptInterface
         public void setAutoBoot(final boolean enabled) {
             try {
-                getSharedPreferences(PREF_HUB, MODE_PRIVATE)
+                host().getSharedPreferences(PREF_HUB, MODE_PRIVATE)
                         .edit()
                         .putBoolean("auto_boot_enabled", enabled)
                         .apply();
@@ -837,17 +959,35 @@ public class MainActivity extends Activity implements CockpitMediaListenerServic
 
         @JavascriptInterface
         public boolean isWatchdogEnabled() {
-            return LauncherWatchdog.isEnabled(MainActivity.this);
+            return LauncherWatchdog.isEnabled(host());
         }
 
         @JavascriptInterface
         public void setWatchdogEnabled(final boolean enabled) {
-            LauncherWatchdog.setEnabled(MainActivity.this, enabled);
+            LauncherWatchdog.setEnabled(host(), enabled);
+        }
+
+        @JavascriptInterface
+        public String getClockSyncJson() {
+            return OfflineTimeKeeper.getClockSyncJson(host());
+        }
+
+        @JavascriptInterface
+        public void setOfflineTimeGuard(final boolean enabled) {
+            final MainActivity h = host();
+            OfflineTimeKeeper.setEnabled(h, enabled, h.mClockSyncPushRunnable);
+        }
+
+        @JavascriptInterface
+        public void setOfflineTimeZoneMode(final String mode) {
+            final MainActivity h = host();
+            OfflineTimeKeeper.setTimeZoneMode(h, mode, h.mClockSyncPushRunnable);
         }
 
         @JavascriptInterface
         public void checkForUpdates(final boolean silentIfUpToDate) {
-            GitHubUpdateChecker.checkForUpdates(MainActivity.this, silentIfUpToDate);
+            MainActivity h = host();
+            GitHubUpdateChecker.checkForUpdates(h, silentIfUpToDate);
         }
     }
 
@@ -892,9 +1032,13 @@ public class MainActivity extends Activity implements CockpitMediaListenerServic
             @Override
             public void run() {
                 try {
+                    final long nowElapsed = SystemClock.elapsedRealtime();
+                    if (mLastTimeGuardCheckMs == 0L || (nowElapsed - mLastTimeGuardCheckMs) >= 60000L) {
+                        mLastTimeGuardCheckMs = nowElapsed;
+                        OfflineTimeKeeper.enforceTimeZoneAndClock(MainActivity.this, "periodic", mClockSyncPushRunnable);
+                    }
                     if (!mIsForeground) return;
                     refreshAvmOverlayState();
-                    final long nowElapsed = SystemClock.elapsedRealtime();
                     final boolean needFullPoll = (mLastFullTelemetryMs == 0L) || ((nowElapsed - mLastFullTelemetryMs) >= 1000L);
                     final JSONObject tele = new JSONObject();
 
@@ -1068,7 +1212,44 @@ public class MainActivity extends Activity implements CockpitMediaListenerServic
         if (!mNetExecutor.isShutdown()) mNetExecutor.shutdownNow();
         unregisterReceiverSafe(mCar3DFreezeReceiver);
         unregisterReceiverSafe(mConnectivityReceiver);
+        unregisterReceiverSafe(mTimeGuardReceiver);
         unregisterReceiverSafe(mMediaBroadcastReceiver);
+
+        if (mWebView != null) {
+            ViewGroup parent = (mWebView.getParent() instanceof ViewGroup)
+                    ? (ViewGroup) mWebView.getParent() : null;
+            if (parent != null) {
+                parent.removeView(mWebView);
+            }
+            mWebView = null;
+        }
+        if (sActiveInstance == this) {
+            sActiveInstance = null;
+        }
+        if (sWebViewContext != null) {
+            sWebViewContext.setBaseContext(getApplicationContext());
+        }
+
+        final Context appCtx = getApplicationContext();
+        if (mFinishedWhileForeground && !sRestoreScheduled) {
+            sRestoreScheduled = true;
+            new Handler(Looper.getMainLooper()).postDelayed(new Runnable() {
+                @Override
+                public void run() {
+                    sRestoreScheduled = false;
+                    try {
+                        Intent restore = new Intent(appCtx, MainActivity.class);
+                        restore.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK
+                                | Intent.FLAG_ACTIVITY_SINGLE_TOP
+                                | Intent.FLAG_ACTIVITY_NO_ANIMATION
+                                | Intent.FLAG_ACTIVITY_EXCLUDE_FROM_RECENTS);
+                        appCtx.startActivity(restore);
+                    } catch (Throwable t) {
+                        Log.e(TAG, "Warm restore failed", t);
+                    }
+                }
+            }, 40L);
+        }
         super.onDestroy();
     }
 }

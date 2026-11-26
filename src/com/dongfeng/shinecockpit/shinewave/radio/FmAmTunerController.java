@@ -27,8 +27,8 @@ import java.util.concurrent.atomic.AtomicLong;
  * OEM boundary-retry seek, seekSet(min) + seekDown auto-scan, mute, and tuner status readback.
  */
 public final class FmAmTunerController {
-    public static final int BAND_FM = 1;
-    public static final int BAND_AM = 0;
+    public static final int BAND_FM = 0;
+    public static final int BAND_AM = 1;
 
     private static final String SERVICE_NAME = "qg.tuner_service";
     private static final String DESCRIPTOR = "com.qinggan.tuner.ITunerService";
@@ -141,12 +141,15 @@ public final class FmAmTunerController {
 
     public void connectAsync() {
         factoryBridge.prewarm();
+        final long gen = tuneGen.get();
         executeWorker(new Runnable() {
             @Override
             public void run() {
                 if (connectSync()) {
                     if (listener != null) listener.onConnectionChanged(true);
-                    readCurrentStateInternal();
+                    if (gen == tuneGen.get() && !autoScanning) {
+                        readCurrentStateInternal();
+                    }
                 }
             }
         });
@@ -188,6 +191,7 @@ public final class FmAmTunerController {
 
                 factoryBridge.cancelPendingTune();
                 setBandInternal(targetBand);
+                setMuteInternal(false);
                 boolean sentViaBridge = factoryBridge.playLocalRadio(targetBand, targetFreq);
                 if (!sentViaBridge) {
                     // Cancel any async pending tune in FactoryRadioBridge so a late bind
@@ -217,19 +221,25 @@ public final class FmAmTunerController {
                     return;
                 }
                 factoryBridge.cancelPendingTune();
-                setSeekStatusDirect(1);
+                setBandInternal(expectedBand);
+                setMuteInternal(false);
+                setSeekStatusDirect(0); // TunerManager.ENABLE_SEEKING = 0
 
-                String method = up ? "seekUp" : "seekDown";
-                int txCode = up ? TR_SEEK_UP : TR_SEEK_DOWN;
+                // Verified from OEM LocalRadioEngine:
+                // seekNext (higher freq, up=true)  -> TunerManager.seekDown() (native_seek(1)), wraps via minFreq
+                // seekPre  (lower freq,  up=false) -> TunerManager.seekUp()   (native_seek(0)), wraps via maxFreq
+                final String method = up ? "seekDown" : "seekUp";
+                final int txCode = up ? TR_SEEK_DOWN : TR_SEEK_UP;
                 Integer returnedFreq = invokeSeekCommand(txCode, method);
                 boolean ok = (returnedFreq != null);
 
-                // Match factory LocalRadioEngine.seekPre(): retry once from max frequency
-                // if seekUp returns a frequency outside this band's valid range.
-                if (ok && up && !isOemFrequencyValid(expectedBand, returnedFreq)) {
-                    int maxFreq = (expectedBand == BAND_FM) ? 108000 : 1629;
-                    if (sendPlayOnly(maxFreq)) {
-                        Integer retryFreq = invokeSeekCommand(TR_SEEK_UP, "seekUp");
+                if (ok && !isOemFrequencyValid(expectedBand, returnedFreq)) {
+                    int wrapFreq = up
+                            ? ((expectedBand == BAND_FM) ? 87500 : 531)
+                            : ((expectedBand == BAND_FM) ? 108000 : 1629);
+                    if (sendPlayOnly(wrapFreq)) {
+                        setSeekStatusDirect(0);
+                        Integer retryFreq = invokeSeekCommand(txCode, method);
                         if (retryFreq != null) {
                             returnedFreq = retryFreq;
                         }
@@ -268,6 +278,8 @@ public final class FmAmTunerController {
                     }
                     factoryBridge.cancelPendingTune();
                     setBandInternal(scanBand);
+                    setMuteInternal(false);
+                    setSeekStatusDirect(0);
 
                     int minFreq = (scanBand == BAND_FM) ? 87500 : 531;
                     int maxFreq = (scanBand == BAND_FM) ? 108000 : 1629;
@@ -305,9 +317,10 @@ public final class FmAmTunerController {
                             && (System.currentTimeMillis() - startedAt) < 120_000L
                             && steps < 210) {
                         steps++;
+                        setSeekStatusDirect(0);
                         Integer returned = invokeSeekCommand(TR_SEEK_DOWN, "seekDown");
                         if (returned == null && steps == 1) {
-                            setSeekStatusDirect(1);
+                            setSeekStatusDirect(0);
                             returned = invokeSeekCommand(TR_SEEK_DOWN, "seekDown");
                         }
                         if (!autoScanning || gen != tuneGen.get() || returned == null) break;
@@ -373,6 +386,7 @@ public final class FmAmTunerController {
                         }
                         setBandInternal(scanBand);
                         sendTuneDirect(targetRestore);
+                        setMuteInternal(false);
                         currentBand = scanBand;
                         currentFreqKhz = targetRestore;
                     }
@@ -400,18 +414,22 @@ public final class FmAmTunerController {
         return autoScanning;
     }
 
+    private void setMuteInternal(boolean muted) {
+        if (tunerApi != null) {
+            try {
+                invokeApiResult("setMute", muted);
+                return;
+            } catch (Throwable ignored) {}
+        }
+        transactIntArg(TR_SET_MUTE, muted ? 1 : 0);
+    }
+
     public void setMuteAsync(final boolean muted) {
         executeWorker(new Runnable() {
             @Override
             public void run() {
                 if (!connectSync()) return;
-                if (tunerApi != null) {
-                    try {
-                        invokeApiResult("setMute", muted);
-                        return;
-                    } catch (Throwable ignored) {}
-                }
-                transactIntArg(TR_SET_MUTE, muted ? 1 : 0);
+                setMuteInternal(muted);
             }
         });
     }
@@ -452,8 +470,10 @@ public final class FmAmTunerController {
                         if (gen != tuneGen.get() || autoScanning) return;
                         Integer b = readBandInternal();
                         TunerStatus st = readTunerStatusInternal();
-                        if (b != null && b == band && st != null && st.frequencyKhz == freqKhz) {
-                            applyConfirmedState(b, st.frequencyKhz);
+                        Integer inferred = (st != null) ? inferBandFromFreq(st.frequencyKhz) : null;
+                        if (st != null && st.frequencyKhz == freqKhz
+                                && (b == null || b == band || Integer.valueOf(band).equals(inferred))) {
+                            applyConfirmedState(band, st.frequencyKhz);
                             if (listener != null) {
                                 listener.onStatusMessage(st.validStation
                                         ? (st.stereo ? "إشارة قوية • ستيريو" : "محطة صالحة")
@@ -480,15 +500,13 @@ public final class FmAmTunerController {
                         @Override
                         public void run() {
                             if (gen != tuneGen.get() || autoScanning) return;
-                            Integer b = readBandInternal();
                             TunerStatus st = readTunerStatusInternal();
-                            int resolvedBand = (b != null && (b == BAND_FM || b == BAND_AM)) ? b : expectedBand;
-                            if (st != null && isValidFreq(resolvedBand, st.frequencyKhz)) {
-                                applyConfirmedState(resolvedBand, st.frequencyKhz);
+                            if (st != null && isValidFreq(expectedBand, st.frequencyKhz)) {
+                                applyConfirmedState(expectedBand, st.frequencyKhz);
                                 if (listener != null && st.frequencyKhz != beforeFreq) {
                                     listener.onStatusMessage(st.validStation
                                             ? (st.stereo ? "إشارة قوية • ستيريو" : "محطة متاحة")
-                                            : formatBandFreqName(resolvedBand, st.frequencyKhz));
+                                            : formatBandFreqName(expectedBand, st.frequencyKhz));
                                 }
                             }
                         }
@@ -644,6 +662,7 @@ public final class FmAmTunerController {
     private boolean sendTuneDirect(int freqKhz) {
         setSeekStatusDirect(1);
         boolean ok = sendPlayOnly(freqKhz);
+        setMuteInternal(false);
         if (ok && listener != null) {
             listener.onFrequencyChanged(freqKhz);
             listener.onStatusMessage("تم ضبط التردد");
@@ -662,12 +681,25 @@ public final class FmAmTunerController {
         return transactWithIntResult(txCode);
     }
 
+    private static Integer inferBandFromFreq(int freqKhz) {
+        if (freqKhz >= 87500 && freqKhz <= 108000) return BAND_FM;
+        if (freqKhz >= 531 && freqKhz <= 1629) return BAND_AM;
+        return null;
+    }
+
     private void readCurrentStateInternal() {
         Integer band = readBandInternal();
         TunerStatus st = readTunerStatusInternal();
-        if (band != null && (band == BAND_FM || band == BAND_AM)) {
-            currentBand = band;
-            if (listener != null) listener.onBandChanged(band);
+        Integer freqBand = (st != null) ? inferBandFromFreq(st.frequencyKhz) : null;
+        int resolvedBand = currentBand;
+        if (freqBand != null) {
+            resolvedBand = freqBand;
+        } else if (band != null && (band == BAND_FM || band == BAND_AM) && st == null) {
+            resolvedBand = band;
+        }
+        if (resolvedBand != currentBand) {
+            currentBand = resolvedBand;
+            if (listener != null) listener.onBandChanged(resolvedBand);
         }
         if (st != null && isValidFreq(currentBand, st.frequencyKhz)) {
             currentFreqKhz = st.frequencyKhz;

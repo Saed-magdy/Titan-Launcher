@@ -13,7 +13,8 @@ public class BootReceiver extends BroadcastReceiver {
     public void onReceive(Context context, Intent intent) {
         if (intent == null) return;
         String action = intent.getAction();
-        Log.i(TAG, "Boot event received: " + action);
+        Log.i(TAG, "Boot/Time event received: " + action);
+        OfflineTimeKeeper.onSystemBroadcast(context.getApplicationContext(), action, null);
         if (Intent.ACTION_BOOT_COMPLETED.equals(action)
                 || "android.intent.action.QUICKBOOT_POWERON".equals(action)
                 || "com.htc.intent.action.QUICKBOOT_POWERON".equals(action)) {

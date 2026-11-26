@@ -209,9 +209,24 @@ public final class QingganAudioPolicyBridge {
     }
 
     /**
-     * Ensures STREAM_RADIO (21) on qg.audio_policy is not stuck at volume 0.
+     * Ensures STREAM_RADIO (21) on qg.audio_policy is un-gated and not stuck at volume 0.
      */
     private void ensureRadioStreamAudible() {
+        try {
+            if (policyManager != null) {
+                Object curObj = policyManager.getClass().getMethod("getStreamVolume", int.class).invoke(policyManager, STREAM_RADIO);
+                Object maxObj = policyManager.getClass().getMethod("getStreamMaxVolume", int.class).invoke(policyManager, STREAM_RADIO);
+                if (curObj instanceof Number) {
+                    int curVol = ((Number) curObj).intValue();
+                    int maxVol = (maxObj instanceof Number) ? ((Number) maxObj).intValue() : 30;
+                    int targetVol = (curVol <= 0 && maxVol > 0) ? Math.max(1, maxVol / 3) : Math.max(1, curVol);
+                    policyManager.getClass().getMethod("setStreamVolume", int.class, int.class, int.class)
+                            .invoke(policyManager, STREAM_RADIO, targetVol, 0);
+                    return;
+                }
+            }
+        } catch (Throwable ignored) {}
+
         try {
             Class<?> sm = Class.forName("android.os.ServiceManager");
             Method getService = sm.getDeclaredMethod("getService", String.class);
@@ -226,21 +241,23 @@ public final class QingganAudioPolicyBridge {
 
             Integer curVol = transactAudioInt(binder, desc, trGetVol, STREAM_RADIO);
             Integer maxVol = transactAudioInt(binder, desc, trGetMax, STREAM_RADIO);
-            if (curVol != null && curVol == 0 && maxVol != null && maxVol > 0) {
-                int targetVol = Math.max(1, maxVol / 3);
-                android.os.Parcel data = android.os.Parcel.obtain();
-                android.os.Parcel reply = android.os.Parcel.obtain();
-                try {
-                    data.writeInterfaceToken(desc);
-                    data.writeInt(STREAM_RADIO);
-                    data.writeInt(targetVol);
-                    data.writeInt(0);
-                    if (binder.transact(trSetVol, data, reply, 0)) {
-                        reply.readException();
+            if (curVol != null) {
+                int targetVol = (curVol <= 0 && maxVol != null && maxVol > 0) ? Math.max(1, maxVol / 3) : curVol;
+                if (targetVol > 0) {
+                    android.os.Parcel data = android.os.Parcel.obtain();
+                    android.os.Parcel reply = android.os.Parcel.obtain();
+                    try {
+                        data.writeInterfaceToken(desc);
+                        data.writeInt(STREAM_RADIO);
+                        data.writeInt(targetVol);
+                        data.writeInt(0);
+                        if (binder.transact(trSetVol, data, reply, 0)) {
+                            reply.readException();
+                        }
+                    } finally {
+                        data.recycle();
+                        reply.recycle();
                     }
-                } finally {
-                    data.recycle();
-                    reply.recycle();
                 }
             }
         } catch (Throwable ignored) {}
