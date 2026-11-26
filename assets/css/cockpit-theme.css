@@ -244,6 +244,18 @@
       letter-spacing: 0.4px;
       pointer-events: auto;
     }
+    /* Weather next to the date (optional, off by default) */
+    .sb-weather {
+      color: #e0f2fe;
+      font-weight: 700;
+      white-space: nowrap;
+    }
+    .weather-options { margin-top: 10px; display: flex; flex-direction: column; gap: 8px; }
+    .weather-city-row { display: flex; gap: 10px; align-items: center; }
+    .weather-city-input { flex: 1; min-width: 0; }
+    .weather-city-current { color: #86efac; font-size: 15px; font-weight: 700; }
+    .weather-city-results { display: flex; flex-wrap: wrap; gap: 8px; }
+
     .sb-date-icon {
       width: 23px;
       height: 23px;

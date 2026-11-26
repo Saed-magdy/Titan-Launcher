@@ -242,6 +242,33 @@ public class MainActivity extends Activity implements CockpitMediaListenerServic
         } catch (Exception ignored) {}
     }
 
+    /** Small HTTPS GET for the weather card only (Open-Meteo addresses built in the methods above). */
+    private static String weatherHttpGet(String url) {
+        java.net.HttpURLConnection c = null;
+        try {
+            c = (java.net.HttpURLConnection) new java.net.URL(url).openConnection();
+            c.setConnectTimeout(8000);
+            c.setReadTimeout(8000);
+            c.setRequestProperty("Accept", "application/json");
+            if (c.getResponseCode() != 200) return null;
+            try (java.io.InputStream in = c.getInputStream()) {
+                java.io.ByteArrayOutputStream buf = new java.io.ByteArrayOutputStream();
+                byte[] chunk = new byte[4096];
+                int n;
+                while ((n = in.read(chunk)) > 0) {
+                    buf.write(chunk, 0, n);
+                    if (buf.size() > 65536) return null;
+                }
+                return buf.toString("UTF-8");
+            }
+        } catch (Exception e) {
+            Log.w(TAG, "Weather request failed (no internet?)", e);
+            return null;
+        } finally {
+            if (c != null) c.disconnect();
+        }
+    }
+
     private void evalWebViewJs(final String script) {
         if (mWebView == null || script == null) return;
         if (Looper.myLooper() == Looper.getMainLooper()) {
@@ -833,6 +860,51 @@ public class MainActivity extends Activity implements CockpitMediaListenerServic
             } catch (Exception e) {
                 Log.e(TAG, "Error saving auto_boot_enabled", e);
             }
+        }
+
+        /**
+         * Weather card: today's forecast for the city the driver chose, from Open-Meteo
+         * (free, no account). Only the city's coordinates are sent, never the car's position.
+         * The answer goes to window.onWeatherData(text).
+         */
+        @JavascriptInterface
+        public void fetchWeather(final double lat, final double lon) {
+            if (!(lat >= -90 && lat <= 90 && lon >= -180 && lon <= 180)) return;
+            mNetExecutor.execute(new Runnable() {
+                @Override
+                public void run() {
+                    String url = String.format(java.util.Locale.US,
+                            "https://api.open-meteo.com/v1/forecast?latitude=%.3f&longitude=%.3f"
+                                    + "&current=temperature_2m,weather_code"
+                                    + "&daily=temperature_2m_max,temperature_2m_min,precipitation_probability_max"
+                                    + "&timezone=auto&forecast_days=1", lat, lon);
+                    String body = weatherHttpGet(url);
+                    evalWebViewJs("if (typeof window.onWeatherData === 'function') { window.onWeatherData("
+                            + (body == null ? "null" : JSONObject.quote(body)) + "); }");
+                }
+            });
+        }
+
+        /** Weather settings "Find": looks up a city name. The answer goes to window.onWeatherCities(text). */
+        @JavascriptInterface
+        public void searchWeatherCity(final String name, final String lang) {
+            if (name == null) return;
+            final String q = name.trim();
+            if (q.isEmpty() || q.length() > 60) return;
+            final String l = ("ar".equals(lang) || "ru".equals(lang)) ? lang : "en";
+            mNetExecutor.execute(new Runnable() {
+                @Override
+                public void run() {
+                    String body = null;
+                    try {
+                        String url = "https://geocoding-api.open-meteo.com/v1/search?count=5&format=json&language=" + l
+                                + "&name=" + java.net.URLEncoder.encode(q, "UTF-8");
+                        body = weatherHttpGet(url);
+                    } catch (Exception ignored) {}
+                    evalWebViewJs("if (typeof window.onWeatherCities === 'function') { window.onWeatherCities("
+                            + (body == null ? "null" : JSONObject.quote(body)) + "); }");
+                }
+            });
         }
 
         @JavascriptInterface

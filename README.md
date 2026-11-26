@@ -29,6 +29,8 @@ Since version `2.1.0` the launcher fully merges the **Shine Wave** audio engine 
 - **Desktop Browser Simulation Mode:**
   - Opening `assets/app.html` over any local static HTTP server automatically runs interactive frontend simulations for telemetry and all 5 Shine Wave audio sources when `window.AndroidBridge` is absent.
 
+- **Weather (optional, off by default):** Settings → Launcher → Weather. Type your city once; today's forecast (icon, now, high/low) shows next to the date. Uses Open-Meteo (free, no account); only the chosen city is sent, never the car's position.
+
 ---
 
 ## Project Structure
