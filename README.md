@@ -137,3 +137,13 @@ Do **not** name a test build after the coming version (`2.1.7-dev`): the updater
 
 - **Created by:** Dr. Saed
 - **Contact:** `saedmagdysms@gmail.com`
+
+---
+
+## License
+
+Titan Cockpit Launcher is **free for noncommercial use** under the [PolyForm Noncommercial License 1.0.0](LICENSE): you may use, study, change and share it for personal, hobby, research or teaching purposes. Selling it, or using it in a commercial product or service, needs written permission from Dr. Saed.
+
+Third-party parts (Three.js, the fonts, the 3D car model and the Qinggan car-interface classes) keep their own owners' terms; see [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
+
+Found a security problem? Please report it privately: see [SECURITY.md](SECURITY.md).
