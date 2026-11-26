@@ -1496,6 +1496,71 @@
     }
     window.showTyreWarning = showTyreWarning;
 
+    /* ========================================================
+       SPEED ALERT
+       The check is in Java (SpeedAlertMonitor). Java calls
+       window.showSpeedAlert(limit) when the car stays above the chosen speed
+       for 3 seconds while the launcher is on screen: a short banner at the
+       top (not a big popup), plus a spoken alert or a chime from Java.
+       Settings: speedAlertEnabled (off by default), speedAlertLimit, speedAlertVoice.
+       ======================================================== */
+    var SPEED_ALERT_DEFAULT = 120;
+    var SPEED_ALERT_MIN = 40;
+    var SPEED_ALERT_MAX = 200;
+    var speedAlertLimit = SPEED_ALERT_DEFAULT;
+    var speedAlertTimer = null;
+
+    function renderSpeedAlertLimit() {
+      const el = document.getElementById('speed-alert-limit');
+      const dict = I18N[state.lang] || I18N['en'];
+      if (el) el.innerText = window.toLangDigits(speedAlertLimit) + ' ' + (dict['speed_unit'] || 'km/h');
+    }
+
+    function stepSpeedAlert(delta) {
+      speedAlertLimit = Math.max(SPEED_ALERT_MIN, Math.min(SPEED_ALERT_MAX, speedAlertLimit + delta));
+      renderSpeedAlertLimit();
+    }
+
+    function showSpeedAlert(limit) {
+      const el = document.getElementById('launcher-toast');
+      const dict = I18N[state.lang] || I18N['en'];
+      const text = (dict['speedalert_tpl'] || '\u26A0 Speed over {s} km/h').replace('{s}', window.toLangDigits(limit));
+      if (!el || typeof showLauncherToast !== 'function') return;
+      el.classList.add('speed-alert');
+      showLauncherToast(text, 5000);
+      if (speedAlertTimer) clearTimeout(speedAlertTimer);
+      speedAlertTimer = setTimeout(function () { el.classList.remove('speed-alert'); speedAlertTimer = null; }, 5000);
+    }
+    window.showSpeedAlert = showSpeedAlert;
+
+    // "Try" button: the banner here, and the voice or chime in the car.
+    function previewSpeedAlert() {
+      showSpeedAlert(speedAlertLimit);
+      const chkVoice = document.getElementById('chk-speed-voice');
+      const voice = !chkVoice || chkVoice.checked;
+      if (window.AndroidBridge && window.AndroidBridge.previewSpeedAlert) {
+        try { window.AndroidBridge.previewSpeedAlert(speedAlertLimit, voice, state.lang || 'en'); } catch (e) {}
+      }
+    }
+
+    // When the switch is off, hide the speed, Try and Voice so the card is one line.
+    function onSpeedAlertToggle() {
+      const chk = document.getElementById('chk-speed-alert');
+      const opts = document.querySelector('.speed-alert-options');
+      if (opts) opts.style.display = (chk && !chk.checked) ? 'none' : '';
+    }
+
+    function applySpeedAlertSettings(s) {
+      const chk = document.getElementById('chk-speed-alert');
+      if (chk) chk.checked = (s.speedAlertEnabled === true);
+      const v = Math.round(Number(s.speedAlertLimit));
+      if (isFinite(v) && v >= SPEED_ALERT_MIN && v <= SPEED_ALERT_MAX) speedAlertLimit = v;
+      const chkVoice = document.getElementById('chk-speed-voice');
+      if (chkVoice) chkVoice.checked = (s.speedAlertVoice !== false);
+      renderSpeedAlertLimit();
+      onSpeedAlertToggle();
+    }
+
     // "Try" button: an example popup for the front-left tyre, and the voice in the car.
     function previewTyreWarning() {
       showTyreWarning([{ pos: 'fl', bar: 1.6 }]);
@@ -1547,6 +1612,8 @@
       const chkFuelVoice = document.getElementById('chk-fuel-voice');
       const chkTyreWarn = document.getElementById('chk-tyre-warn');
       const chkTyreVoice = document.getElementById('chk-tyre-voice');
+      const chkSpeedAlert = document.getElementById('chk-speed-alert');
+      const chkSpeedVoice = document.getElementById('chk-speed-voice');
 
       const settings = {
         lang: state.lang,
@@ -1566,7 +1633,10 @@
         fuelWarnLevels: fuelWarnLevels.slice(),
         fuelWarnVoice: chkFuelVoice ? chkFuelVoice.checked : true,
         tyreWarnEnabled: chkTyreWarn ? chkTyreWarn.checked : true,
-        tyreWarnVoice: chkTyreVoice ? chkTyreVoice.checked : true
+        tyreWarnVoice: chkTyreVoice ? chkTyreVoice.checked : true,
+        speedAlertEnabled: chkSpeedAlert ? chkSpeedAlert.checked : false,
+        speedAlertLimit: speedAlertLimit,
+        speedAlertVoice: chkSpeedVoice ? chkSpeedVoice.checked : true
       };
 
       const jsonStr = JSON.stringify(settings);
@@ -1705,6 +1775,7 @@
         }
         applyFuelWarnSettings(s);
         applyTyreWarnSettings(s);
+        applySpeedAlertSettings(s);
       } catch(e) {
         console.error('[Settings] Error applying saved settings JSON:', e);
       }

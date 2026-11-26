@@ -3218,3 +3218,17 @@ html, body, button, input, select, textarea, .hud, .modal-box { font-family: 'Pl
       cursor: pointer;
     }
     .fuel-warn-find:active { transform: scale(0.96); }
+    .speed-step-val {
+      min-width: 92px;
+    }
+    .launcher-toast.speed-alert {
+      top: 96px;
+      border: 2px solid #fb923c;
+      background: rgba(40, 18, 4, 0.95);
+      color: #fed7aa;
+      font-size: 26px;
+      font-weight: 800;
+      padding: 14px 34px;
+      border-radius: 22px;
+      box-shadow: 0 8px 25px rgba(0, 0, 0, 0.8), 0 0 24px rgba(251, 146, 60, 0.45);
+    }

@@ -160,6 +160,16 @@ final class FuelWarningVoice {
         if (listener != null) listener.onResult(true);
     }
 
+    /** Just the two short beeps (used by the speed alert when its Voice switch is off). */
+    void chimeOnly() {
+        mMain.post(new Runnable() {
+            @Override
+            public void run() {
+                chime(null);
+            }
+        });
+    }
+
     /** Two short beeps, used when no voice is available. */
     private void chime(ResultListener listener) {
         try {

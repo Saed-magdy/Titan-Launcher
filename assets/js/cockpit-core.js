@@ -347,6 +347,12 @@ const I18N = {
     'desc-tyre-warn': 'رسالة تنبيه عند انخفاض ضغط أحد الإطارات',
     'btn-tyre-warn-try': 'تجربة',
     'lbl-tyre-voice': 'صوت',
+    'lbl-speed-alert': 'تنبيه السرعة',
+    'desc-speed-alert': 'تنبيه عند القيادة أسرع من هذه السرعة',
+    'btn-speed-alert-try': 'تجربة',
+    'lbl-speed-voice': 'صوت',
+    'speedalert_tpl': '⚠ السرعة فوق {s} كم/س',
+    'speed_unit': 'كم/س',
     'tyrewarn_title_tpl': '⚠ ضغط الإطارات',
     'tyrewarn_body_tpl': 'افحص ضغط الإطارات: {list}.',
     'tyre_fl': 'الأمامي الأيسر', 'tyre_fr': 'الأمامي الأيمن', 'tyre_rl': 'الخلفي الأيسر', 'tyre_rr': 'الخلفي الأيمن', 'tyre_unit': 'بار',
@@ -431,6 +437,12 @@ const I18N = {
     'desc-tyre-warn': 'Popup when a tyre is low',
     'btn-tyre-warn-try': 'Try',
     'lbl-tyre-voice': 'Voice',
+    'lbl-speed-alert': 'Speed Alert',
+    'desc-speed-alert': 'Alert when driving faster than this speed',
+    'btn-speed-alert-try': 'Try',
+    'lbl-speed-voice': 'Voice',
+    'speedalert_tpl': '⚠ Speed over {s} km/h',
+    'speed_unit': 'km/h',
     'tyrewarn_title_tpl': '⚠ Tyre pressure',
     'tyrewarn_body_tpl': 'Check the tyre pressure: {list}.',
     'tyre_fl': 'front-left', 'tyre_fr': 'front-right', 'tyre_rl': 'rear-left', 'tyre_rr': 'rear-right', 'tyre_unit': 'bar',
@@ -525,6 +537,12 @@ const I18N = {
     'desc-tyre-warn': 'Окно, когда давление в шине низкое',
     'btn-tyre-warn-try': 'Тест',
     'lbl-tyre-voice': 'Голос',
+    'lbl-speed-alert': 'Предупреждение о скорости',
+    'desc-speed-alert': 'Сигнал, если скорость выше этой',
+    'btn-speed-alert-try': 'Тест',
+    'lbl-speed-voice': 'Голос',
+    'speedalert_tpl': '⚠ Скорость выше {s} км/ч',
+    'speed_unit': 'км/ч',
     'tyrewarn_title_tpl': '⚠ Давление в шинах',
     'tyrewarn_body_tpl': 'Проверьте давление в шинах: {list}.',
     'tyre_fl': 'переднее левое', 'tyre_fr': 'переднее правое', 'tyre_rl': 'заднее левое', 'tyre_rr': 'заднее правое', 'tyre_unit': 'бар',
@@ -624,6 +642,7 @@ function setLanguage(lang) {
   }
   if (typeof updateFuelDisplays === 'function') updateFuelDisplays();
   if (typeof renderFuelWarnLevels === 'function') renderFuelWarnLevels();
+  if (typeof renderSpeedAlertLimit === 'function') renderSpeedAlertLimit();
   if (typeof updateCanStatusBadge === 'function' && typeof cachedCanConnected !== 'undefined') {
     updateCanStatusBadge(cachedCanConnected);
   }

@@ -82,6 +82,8 @@ public class MainActivity extends Activity implements CockpitMediaListenerServic
     private String mLastFastSig = "";
     private FuelWarningMonitor mFuelWarning;
     private TyreWarningMonitor mTyreWarning;
+    private final SpeedAlertMonitor mSpeedAlert = new SpeedAlertMonitor();
+    private long mLastBackgroundSpeedCheckMs = 0L;
     private long mLastBackgroundFuelCheckMs = 0L;
     private Dialog mFuelWarningDialog;
     private FuelWarningVoice mFuelVoice;
@@ -837,6 +839,25 @@ public class MainActivity extends Activity implements CockpitMediaListenerServic
             });
         }
 
+        /** "Try" button of the speed alert: plays the alert (voice or chime) for the chosen speed. */
+        @JavascriptInterface
+        public void previewSpeedAlert(final int limit, final boolean voice, final String lang) {
+            final int safeLimit = Math.max(SpeedAlertMonitor.MIN_LIMIT, Math.min(SpeedAlertMonitor.MAX_LIMIT, limit));
+            final String safeLang = ("ar".equals(lang) || "ru".equals(lang)) ? lang : "en";
+            mHandler.post(new Runnable() {
+                @Override
+                public void run() {
+                    playSpeedAlertSound(safeLimit, safeLang, voice, voice ? new FuelWarningVoice.ResultListener() {
+                        @Override
+                        public void onResult(boolean spoken) {
+                            evalWebViewJs("if (typeof window.onFuelVoicePreviewResult === 'function') { window.onFuelVoicePreviewResult("
+                                    + spoken + "); }");
+                        }
+                    } : null);
+                }
+            });
+        }
+
         /** "Try" button of the tyre warning: says an example tyre warning out loud. */
         @JavascriptInterface
         public void previewTyreWarningVoice(final String lang) {
@@ -959,6 +980,7 @@ public class MainActivity extends Activity implements CockpitMediaListenerServic
                 try {
                     if (!mIsForeground) {
                         backgroundFuelCheck();
+                        backgroundSpeedCheck();
                         return;
                     }
                     refreshAvmOverlayState();
@@ -969,6 +991,7 @@ public class MainActivity extends Activity implements CockpitMediaListenerServic
                     if (mCanBusClient != null && mCanBusClient.isConnected()) {
                         if (!needFullPoll) {
                             CanBusClient.TelemetrySnapshot fastSnap = mCanBusClient.getFastControlSnapshot();
+                            checkSpeedAlert(fastSnap.speed);
                             String fastSig = buildFastControlSig(fastSnap);
                             if (!fastSig.equals(mLastFastSig)) {
                                 mLastFastSig = fastSig;
@@ -981,6 +1004,7 @@ public class MainActivity extends Activity implements CockpitMediaListenerServic
                         CanBusClient.TelemetrySnapshot snap = mCanBusClient.getTelemetrySnapshot(false);
                         if (snap.fuelPctValid) checkFuelWarning(snap.fuelPercentage);
                         if (snap.tpmsValid) checkTyreWarning(snap);
+                        checkSpeedAlert(snap.speed);
                         mLastFastSig = buildFastControlSig(snap);
                         appendFastControlFields(tele, snap);
                         tele.put("coolant", snap.coolantTemp > 0 ? snap.coolantTemp : 90);
@@ -1364,6 +1388,75 @@ public class MainActivity extends Activity implements CockpitMediaListenerServic
         if (mFuelVoice == null) mFuelVoice = new FuelWarningVoice(this);
         String[] t = tyreWarningTexts(mask, new float[4], new boolean[4], lang, false, true);
         mFuelVoice.speak(t[0] + ". " + t[1], lang, listener);
+    }
+
+    /* ========================================================
+       SPEED ALERT
+       ======================================================== */
+
+    /** While another app is on screen, read the speed once a second, but only if the alert is on. */
+    private void backgroundSpeedCheck() {
+        if (mSpeedAlert == null || mCanBusClient == null) return;
+        long now = SystemClock.elapsedRealtime();
+        if (now - mLastBackgroundSpeedCheckMs < 1000L) return;
+        mLastBackgroundSpeedCheckMs = now;
+        try {
+            String settings = getSharedPreferences(PREF_HUB, MODE_PRIVATE).getString("user_settings", "");
+            if (!mSpeedAlert.isEnabled(settings)) return;
+            int kmh = mCanBusClient.getSpeed();
+            if (kmh >= 0) checkSpeedAlert(kmh);
+        } catch (Exception e) {
+            Log.e(TAG, "Background speed check failed", e);
+        }
+    }
+
+    /** Called with every speed reading; gives the alert when the chosen speed is passed. */
+    private void checkSpeedAlert(int kmh) {
+        if (mSpeedAlert == null) return;
+        String settings = "";
+        try {
+            settings = getSharedPreferences(PREF_HUB, MODE_PRIVATE).getString("user_settings", "");
+        } catch (Exception ignored) {}
+        final int limit = mSpeedAlert.onSpeed(kmh, SystemClock.elapsedRealtime(), settings);
+        if (limit <= 0) return;
+        final String lang = readSettingString(settings, "lang", "en");
+        final boolean eastern = "eastern".equals(readSettingString(settings, "numFormat", "western"));
+        final boolean voice = mSpeedAlert.useVoice();
+        Log.i(TAG, "Speed alert: over " + limit + " km/h");
+        mHandler.post(new Runnable() {
+            @Override
+            public void run() {
+                playSpeedAlertSound(limit, lang, voice, null);
+                if (mIsForeground && mWebView != null) {
+                    mWebView.evaluateJavascript("if (typeof window.showSpeedAlert === 'function') { window.showSpeedAlert("
+                            + limit + "); }", null);
+                } else {
+                    // Another app on screen (e.g. Maps): a short message that does not block the map.
+                    try {
+                        Toast.makeText(getApplicationContext(), speedAlertText(limit, lang, eastern, false), Toast.LENGTH_LONG).show();
+                    } catch (Exception ignored) {}
+                }
+            }
+        });
+    }
+
+    /** "Speed over 120 km/h" in the launcher's language (forSpeech: no sign, no unit). */
+    private static String speedAlertText(int limit, String lang, boolean eastern, boolean forSpeech) {
+        String n = digits(limit, eastern && !forSpeech);
+        String sign = forSpeech ? "" : "⚠ ";
+        if ("ar".equals(lang)) return sign + "السرعة فوق " + n + (forSpeech ? "" : " كم/س");
+        if ("ru".equals(lang)) return sign + "Скорость выше " + n + (forSpeech ? "" : " км/ч");
+        return sign + "Speed over " + n + (forSpeech ? "" : " km/h");
+    }
+
+    /** The spoken alert ("Speed over 120"), or just a short chime when the Voice switch is off. */
+    private void playSpeedAlertSound(int limit, String lang, boolean voice, FuelWarningVoice.ResultListener listener) {
+        if (mFuelVoice == null) mFuelVoice = new FuelWarningVoice(this);
+        if (voice) {
+            mFuelVoice.speak(speedAlertText(limit, lang, false, true) + ".", lang, listener);
+        } else {
+            mFuelVoice.chimeOnly();
+        }
     }
 
     private void buildSimulatedTelemetry(JSONObject tele) throws JSONException {

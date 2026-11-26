@@ -560,6 +560,27 @@
               <label class="switch"><input type="checkbox" id="chk-tyre-warn" checked onchange="onTyreWarnToggle()"><span class="slider-toggle"></span></label>
             </div>
           </div>
+          <div class="lock-control-card speed-alert-card" style="margin-top: 12px;">
+            <div class="lock-info-col">
+              <span class="toggle-label" id="lbl-speed-alert">Speed Alert</span>
+              <span class="lock-can-stat" id="desc-speed-alert">Alert when driving faster than this speed</span>
+              <div class="fuel-warn-levels speed-alert-options">
+                <div class="fuel-level-stepper">
+                  <button type="button" class="fuel-step-btn" onclick="stepSpeedAlert(-5)">&minus;</button>
+                  <span class="fuel-step-val speed-step-val" id="speed-alert-limit">120 km/h</span>
+                  <button type="button" class="fuel-step-btn" onclick="stepSpeedAlert(5)">+</button>
+                </div>
+                <button type="button" class="settings-btn" id="btn-speed-alert-try" onclick="previewSpeedAlert()">Try</button>
+                <div class="fuel-voice-row">
+                  <span class="fuel-voice-label" id="lbl-speed-voice">Voice</span>
+                  <label class="switch"><input type="checkbox" id="chk-speed-voice" checked><span class="slider-toggle"></span></label>
+                </div>
+              </div>
+            </div>
+            <div class="lock-action-wrap">
+              <label class="switch"><input type="checkbox" id="chk-speed-alert" onchange="onSpeedAlertToggle()"><span class="slider-toggle"></span></label>
+            </div>
+          </div>
         </div>
       </div>
       
