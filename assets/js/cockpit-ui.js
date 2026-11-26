@@ -1444,6 +1444,252 @@
     }
     window.setOfflineTzMode = setOfflineTzMode;
 
+    /* ========================================================
+       LOW FUEL WARNING
+       The car-side check is in Java (FuelWarningMonitor). Java calls
+       window.showFuelWarning(level, pct) when a level is reached while the
+       launcher is on screen. Settings: fuelWarnEnabled + fuelWarnLevels.
+       ======================================================== */
+    var FUEL_WARN_DEFAULT_LEVELS = [25, 15];
+    var FUEL_WARN_AUTO_CLOSE_MS = 20000;
+    var fuelWarnLevels = FUEL_WARN_DEFAULT_LEVELS.slice();
+    var fuelWarnTimer = null;
+
+    function renderFuelWarnLevels() {
+      for (let i = 0; i < 2; i++) {
+        const el = document.getElementById('fuel-warn-level-' + i);
+        if (el) el.innerText = window.toLangDigits(fuelWarnLevels[i]) + (state.lang === 'ar' ? '\u066A' : '%');
+      }
+    }
+
+    // Upper level: 10-95%. Lower level: 5% up to 5% below the upper one.
+    function stepFuelWarnLevel(index, delta) {
+      const next = fuelWarnLevels.slice();
+      next[index] = next[index] + delta;
+      if (index === 0) next[0] = Math.max(next[1] + 5, Math.min(95, next[0]));
+      else next[1] = Math.max(5, Math.min(next[0] - 5, next[1]));
+      fuelWarnLevels = next;
+      renderFuelWarnLevels();
+    }
+
+    function applyFuelWarnSettings(s) {
+      const chk = document.getElementById('chk-fuel-warn');
+      if (chk) chk.checked = (s.fuelWarnEnabled !== false);
+      const chkVoice = document.getElementById('chk-fuel-voice');
+      if (chkVoice) chkVoice.checked = (s.fuelWarnVoice !== false);
+      if (Array.isArray(s.fuelWarnLevels) && s.fuelWarnLevels.length >= 2) {
+        const hi = Math.round(Number(s.fuelWarnLevels[0]));
+        const lo = Math.round(Number(s.fuelWarnLevels[1]));
+        if (hi >= 10 && hi <= 95 && lo >= 5 && lo <= hi - 5) fuelWarnLevels = [hi, lo];
+      }
+      renderFuelWarnLevels();
+      onFuelWarnToggle();
+    }
+
+    // When the switch is off, hide the levels and the Try button so the card is one line.
+    function onFuelWarnToggle() {
+      const chk = document.getElementById('chk-fuel-warn');
+      const levels = document.querySelector('.fuel-warn-levels');
+      if (levels) levels.style.display = (chk && !chk.checked) ? 'none' : '';
+    }
+
+    function showFuelWarning(level, pct) {
+      const modal = document.getElementById('fuel-warn-modal');
+      const box = document.getElementById('fuel-warn-box');
+      if (!modal) return;
+      const dict = I18N[state.lang] || I18N['en'];
+      const ar = state.lang === 'ar';
+      const fmt = (v) => window.toLangDigits(Math.round(v));
+      const title = document.getElementById('fuel-warn-title');
+      const msg = document.getElementById('fuel-warn-msg');
+      if (title) title.innerText = dict['fuelwarn_title_tpl'] || '\u26FD Low fuel';
+      // First (higher) level: yellow, "Plan a stop...". Second (lowest) level: orange, "Refuel soon."
+      const urgent = level <= Math.min.apply(null, fuelWarnLevels);
+      const tpl = urgent ? (dict['fuelwarn_body_soon_tpl'] || 'Fuel tank is at {p}%.\nRefuel soon.')
+                         : (dict['fuelwarn_body_tpl'] || 'Fuel tank is at {p}%.');
+      if (msg) msg.innerText = tpl.replace('{p}', fmt(pct));
+      if (box) {
+        box.classList.toggle('critical', urgent);
+        box.classList.toggle('rtl-mode', ar);
+        box.classList.toggle('ltr-mode', !ar);
+      }
+      // "Find a petrol station" appears only on the second (lowest) level.
+      const findBtn = document.getElementById('fuel-warn-find');
+      if (findBtn) {
+        findBtn.innerText = dict['fuel-warn-find'] || 'Find a petrol station';
+        findBtn.onclick = findFuelStation;
+        findBtn.style.display = urgent ? '' : 'none';
+      }
+      modal.style.display = 'flex';
+      if (fuelWarnTimer) clearTimeout(fuelWarnTimer);
+      fuelWarnTimer = setTimeout(closeFuelWarning, FUEL_WARN_AUTO_CLOSE_MS);
+      if (typeof requestRender === 'function') requestRender();
+    }
+    window.showFuelWarning = showFuelWarning;
+
+    function closeFuelWarning() {
+      const modal = document.getElementById('fuel-warn-modal');
+      if (modal) modal.style.display = 'none';
+      if (fuelWarnTimer) { clearTimeout(fuelWarnTimer); fuelWarnTimer = null; }
+    }
+    window.closeFuelWarning = closeFuelWarning;
+
+    // Closes the popup and opens the map app searching for nearby petrol stations.
+    function findFuelStation() {
+      closeFuelWarning();
+      if (window.AndroidBridge && window.AndroidBridge.openFuelStationSearch) {
+        try { window.AndroidBridge.openFuelStationSearch(state.lang || 'en'); } catch (e) {}
+      }
+    }
+    window.findFuelStation = findFuelStation;
+
+    /* ========================================================
+       TYRE PRESSURE WARNING (Indirect ABS TPMS: Normal / Warning)
+       The check is in Java (TyreWarningMonitor). Java calls
+       window.showTyreWarning(['general'] or ['fl', ...]) when TPMS warns.
+       Settings: tyreWarnEnabled + tyreWarnVoice.
+       ======================================================== */
+    function showTyreWarning(tyres) {
+      const modal = document.getElementById('fuel-warn-modal');
+      const box = document.getElementById('fuel-warn-box');
+      if (!modal || !Array.isArray(tyres) || !tyres.length) return;
+      const dict = I18N[state.lang] || I18N['en'];
+      const ar = state.lang === 'ar';
+      const posList = tyres.map(function (t) { return (typeof t === 'string') ? t : (t && t.pos ? t.pos : ''); }).filter(Boolean);
+      const isGeneral = posList.length === 0 || posList.indexOf('general') !== -1;
+      const list = posList.map(function (pos) {
+        return dict['tyre_' + pos] || pos;
+      }).join(ar ? '\u060C ' : ', ');
+      const title = document.getElementById('fuel-warn-title');
+      const msg = document.getElementById('fuel-warn-msg');
+      if (title) title.innerText = dict['tyrewarn_title_tpl'] || '\u26A0 Tyre Pressure Warning';
+      if (msg) {
+        msg.innerText = isGeneral
+          ? (dict['tyrewarn_body_general'] || 'Low tyre pressure warning from vehicle.\nPlease check all tyres and reset TPMS.')
+          : (dict['tyrewarn_body_tpl'] || 'Abnormal tyre status: {list}.\nPlease check the tyres and reset TPMS.').replace('{list}', list);
+      }
+      if (box) {
+        box.classList.add('critical');
+        box.classList.toggle('rtl-mode', ar);
+        box.classList.toggle('ltr-mode', !ar);
+      }
+      const findBtn = document.getElementById('fuel-warn-find');
+      if (findBtn) {
+        findBtn.innerText = dict['tyre-warn-open-tpms'] || 'TPMS Screen';
+        findBtn.onclick = function () {
+          closeFuelWarning();
+          if (typeof openTpmsModal === 'function') openTpmsModal();
+        };
+        findBtn.style.display = '';
+      }
+      modal.style.display = 'flex';
+      if (fuelWarnTimer) clearTimeout(fuelWarnTimer);
+      fuelWarnTimer = setTimeout(closeFuelWarning, FUEL_WARN_AUTO_CLOSE_MS);
+      if (typeof requestRender === 'function') requestRender();
+    }
+    window.showTyreWarning = showTyreWarning;
+
+    /* ========================================================
+       SPEED ALERT
+       ======================================================== */
+    var SPEED_ALERT_DEFAULT = 120;
+    var SPEED_ALERT_MIN = 40;
+    var SPEED_ALERT_MAX = 200;
+    var speedAlertLimit = SPEED_ALERT_DEFAULT;
+    var speedAlertTimer = null;
+
+    function renderSpeedAlertLimit() {
+      const el = document.getElementById('speed-alert-limit');
+      const dict = I18N[state.lang] || I18N['en'];
+      if (el) el.innerText = window.toLangDigits(speedAlertLimit) + ' ' + (dict['speed_unit'] || 'km/h');
+    }
+
+    function stepSpeedAlert(delta) {
+      speedAlertLimit = Math.max(SPEED_ALERT_MIN, Math.min(SPEED_ALERT_MAX, speedAlertLimit + delta));
+      renderSpeedAlertLimit();
+    }
+
+    function showSpeedAlert(limit) {
+      const el = document.getElementById('launcher-toast');
+      const dict = I18N[state.lang] || I18N['en'];
+      const text = (dict['speedalert_tpl'] || '\u26A0 Speed over {s} km/h').replace('{s}', window.toLangDigits(limit));
+      if (!el || typeof showLauncherToast !== 'function') return;
+      el.classList.add('speed-alert');
+      showLauncherToast(text, 5000);
+      if (speedAlertTimer) clearTimeout(speedAlertTimer);
+      speedAlertTimer = setTimeout(function () { el.classList.remove('speed-alert'); speedAlertTimer = null; }, 5000);
+    }
+    window.showSpeedAlert = showSpeedAlert;
+
+    // "Try" button: the banner here, and the voice or chime in the car.
+    function previewSpeedAlert() {
+      showSpeedAlert(speedAlertLimit);
+      const chkVoice = document.getElementById('chk-speed-voice');
+      const voice = !chkVoice || chkVoice.checked;
+      if (window.AndroidBridge && window.AndroidBridge.previewSpeedAlert) {
+        try { window.AndroidBridge.previewSpeedAlert(speedAlertLimit, voice, state.lang || 'en'); } catch (e) {}
+      }
+    }
+
+    // When the switch is off, hide the speed, Try and Voice so the card is one line.
+    function onSpeedAlertToggle() {
+      const chk = document.getElementById('chk-speed-alert');
+      const opts = document.querySelector('.speed-alert-options');
+      if (opts) opts.style.display = (chk && !chk.checked) ? 'none' : '';
+    }
+
+    function applySpeedAlertSettings(s) {
+      const chk = document.getElementById('chk-speed-alert');
+      if (chk) chk.checked = (s.speedAlertEnabled === true);
+      const v = Math.round(Number(s.speedAlertLimit));
+      if (isFinite(v) && v >= SPEED_ALERT_MIN && v <= SPEED_ALERT_MAX) speedAlertLimit = v;
+      const chkVoice = document.getElementById('chk-speed-voice');
+      if (chkVoice) chkVoice.checked = (s.speedAlertVoice !== false);
+      renderSpeedAlertLimit();
+      onSpeedAlertToggle();
+    }
+
+    // "Try" button: an example general TPMS popup, and the voice in the car.
+    function previewTyreWarning() {
+      showTyreWarning(['general']);
+      const chkVoice = document.getElementById('chk-tyre-voice');
+      if ((!chkVoice || chkVoice.checked) && window.AndroidBridge && window.AndroidBridge.previewTyreWarningVoice) {
+        try { window.AndroidBridge.previewTyreWarningVoice(state.lang || 'en'); } catch (e) {}
+      }
+    }
+
+    // When the switch is off, hide Try and Voice so the card is one line.
+    function onTyreWarnToggle() {
+      const chk = document.getElementById('chk-tyre-warn');
+      const opts = document.querySelector('.tyre-warn-options');
+      if (opts) opts.style.display = (chk && !chk.checked) ? 'none' : '';
+    }
+
+    function applyTyreWarnSettings(s) {
+      const chk = document.getElementById('chk-tyre-warn');
+      if (chk) chk.checked = (s.tyreWarnEnabled !== false);
+      const chkVoice = document.getElementById('chk-tyre-voice');
+      if (chkVoice) chkVoice.checked = (s.tyreWarnVoice !== false);
+      onTyreWarnToggle();
+    }
+
+    // "Try" button in Settings: shows the popup for the lower level, so the driver can see it.
+    function previewFuelWarning() {
+      showFuelWarning(fuelWarnLevels[1], fuelWarnLevels[1]);
+      // Also say it out loud (in the car), if the Voice switch is on.
+      const chkVoice = document.getElementById('chk-fuel-voice');
+      if ((!chkVoice || chkVoice.checked) && window.AndroidBridge && window.AndroidBridge.previewFuelWarningVoice) {
+        try { window.AndroidBridge.previewFuelWarningVoice(true, fuelWarnLevels[1], state.lang || 'en'); } catch (e) {}
+      }
+    }
+
+    // Java tells us whether the words were spoken; if not, explain why only a chime was heard.
+    window.onFuelVoicePreviewResult = function (spoken) {
+      if (spoken) return;
+      const dict = I18N[state.lang] || I18N['en'];
+      if (typeof showLauncherToast === 'function') showLauncherToast(dict['fuelwarn_novoice'] || 'No voice for this language', 4000);
+    };
+
     function saveAllSettings() {
       const chkSpeed = document.getElementById('chk-speed-lock');
       const chkWalk = document.getElementById('chk-walk-lock');
@@ -1451,6 +1697,12 @@
       const chkAutoBoot = document.getElementById('chk-auto-boot');
       const chkWatchdog = document.getElementById('chk-watchdog');
       const chkOfflineTime = document.getElementById('chk-offline-time-guard');
+      const chkFuelWarn = document.getElementById('chk-fuel-warn');
+      const chkFuelVoice = document.getElementById('chk-fuel-voice');
+      const chkTyreWarn = document.getElementById('chk-tyre-warn');
+      const chkTyreVoice = document.getElementById('chk-tyre-voice');
+      const chkSpeedAlert = document.getElementById('chk-speed-alert');
+      const chkSpeedVoice = document.getElementById('chk-speed-voice');
 
       const settings = {
         lang: state.lang,
@@ -1467,7 +1719,15 @@
         autoBoot: chkAutoBoot ? chkAutoBoot.checked : true,
         watchdogEnabled: chkWatchdog ? chkWatchdog.checked : true,
         offlineTimeGuard: chkOfflineTime ? chkOfflineTime.checked : (state.offlineTimeGuard !== false),
-        offlineTzMode: state.offlineTzMode || 'auto'
+        offlineTzMode: state.offlineTzMode || 'auto',
+        fuelWarnEnabled: chkFuelWarn ? chkFuelWarn.checked : true,
+        fuelWarnLevels: fuelWarnLevels.slice(),
+        fuelWarnVoice: chkFuelVoice ? chkFuelVoice.checked : true,
+        tyreWarnEnabled: chkTyreWarn ? chkTyreWarn.checked : true,
+        tyreWarnVoice: chkTyreVoice ? chkTyreVoice.checked : true,
+        speedAlertEnabled: chkSpeedAlert ? chkSpeedAlert.checked : false,
+        speedAlertLimit: speedAlertLimit,
+        speedAlertVoice: chkSpeedVoice ? chkSpeedVoice.checked : true
       };
 
       const jsonStr = JSON.stringify(settings);
@@ -1617,6 +1877,9 @@
           state.offlineTzMode = s.offlineTzMode;
         }
         updateOfflineTimeUi(state.offlineTimeGuard !== false, state.offlineTzMode || 'auto');
+        applyFuelWarnSettings(s);
+        applyTyreWarnSettings(s);
+        applySpeedAlertSettings(s);
       } catch(e) {
         console.error('[Settings] Error applying saved settings JSON:', e);
       }

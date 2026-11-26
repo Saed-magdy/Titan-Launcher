@@ -246,6 +246,7 @@ window.setNumberFormat = function(fmt) {
 
   if (typeof updateClock === 'function') updateClock();
   if (typeof updateFuelDisplays === 'function') updateFuelDisplays();
+  if (typeof renderFuelWarnLevels === 'function') renderFuelWarnLevels();
   if (typeof updateTpmsOverallBadge === 'function') updateTpmsOverallBadge();
   if (typeof renderQuickAppsDeck === 'function') renderQuickAppsDeck();
   if (typeof window.refreshShineWaveLanguage === 'function') {
@@ -343,6 +344,31 @@ const I18N = {
     'tz-mode-utc2': 'شتوي UTC+2',
     'tz-mode-utc3': 'صيفي UTC+3',
     'tz-mode-utc4': 'UTC+4',
+    'lbl-fuel-warn': 'تنبيه انخفاض الوقود',
+    'desc-fuel-warn': 'رسالة تنبيه عندما ينخفض الوقود إلى هذه المستويات',
+    'btn-fuel-warn-try': 'تجربة',
+    'lbl-fuel-voice': 'صوت',
+    'fuelwarn_novoice': 'لا يوجد صوت لهذه اللغة في السيارة، لذلك يُسمع صوت تنبيه بدلاً منه',
+    'fuel-warn-ok': 'حسناً',
+    'fuel-warn-find': 'ابحث عن محطة وقود',
+    'lbl-tyre-warn': 'تنبيه ضغط الإطارات',
+    'desc-tyre-warn': 'رسالة تنبيه عند رصد خلل في ضغط الإطارات',
+    'btn-tyre-warn-try': 'تجربة',
+    'lbl-tyre-voice': 'صوت',
+    'lbl-speed-alert': 'تنبيه السرعة',
+    'desc-speed-alert': 'تنبيه عند القيادة أسرع من هذه السرعة',
+    'btn-speed-alert-try': 'تجربة',
+    'lbl-speed-voice': 'صوت',
+    'speedalert_tpl': '⚠ السرعة فوق {s} كم/س',
+    'speed_unit': 'كم/س',
+    'tyrewarn_title_tpl': '⚠ تحذير ضغط الإطارات',
+    'tyrewarn_body_tpl': 'يوجد خلل في ضغط الإطار: {list}.\nيرجى فحص الإطارات وإعادة الضبط.',
+    'tyrewarn_body_general': 'تم رصد انخفاض في ضغط أحد الإطارات.\nيرجى فحص جميع الإطارات وإعادة الضبط.',
+    'tyre-warn-open-tpms': 'شاشة ضبط الإطارات',
+    'tyre_fl': 'الأمامي الأيسر', 'tyre_fr': 'الأمامي الأيمن', 'tyre_rl': 'الخلفي الأيسر', 'tyre_rr': 'الخلفي الأيمن',
+    'fuelwarn_title_tpl': '⛽ وقود منخفض',
+    'fuelwarn_body_tpl': 'الوقود في الخزان {p}٪.\nخطط للتوقف في محطة وقود.',
+    'fuelwarn_body_soon_tpl': 'الوقود في الخزان {p}٪.\nتزوّد بالوقود قريباً.',
     'sunroof-modal-title': 'التحكم في فتحة السقف',
     'app-drawer-title': 'التطبيقات المثبتة',
     'quick-app-modal-title': 'اختر التطبيق',
@@ -416,6 +442,31 @@ const I18N = {
     'tz-mode-utc2': 'UTC+2',
     'tz-mode-utc3': 'UTC+3',
     'tz-mode-utc4': 'UTC+4',
+    'lbl-fuel-warn': 'Low Fuel Warning',
+    'desc-fuel-warn': 'Popup when the tank goes down to these levels',
+    'btn-fuel-warn-try': 'Try',
+    'lbl-fuel-voice': 'Voice',
+    'fuelwarn_novoice': 'No voice for this language in the car, so a chime plays instead',
+    'fuel-warn-ok': 'OK',
+    'fuel-warn-find': 'Find a petrol station',
+    'lbl-tyre-warn': 'Tyre Pressure Warning',
+    'desc-tyre-warn': 'Popup when the car reports a tyre warning',
+    'btn-tyre-warn-try': 'Try',
+    'lbl-tyre-voice': 'Voice',
+    'lbl-speed-alert': 'Speed Alert',
+    'desc-speed-alert': 'Alert when driving faster than this speed',
+    'btn-speed-alert-try': 'Try',
+    'lbl-speed-voice': 'Voice',
+    'speedalert_tpl': '⚠ Speed over {s} km/h',
+    'speed_unit': 'km/h',
+    'tyrewarn_title_tpl': '⚠ Tyre Pressure Warning',
+    'tyrewarn_body_tpl': 'Abnormal tyre status: {list}.\nPlease check the tyres and reset TPMS.',
+    'tyrewarn_body_general': 'Low tyre pressure warning from vehicle.\nPlease check all tyres and reset TPMS.',
+    'tyre-warn-open-tpms': 'TPMS Screen',
+    'tyre_fl': 'front-left', 'tyre_fr': 'front-right', 'tyre_rl': 'rear-left', 'tyre_rr': 'rear-right',
+    'fuelwarn_title_tpl': '⛽ Low fuel',
+    'fuelwarn_body_tpl': 'Fuel tank is at {p}%.\nPlan a stop at a petrol station.',
+    'fuelwarn_body_soon_tpl': 'Fuel tank is at {p}%.\nRefuel soon.',
     'sunroof-modal-title': 'Sunroof Control',
     'app-drawer-title': 'Installed Applications',
     'quick-app-modal-title': 'Choose Application',
@@ -499,6 +550,31 @@ const I18N = {
     'tz-mode-utc2': 'UTC+2',
     'tz-mode-utc3': 'UTC+3',
     'tz-mode-utc4': 'UTC+4',
+    'lbl-fuel-warn': 'Предупреждение о топливе',
+    'desc-fuel-warn': 'Окно, когда уровень в баке опускается до этих значений',
+    'btn-fuel-warn-try': 'Тест',
+    'lbl-fuel-voice': 'Голос',
+    'fuelwarn_novoice': 'Нет голоса для этого языка, вместо него звучит сигнал',
+    'fuel-warn-ok': 'ОК',
+    'fuel-warn-find': 'Найти АЗС',
+    'lbl-tyre-warn': 'Предупреждение о шинах',
+    'desc-tyre-warn': 'Окно при предупреждении системы шин',
+    'btn-tyre-warn-try': 'Тест',
+    'lbl-tyre-voice': 'Голос',
+    'lbl-speed-alert': 'Предупреждение о скорости',
+    'desc-speed-alert': 'Сигнал, если скорость выше этой',
+    'btn-speed-alert-try': 'Тест',
+    'lbl-speed-voice': 'Голос',
+    'speedalert_tpl': '⚠ Скорость выше {s} км/ч',
+    'speed_unit': 'км/ч',
+    'tyrewarn_title_tpl': '⚠ Давление в шинах',
+    'tyrewarn_body_tpl': 'Проблема с шиной: {list}.\nПроверьте шины и выполните сброс TPMS.',
+    'tyrewarn_body_general': 'Обнаружено падение давления в шинах.\nПроверьте все шины и выполните сброс TPMS.',
+    'tyre-warn-open-tpms': 'Экран TPMS',
+    'tyre_fl': 'переднее левое', 'tyre_fr': 'переднее правое', 'tyre_rl': 'заднее левое', 'tyre_rr': 'заднее правое',
+    'fuelwarn_title_tpl': '⛽ Мало топлива',
+    'fuelwarn_body_tpl': 'В баке {p}%.\nЗапланируйте заправку.',
+    'fuelwarn_body_soon_tpl': 'В баке {p}%.\nЗаправьтесь как можно скорее.',
     'sunroof-modal-title': 'Управление люком',
     'app-drawer-title': 'Установленные приложения',
     'quick-app-modal-title': 'Выберите приложение',
@@ -549,7 +625,8 @@ function setLanguage(lang) {
     document.getElementById('modal-box-inner'),
     document.querySelector('#tpms-modal .modal-box'),
     document.querySelector('#tpms-confirm-modal .modal-box'),
-    document.querySelector('#quick-app-select-modal .modal-box')
+    document.querySelector('#quick-app-select-modal .modal-box'),
+    document.getElementById('fuel-warn-box')
   ];
 
   if (bAr) bAr.classList.toggle('active', lang === 'ar');
@@ -590,6 +667,8 @@ function setLanguage(lang) {
     updateAmbientDisplay(cachedAmbient);
   }
   if (typeof updateFuelDisplays === 'function') updateFuelDisplays();
+  if (typeof renderFuelWarnLevels === 'function') renderFuelWarnLevels();
+  if (typeof renderSpeedAlertLimit === 'function') renderSpeedAlertLimit();
   if (typeof updateCanStatusBadge === 'function' && typeof cachedCanConnected !== 'undefined') {
     updateCanStatusBadge(cachedCanConnected);
   }

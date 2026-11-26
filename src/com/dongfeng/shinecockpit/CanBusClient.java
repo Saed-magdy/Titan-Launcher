@@ -288,6 +288,8 @@ public class CanBusClient {
         public float fuelRemain = 17.1f;
         public float fuelCapacity = 55.0f;
         public float fuelPercentage = 31.0f;
+        /** True only when fuelPercentage really came from the car (31% is a made-up placeholder). */
+        public boolean fuelPctValid = false;
         public float instFuel = 0.0f;
         public float avgFuel = 6.3f;
         public int dte = 290;
@@ -318,6 +320,10 @@ public class CanBusClient {
         public boolean tpmsFRWarn = false;
         public boolean tpmsRLWarn = false;
         public boolean tpmsRRWarn = false;
+        /** True only when the tyre data really came from the car (2.3 bar is a made-up placeholder). */
+        public boolean tpmsValid = false;
+        /** Per tyre (front-left, front-right, rear-left, rear-right): true when that pressure is a real reading. */
+        public final boolean[] tpmsPressureValid = new boolean[4];
         public boolean sportMode = false;
         public boolean canConnected = false;
         public int speedLock = -1;  // AutomaticLocking: 3 = ON, 1 = OFF, -1 = unknown
@@ -447,8 +453,10 @@ public class CanBusClient {
                     float rawPct = reply8.readFloat();
                     if (rawPct > 0.0f && rawPct <= 1.0f) {
                         snap.fuelPercentage = rawPct * 100.0f;
+                        snap.fuelPctValid = true;
                     } else if (rawPct > 1.0f && rawPct <= 100.0f) {
                         snap.fuelPercentage = rawPct;
+                        snap.fuelPctValid = true;
                     }
                     snap.isFuelShortage = (reply8.readInt() == 1);
                     float inst = reply8.readFloat();
@@ -764,7 +772,8 @@ public class CanBusClient {
 
     }
 
-    private TelemetrySnapshot completeSlowSnapshot(TelemetrySnapshot snap) {
+    /** Reads the tyre pressures and the car's own tyre warnings (TPMS) into snap. */
+    private void readTpms(TelemetrySnapshot snap) {
         // 8. TPMS Real-Time Tire Pressures & Warnings (Transaction 66 -> da P())
         Parcel data66 = Parcel.obtain();
         Parcel reply66 = Parcel.obtain();
@@ -773,6 +782,7 @@ public class CanBusClient {
             if (mServiceBinder.transact(TRANSACTION_GET_TPMS, data66, reply66, 0)) {
                 reply66.readException();
                 if (reply66.readInt() != 0) {
+                    snap.tpmsValid = true;
                     reply66.readInt(); // a: mTirePositionStatus
                     reply66.readInt(); // b: mTemperatureWarningStatus
                     reply66.readInt(); // c: mSystemWaringStatus
@@ -785,10 +795,10 @@ public class CanBusClient {
                     float pRL = reply66.readFloat(); // j: mLeftRearTirePressureValue
                     float pRR = reply66.readFloat(); // k: mRightRearTirePressureValue
 
-                    if (pFL > 0.5f && pFL < 5.0f) snap.tpmsFL = Math.round(pFL * 10.0f) / 10.0f;
-                    if (pFR > 0.5f && pFR < 5.0f) snap.tpmsFR = Math.round(pFR * 10.0f) / 10.0f;
-                    if (pRL > 0.5f && pRL < 5.0f) snap.tpmsRL = Math.round(pRL * 10.0f) / 10.0f;
-                    if (pRR > 0.5f && pRR < 5.0f) snap.tpmsRR = Math.round(pRR * 10.0f) / 10.0f;
+                    if (pFL > 0.5f && pFL < 5.0f) { snap.tpmsFL = Math.round(pFL * 10.0f) / 10.0f; snap.tpmsPressureValid[0] = true; }
+                    if (pFR > 0.5f && pFR < 5.0f) { snap.tpmsFR = Math.round(pFR * 10.0f) / 10.0f; snap.tpmsPressureValid[1] = true; }
+                    if (pRL > 0.5f && pRL < 5.0f) { snap.tpmsRL = Math.round(pRL * 10.0f) / 10.0f; snap.tpmsPressureValid[2] = true; }
+                    if (pRR > 0.5f && pRR < 5.0f) { snap.tpmsRR = Math.round(pRR * 10.0f) / 10.0f; snap.tpmsPressureValid[3] = true; }
 
                     snap.tpmsFLWarn = (warnFL != 0);
                     snap.tpmsFRWarn = (warnFR != 0);
@@ -801,6 +811,23 @@ public class CanBusClient {
             data66.recycle();
             reply66.recycle();
         }
+    }
+
+    /**
+     * Tyre data only (one quick call), used while another app is on screen and the full
+     * telemetry poll is paused, so the tyre warning still works over Maps.
+     */
+    public TelemetrySnapshot getTpmsSnapshot() {
+        TelemetrySnapshot snap = new TelemetrySnapshot();
+        if (!isConnected() && !connectService()) return snap;
+        snap.canConnected = isConnected();
+        readTpms(snap);
+        return snap;
+    }
+
+    private TelemetrySnapshot completeSlowSnapshot(TelemetrySnapshot snap) {
+        // 8. TPMS Real-Time Tire Pressures & Warnings (Transaction 66 -> da P())
+        readTpms(snap);
 
         // 9. Sunroof & Window Status (Transaction 43 -> df L())
         Parcel data43 = Parcel.obtain();

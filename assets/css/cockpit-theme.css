@@ -3101,3 +3101,144 @@
       margin-left: 2px;
     }
 html, body, button, input, select, textarea, .hud, .modal-box { font-family: 'Plus Jakarta Sans', 'Noto Sans Arabic', sans-serif !important; }
+
+    /* ========================================================
+       LOW FUEL WARNING POPUP & SETTINGS
+       ======================================================== */
+    #fuel-warn-modal.modal-overlay {
+      background: rgba(2, 10, 14, 0.55);
+    }
+    .fuel-warn-box {
+      position: relative !important;
+      width: 65vw !important;
+      max-width: 65vw !important;
+      min-height: 25vh !important;
+      box-sizing: border-box !important;
+      display: flex !important;
+      flex-direction: column !important;
+      align-items: center !important;
+      justify-content: center !important;
+      gap: 18px !important;
+      padding: 28px 36px !important;
+      background: linear-gradient(160deg, rgba(40, 24, 4, 0.92) 0%, rgba(16, 10, 2, 0.92) 100%) !important;
+      backdrop-filter: blur(14px) saturate(160%) !important;
+      -webkit-backdrop-filter: blur(14px) saturate(160%) !important;
+      border: 1.5px solid rgba(250, 204, 21, 0.7) !important;
+      border-radius: 26px !important;
+      box-shadow: 0 24px 64px rgba(0, 0, 0, 0.75), 0 0 32px rgba(250, 204, 21, 0.28) !important;
+      text-align: center !important;
+    }
+    .fuel-warn-box.critical {
+      border-color: rgba(251, 146, 60, 0.85) !important;
+      box-shadow: 0 24px 64px rgba(0, 0, 0, 0.75), 0 0 36px rgba(251, 146, 60, 0.35) !important;
+    }
+    .fuel-warn-title {
+      font-size: 34px;
+      font-weight: 800;
+      color: #facc15;
+    }
+    .fuel-warn-box.critical .fuel-warn-title { color: #fb923c; }
+    .fuel-warn-box.critical .fuel-warn-ok {
+      background: rgba(251, 146, 60, 0.28);
+      color: #fed7aa;
+      box-shadow: 0 0 22px rgba(251, 146, 60, 0.35);
+    }
+    .fuel-warn-msg {
+      font-size: 24px;
+      font-weight: 700;
+      color: #ffffff;
+      line-height: 1.5;
+      white-space: pre-line;
+    }
+    .fuel-warn-ok {
+      min-width: 220px;
+      height: 64px;
+      border: none;
+      border-radius: 18px;
+      background: rgba(250, 204, 21, 0.26);
+      color: #fef08a;
+      font-family: 'Plus Jakarta Sans', 'Noto Sans Arabic', sans-serif;
+      font-size: 26px;
+      font-weight: 800;
+      cursor: pointer;
+      box-shadow: 0 0 22px rgba(250, 204, 21, 0.35);
+    }
+    .fuel-warn-ok:active { transform: scale(0.96); }
+    .fuel-warn-levels {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      margin-top: 10px;
+      flex-wrap: wrap;
+    }
+    .fuel-level-stepper {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      background: rgba(255, 255, 255, 0.08);
+      border-radius: 14px;
+      padding: 4px;
+    }
+    .fuel-step-btn {
+      width: 44px;
+      height: 40px;
+      border: none;
+      border-radius: 10px;
+      background: rgba(147, 197, 253, 0.18);
+      color: #e0f2fe;
+      font-size: 22px;
+      font-weight: 800;
+      cursor: pointer;
+    }
+    .fuel-step-btn:active { transform: scale(0.94); }
+    .fuel-step-val {
+      min-width: 58px;
+      text-align: center;
+      color: #ffffff;
+      font-size: 18px;
+      font-weight: 800;
+    }
+    .fuel-voice-row {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .fuel-voice-label {
+      color: #e0f2fe;
+      font-size: 16px;
+      font-weight: 700;
+    }
+    .fuel-warn-actions {
+      display: flex;
+      gap: 18px;
+      justify-content: center;
+      flex-wrap: wrap;
+    }
+    .fuel-warn-find {
+      min-width: 220px;
+      height: 64px;
+      padding: 0 26px;
+      border: 1.5px solid rgba(251, 146, 60, 0.75);
+      border-radius: 18px;
+      background: rgba(251, 146, 60, 0.12);
+      color: #fed7aa;
+      font-family: 'Plus Jakarta Sans', 'Noto Sans Arabic', sans-serif;
+      font-size: 24px;
+      font-weight: 800;
+      cursor: pointer;
+    }
+    .fuel-warn-find:active { transform: scale(0.96); }
+    .speed-step-val {
+      min-width: 92px;
+    }
+    .launcher-toast.speed-alert {
+      top: 96px;
+      border: 2px solid #fb923c;
+      background: rgba(40, 18, 4, 0.95);
+      color: #fed7aa;
+      font-size: 26px;
+      font-weight: 800;
+      padding: 14px 34px;
+      border-radius: 22px;
+      box-shadow: 0 8px 25px rgba(0, 0, 0, 0.8), 0 0 24px rgba(251, 146, 60, 0.45);
+    }

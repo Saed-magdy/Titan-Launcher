@@ -7,6 +7,8 @@ package com.dongfeng.shinecockpit;
 
 import android.Manifest;
 import android.app.Activity;
+import android.app.AlertDialog;
+import android.app.Dialog;
 import android.bluetooth.BluetoothAdapter;
 import android.content.BroadcastReceiver;
 import android.content.Context;
@@ -85,6 +87,17 @@ public class MainActivity extends Activity implements CockpitMediaListenerServic
     private double mLastSentFuelRemain = -1.0;
     private int mLastSentFuelPct = -1;
     private String mLastFastSig = "";
+    private FuelWarningMonitor mFuelWarning;
+    private TyreWarningMonitor mTyreWarning;
+    private final SpeedAlertMonitor mSpeedAlert = new SpeedAlertMonitor();
+    private long mLastBackgroundSpeedCheckMs = 0L;
+    private long mLastBackgroundFuelCheckMs = 0L;
+    private Dialog mFuelWarningDialog;
+    private FuelWarningVoice mFuelVoice;
+    /** How long the low-fuel popup stays on screen if OK is not pressed. */
+    private static final long FUEL_POPUP_AUTO_CLOSE_MS = 20000L;
+    /** While another app (e.g. Maps) is on screen, check the fuel this often. */
+    private static final long BACKGROUND_FUEL_CHECK_MS = 15000L;
     private long mLastFullTelemetryMs = 0L;
 
     private final BroadcastReceiver mCar3DFreezeReceiver = new BroadcastReceiver() {
@@ -192,6 +205,8 @@ public class MainActivity extends Activity implements CockpitMediaListenerServic
 
         long canInitStartMs = SystemClock.elapsedRealtime();
         mCanBusClient = new CanBusClient(this);
+        mFuelWarning = new FuelWarningMonitor(getSharedPreferences(PREF_HUB, MODE_PRIVATE));
+        mTyreWarning = new TyreWarningMonitor(getSharedPreferences(PREF_HUB, MODE_PRIVATE));
         Log.i(TAG, "Startup: CAN client initialized in " + (SystemClock.elapsedRealtime() - canInitStartMs)
                 + "ms; connected=" + mCanBusClient.isConnected());
 
@@ -930,6 +945,77 @@ public class MainActivity extends Activity implements CockpitMediaListenerServic
             }
         }
 
+        /**
+         * "Try" button in Settings: says the low-fuel warning out loud, so the driver can hear it.
+         * Tells the page whether the words were spoken or only the chime played (no voice installed).
+         */
+        /** "Find a petrol station" button in the launcher's low-fuel popup. */
+        @JavascriptInterface
+        public void openFuelStationSearch(final String lang) {
+            final String safeLang = ("ar".equals(lang) || "ru".equals(lang)) ? lang : "en";
+            mHandler.post(new Runnable() {
+                @Override
+                public void run() {
+                    MainActivity.this.openFuelStationSearch(safeLang);
+                }
+            });
+        }
+
+        /** "Try" button of the speed alert: plays the alert (voice or chime) for the chosen speed. */
+        @JavascriptInterface
+        public void previewSpeedAlert(final int limit, final boolean voice, final String lang) {
+            final int safeLimit = Math.max(SpeedAlertMonitor.MIN_LIMIT, Math.min(SpeedAlertMonitor.MAX_LIMIT, limit));
+            final String safeLang = ("ar".equals(lang) || "ru".equals(lang)) ? lang : "en";
+            mHandler.post(new Runnable() {
+                @Override
+                public void run() {
+                    playSpeedAlertSound(safeLimit, safeLang, voice, voice ? new FuelWarningVoice.ResultListener() {
+                        @Override
+                        public void onResult(boolean spoken) {
+                            evalWebViewJs("if (typeof window.onFuelVoicePreviewResult === 'function') { window.onFuelVoicePreviewResult("
+                                    + spoken + "); }");
+                        }
+                    } : null);
+                }
+            });
+        }
+
+        /** "Try" button of the tyre warning: says an example tyre warning out loud. */
+        @JavascriptInterface
+        public void previewTyreWarningVoice(final String lang) {
+            final String safeLang = ("ar".equals(lang) || "ru".equals(lang)) ? lang : "en";
+            mHandler.post(new Runnable() {
+                @Override
+                public void run() {
+                    speakTyreWarning(1, safeLang, new FuelWarningVoice.ResultListener() {
+                        @Override
+                        public void onResult(boolean spoken) {
+                            evalWebViewJs("if (typeof window.onFuelVoicePreviewResult === 'function') { window.onFuelVoicePreviewResult("
+                                    + spoken + "); }");
+                        }
+                    });
+                }
+            });
+        }
+
+        @JavascriptInterface
+        public void previewFuelWarningVoice(final boolean urgent, final int pct, final String lang) {
+            final int safePct = Math.max(0, Math.min(100, pct));
+            final String safeLang = ("ar".equals(lang) || "ru".equals(lang)) ? lang : "en";
+            mHandler.post(new Runnable() {
+                @Override
+                public void run() {
+                    speakFuelWarning(urgent, safePct, safeLang, new FuelWarningVoice.ResultListener() {
+                        @Override
+                        public void onResult(boolean spoken) {
+                            evalWebViewJs("if (typeof window.onFuelVoicePreviewResult === 'function') { window.onFuelVoicePreviewResult("
+                                    + spoken + "); }");
+                        }
+                    });
+                }
+            });
+        }
+
         @JavascriptInterface
         public String getSettings() {
             try {
@@ -1037,7 +1123,11 @@ public class MainActivity extends Activity implements CockpitMediaListenerServic
                         mLastTimeGuardCheckMs = nowElapsed;
                         OfflineTimeKeeper.enforceTimeZoneAndClock(MainActivity.this, "periodic", mClockSyncPushRunnable);
                     }
-                    if (!mIsForeground) return;
+                    if (!mIsForeground) {
+                        backgroundFuelCheck();
+                        backgroundSpeedCheck();
+                        return;
+                    }
                     refreshAvmOverlayState();
                     final boolean needFullPoll = (mLastFullTelemetryMs == 0L) || ((nowElapsed - mLastFullTelemetryMs) >= 1000L);
                     final JSONObject tele = new JSONObject();
@@ -1045,6 +1135,7 @@ public class MainActivity extends Activity implements CockpitMediaListenerServic
                     if (mCanBusClient != null && mCanBusClient.isConnected()) {
                         if (!needFullPoll) {
                             CanBusClient.TelemetrySnapshot fastSnap = mCanBusClient.getFastControlSnapshot();
+                            checkSpeedAlert(fastSnap.speed);
                             String fastSig = buildFastControlSig(fastSnap);
                             if (!fastSig.equals(mLastFastSig)) {
                                 mLastFastSig = fastSig;
@@ -1055,6 +1146,9 @@ public class MainActivity extends Activity implements CockpitMediaListenerServic
                         }
                         mLastFullTelemetryMs = nowElapsed;
                         CanBusClient.TelemetrySnapshot snap = mCanBusClient.getTelemetrySnapshot(false);
+                        if (snap.fuelPctValid) checkFuelWarning(snap.fuelPercentage);
+                        if (snap.tpmsValid) checkTyreWarning(snap);
+                        checkSpeedAlert(snap.speed);
                         mLastFastSig = buildFastControlSig(snap);
                         appendFastControlFields(tele, snap);
                         tele.put("coolant", snap.coolantTemp > 0 ? snap.coolantTemp : 90);
@@ -1121,6 +1215,392 @@ public class MainActivity extends Activity implements CockpitMediaListenerServic
                 }
             }
         }, 1500, 120, TimeUnit.MILLISECONDS);
+    }
+
+    /* ========================================================
+       LOW FUEL WARNING POPUP
+       ======================================================== */
+
+    /** While another app is on screen, the normal 1-second poll is paused; check fuel and tyres every 15 s instead. */
+    private void backgroundFuelCheck() {
+        long now = SystemClock.elapsedRealtime();
+        if (now - mLastBackgroundFuelCheckMs < BACKGROUND_FUEL_CHECK_MS) return;
+        mLastBackgroundFuelCheckMs = now;
+        if (mCanBusClient == null) return;
+        try {
+            CanBusClient.TelemetrySnapshot snap = mCanBusClient.getTelemetrySnapshot(true);
+            if (snap.canConnected && snap.fuelPctValid) checkFuelWarning(snap.fuelPercentage);
+            CanBusClient.TelemetrySnapshot tyres = mCanBusClient.getTpmsSnapshot();
+            if (tyres.canConnected && tyres.tpmsValid) checkTyreWarning(tyres);
+        } catch (Exception e) {
+            Log.e(TAG, "Background fuel/tyre check failed", e);
+        }
+    }
+
+    /** Called with every real fuel reading; shows the popup when a warning level is reached. */
+    private void checkFuelWarning(final float pct) {
+        if (mFuelWarning == null) return;
+        String settings = "";
+        try {
+            settings = getSharedPreferences(PREF_HUB, MODE_PRIVATE).getString("user_settings", "");
+        } catch (Exception ignored) {}
+        final int level = mFuelWarning.onReading(pct, SystemClock.elapsedRealtime(), settings);
+        if (level <= 0) return;
+        final int shownPct = Math.max(0, Math.min(100, Math.round(pct)));
+        final String lang = readSettingString(settings, "lang", "en");
+        final boolean eastern = "eastern".equals(readSettingString(settings, "numFormat", "western"));
+        final boolean urgent = mFuelWarning.isLowestLevel(level);
+        final boolean voice = readSettingBoolean(settings, "fuelWarnVoice", true);
+        Log.i(TAG, "Low fuel warning: tank " + shownPct + "% reached level " + level + "%");
+        mHandler.post(new Runnable() {
+            @Override
+            public void run() {
+                if (voice) speakFuelWarning(urgent, shownPct, lang, null);
+                if (mIsForeground && mWebView != null) {
+                    // Launcher on screen: the launcher's own popup (OK button, closes after 20 s).
+                    mWebView.evaluateJavascript("if (typeof window.showFuelWarning === 'function') { window.showFuelWarning("
+                            + level + ", " + shownPct + "); }", null);
+                } else {
+                    // Another app on screen: a system popup on top of it.
+                    showFuelWarningOverOtherApps(urgent, shownPct, lang, eastern);
+                }
+            }
+        });
+    }
+
+    private static boolean readSettingBoolean(String json, String key, boolean fallback) {
+        try {
+            if (json != null && !json.isEmpty()) return new JSONObject(json).optBoolean(key, fallback);
+        } catch (Exception ignored) {}
+        return fallback;
+    }
+
+    private static String readSettingString(String json, String key, String fallback) {
+        try {
+            if (json != null && !json.isEmpty()) return new JSONObject(json).optString(key, fallback);
+        } catch (Exception ignored) {}
+        return fallback;
+    }
+
+    /**
+     * The warning words, in the launcher's language: {title, message, OK button}.
+     * First level: "Plan a stop at a petrol station." Lowest level: "Refuel soon."
+     * forSpeech: no fuel-pump emoji, plain digits, and "percent" as a word so the voice reads it well.
+     */
+    private static String[] fuelWarningTexts(boolean urgent, int pct, String lang, boolean eastern, boolean forSpeech) {
+        String p = digits(pct, eastern && !forSpeech);
+        String pump = forSpeech ? "" : "⛽ ";
+        if ("ar".equals(lang)) {
+            return new String[] {
+                    pump + "وقود منخفض",
+                    "الوقود في الخزان " + p + (forSpeech ? " بالمئة" : "٪") + ".\n"
+                            + (urgent ? "تزوّد بالوقود قريباً." : "خطط للتوقف في محطة وقود."),
+                    "حسناً" };
+        } else if ("ru".equals(lang)) {
+            return new String[] {
+                    pump + "Мало топлива",
+                    "В баке " + p + (forSpeech ? " процентов" : "%") + ".\n"
+                            + (urgent ? "Заправьтесь как можно скорее." : "Запланируйте заправку."),
+                    "ОК" };
+        }
+        return new String[] {
+                pump + "Low fuel",
+                "Fuel tank is at " + p + (forSpeech ? " percent" : "%") + ".\n"
+                        + (urgent ? "Refuel soon." : "Plan a stop at a petrol station."),
+                "OK" };
+    }
+
+    /** Says the warning out loud (or plays a chime if the head unit has no voice for this language). */
+    private void speakFuelWarning(boolean urgent, int pct, String lang, FuelWarningVoice.ResultListener listener) {
+        if (mFuelVoice == null) mFuelVoice = new FuelWarningVoice(this);
+        String[] t = fuelWarningTexts(urgent, pct, lang, false, true);
+        mFuelVoice.speak(t[0] + ". " + t[1].replace('\n', ' '), lang, listener);
+    }
+
+    /** Text of the "Find a petrol station" button, in the launcher's language. */
+    private static String findStationLabel(String lang) {
+        if ("ar".equals(lang)) return "ابحث عن محطة وقود";
+        if ("ru".equals(lang)) return "Найти АЗС";
+        return "Find a petrol station";
+    }
+
+    /**
+     * Opens the map app searching for petrol stations near the car.
+     * Uses the standard "geo:" link, so it works with Google Maps, Waze or the car's own maps,
+     * whichever the head unit uses for maps. If no map app is installed, it says so.
+     */
+    private void openFuelStationSearch(String lang) {
+        String query = "ar".equals(lang) ? "محطة وقود" : "ru".equals(lang) ? "АЗС" : "petrol station";
+        try {
+            Intent i = new Intent(Intent.ACTION_VIEW, android.net.Uri.parse("geo:0,0?q=" + android.net.Uri.encode(query)));
+            i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            if (i.resolveActivity(getPackageManager()) != null) {
+                startActivity(i);
+                return;
+            }
+        } catch (Exception e) {
+            Log.w(TAG, "Could not open maps for petrol stations", e);
+        }
+        String msg = "ar".equals(lang) ? "لا يوجد تطبيق خرائط على الشاشة"
+                : "ru".equals(lang) ? "Нет приложения карт" : "No maps app found on this head unit";
+        try {
+            Toast.makeText(getApplicationContext(), msg, Toast.LENGTH_LONG).show();
+        } catch (Exception ignored) {}
+    }
+
+    private void showFuelWarningOverOtherApps(boolean urgent, int pct, final String lang, boolean eastern) {
+        String[] t = fuelWarningTexts(urgent, pct, lang, eastern, false);
+        // Second (lowest) level only: a button that opens Maps at the nearest petrol stations.
+        Runnable findStation = urgent ? new Runnable() {
+            @Override
+            public void run() {
+                openFuelStationSearch(lang);
+            }
+        } : null;
+        showAlertOverOtherApps(t[0], t[1], t[2], urgent ? findStationLabel(lang) : null, findStation);
+    }
+
+    /**
+     * Popup shown above other apps (Maps, music...) for the fuel and tyre warnings:
+     * about 65% of the screen wide and 25% high. OK closes it; it also closes by itself
+     * after 20 seconds. extraLabel/extraAction add an optional second button.
+     */
+    private void showAlertOverOtherApps(String title, String body, String ok,
+                                        String extraLabel, final Runnable extraAction) {
+        try {
+            dismissFuelWarningDialog();
+            @SuppressWarnings("deprecation")
+            AlertDialog.Builder builder = new AlertDialog.Builder(getApplicationContext(), AlertDialog.THEME_DEVICE_DEFAULT_DARK)
+                    .setTitle(title)
+                    .setMessage(body)
+                    .setPositiveButton(ok, null);
+            if (extraLabel != null && extraAction != null) {
+                builder.setNegativeButton(extraLabel, new android.content.DialogInterface.OnClickListener() {
+                    @Override
+                    public void onClick(android.content.DialogInterface d, int which) {
+                        extraAction.run();
+                    }
+                });
+            }
+            AlertDialog dialog = builder.create();
+            Window w = dialog.getWindow();
+            if (w != null) {
+                if (Build.VERSION.SDK_INT >= 26) {
+                    w.setType(WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY);
+                } else {
+                    @SuppressWarnings("deprecation")
+                    int phoneType = WindowManager.LayoutParams.TYPE_PHONE;
+                    w.setType(phoneType);
+                }
+            }
+            dialog.show();
+            if (w != null) {
+                android.util.DisplayMetrics dm = getResources().getDisplayMetrics();
+                // 65% of the screen wide; at least 25% of the screen high (taller only if the text needs it).
+                w.setLayout((int) (dm.widthPixels * 0.65f), ViewGroup.LayoutParams.WRAP_CONTENT);
+                w.getDecorView().setMinimumHeight((int) (dm.heightPixels * 0.25f));
+            }
+            mFuelWarningDialog = dialog;
+            final Dialog shown = dialog;
+            mHandler.postDelayed(new Runnable() {
+                @Override
+                public void run() {
+                    if (mFuelWarningDialog == shown) dismissFuelWarningDialog();
+                }
+            }, FUEL_POPUP_AUTO_CLOSE_MS);
+        } catch (Exception e) {
+            // No permission to draw over other apps: fall back to a plain message.
+            Log.w(TAG, "Popup over other apps not allowed; showing a toast instead", e);
+            try {
+                Toast.makeText(getApplicationContext(), title + "\n" + body, Toast.LENGTH_LONG).show();
+            } catch (Exception ignored) {}
+        }
+    }
+
+    private void dismissFuelWarningDialog() {
+        try {
+            if (mFuelWarningDialog != null && mFuelWarningDialog.isShowing()) mFuelWarningDialog.dismiss();
+        } catch (Exception ignored) {}
+        mFuelWarningDialog = null;
+    }
+
+    private static String digits(int value, boolean eastern) {
+        String s = String.valueOf(value);
+        if (!eastern) return s;
+        StringBuilder b = new StringBuilder();
+        for (char c : s.toCharArray()) b.append(c >= '0' && c <= '9' ? (char) ('٠' + (c - '0')) : c);
+        return b.toString();
+    }
+
+    /* ========================================================
+       TYRE PRESSURE WARNING POPUP
+       ======================================================== */
+
+    /** Called with every real tyre reading; shows the popup when a tyre is low. */
+    private void checkTyreWarning(CanBusClient.TelemetrySnapshot snap) {
+        if (mTyreWarning == null) return;
+        String settings = "";
+        try {
+            settings = getSharedPreferences(PREF_HUB, MODE_PRIVATE).getString("user_settings", "");
+        } catch (Exception ignored) {}
+        final boolean[] flags = { snap.tpmsFLWarn, snap.tpmsFRWarn, snap.tpmsRLWarn, snap.tpmsRRWarn };
+        final float[] bars = { snap.tpmsFL, snap.tpmsFR, snap.tpmsRL, snap.tpmsRR };
+        final boolean[] valid = snap.tpmsPressureValid.clone();
+        boolean enabled = readSettingBoolean(settings, "tyreWarnEnabled", true);
+        final int mask = mTyreWarning.onReading(flags, bars, valid, enabled, SystemClock.elapsedRealtime());
+        if (mask == 0) return;
+        final String lang = readSettingString(settings, "lang", "en");
+        final boolean eastern = "eastern".equals(readSettingString(settings, "numFormat", "western"));
+        final boolean voice = readSettingBoolean(settings, "tyreWarnVoice", true);
+        Log.i(TAG, "Tyre pressure warning for tyres (mask) " + mask);
+        // For the launcher's own popup: [{"pos":"fl","bar":1.6}, ...] (bar is null when the car gave no pressure).
+        final StringBuilder json = new StringBuilder("[");
+        for (int i = 0; i < TyreWarningMonitor.TYRES; i++) {
+            if ((mask & (1 << i)) == 0) continue;
+            if (json.length() > 1) json.append(',');
+            json.append("{\"pos\":\"").append(TYRE_KEYS[i]).append("\",\"bar\":")
+                    .append(valid[i] ? String.valueOf(bars[i]) : "null").append('}');
+        }
+        json.append(']');
+        mHandler.post(new Runnable() {
+            @Override
+            public void run() {
+                if (voice) speakTyreWarning(mask, lang, null);
+                if (mIsForeground && mWebView != null) {
+                    mWebView.evaluateJavascript("if (typeof window.showTyreWarning === 'function') { window.showTyreWarning("
+                            + json + "); }", null);
+                } else {
+                    String[] t = tyreWarningTexts(mask, bars, valid, lang, eastern, false);
+                    showAlertOverOtherApps(t[0], t[1], t[2], null, null);
+                }
+            }
+        });
+    }
+
+    private static final String[] TYRE_KEYS = { "fl", "fr", "rl", "rr" };
+
+    /**
+     * The tyre warning words, in the launcher's language: {title, message, OK button}.
+     * Example: "Check the tyre pressure: front-left 1.6 bar."
+     * forSpeech: no warning sign and no numbers, so the voice reads it clearly.
+     */
+    private static String[] tyreWarningTexts(int mask, float[] bars, boolean[] valid, String lang,
+                                             boolean eastern, boolean forSpeech) {
+        String[] names;
+        String unit;
+        if ("ar".equals(lang)) {
+            names = new String[] { "الأمامي الأيسر", "الأمامي الأيمن", "الخلفي الأيسر", "الخلفي الأيمن" };
+            unit = " بار";
+        } else if ("ru".equals(lang)) {
+            names = new String[] { "переднее левое", "переднее правое", "заднее левое", "заднее правое" };
+            unit = " бар";
+        } else {
+            names = new String[] { "front-left", "front-right", "rear-left", "rear-right" };
+            unit = " bar";
+        }
+        StringBuilder list = new StringBuilder();
+        for (int i = 0; i < TyreWarningMonitor.TYRES; i++) {
+            if ((mask & (1 << i)) == 0) continue;
+            if (list.length() > 0) list.append("ar".equals(lang) ? "، " : ", ");
+            list.append(names[i]);
+            if (!forSpeech && valid[i]) {
+                String v = String.valueOf(Math.round(bars[i] * 10f) / 10f);
+                if (eastern) {
+                    StringBuilder e = new StringBuilder();
+                    for (char c : v.toCharArray()) {
+                        e.append(c >= '0' && c <= '9' ? (char) ('٠' + (c - '0')) : (c == '.' ? '٫' : c));
+                    }
+                    v = e.toString();
+                }
+                list.append(' ').append(v).append(unit);
+            }
+        }
+        String sign = forSpeech ? "" : "⚠ ";
+        if ("ar".equals(lang)) {
+            return new String[] { sign + "ضغط الإطارات",
+                    "افحص ضغط الإطارات: " + list + ".", "حسناً" };
+        } else if ("ru".equals(lang)) {
+            return new String[] { sign + "Давление в шинах",
+                    "Проверьте давление в шинах: " + list + ".", "ОК" };
+        }
+        return new String[] { sign + "Tyre pressure",
+                "Check the tyre pressure: " + list + ".", "OK" };
+    }
+
+    /** Says the tyre warning out loud (or a chime if the head unit has no voice for this language). */
+    private void speakTyreWarning(int mask, String lang, FuelWarningVoice.ResultListener listener) {
+        if (mFuelVoice == null) mFuelVoice = new FuelWarningVoice(this);
+        String[] t = tyreWarningTexts(mask, new float[4], new boolean[4], lang, false, true);
+        mFuelVoice.speak(t[0] + ". " + t[1], lang, listener);
+    }
+
+    /* ========================================================
+       SPEED ALERT
+       ======================================================== */
+
+    /** While another app is on screen, read the speed once a second, but only if the alert is on. */
+    private void backgroundSpeedCheck() {
+        if (mSpeedAlert == null || mCanBusClient == null) return;
+        long now = SystemClock.elapsedRealtime();
+        if (now - mLastBackgroundSpeedCheckMs < 1000L) return;
+        mLastBackgroundSpeedCheckMs = now;
+        try {
+            String settings = getSharedPreferences(PREF_HUB, MODE_PRIVATE).getString("user_settings", "");
+            if (!mSpeedAlert.isEnabled(settings)) return;
+            int kmh = mCanBusClient.getSpeed();
+            if (kmh >= 0) checkSpeedAlert(kmh);
+        } catch (Exception e) {
+            Log.e(TAG, "Background speed check failed", e);
+        }
+    }
+
+    /** Called with every speed reading; gives the alert when the chosen speed is passed. */
+    private void checkSpeedAlert(int kmh) {
+        if (mSpeedAlert == null) return;
+        String settings = "";
+        try {
+            settings = getSharedPreferences(PREF_HUB, MODE_PRIVATE).getString("user_settings", "");
+        } catch (Exception ignored) {}
+        final int limit = mSpeedAlert.onSpeed(kmh, SystemClock.elapsedRealtime(), settings);
+        if (limit <= 0) return;
+        final String lang = readSettingString(settings, "lang", "en");
+        final boolean eastern = "eastern".equals(readSettingString(settings, "numFormat", "western"));
+        final boolean voice = mSpeedAlert.useVoice();
+        Log.i(TAG, "Speed alert: over " + limit + " km/h");
+        mHandler.post(new Runnable() {
+            @Override
+            public void run() {
+                playSpeedAlertSound(limit, lang, voice, null);
+                if (mIsForeground && mWebView != null) {
+                    mWebView.evaluateJavascript("if (typeof window.showSpeedAlert === 'function') { window.showSpeedAlert("
+                            + limit + "); }", null);
+                } else {
+                    // Another app on screen (e.g. Maps): a short message that does not block the map.
+                    try {
+                        Toast.makeText(getApplicationContext(), speedAlertText(limit, lang, eastern, false), Toast.LENGTH_LONG).show();
+                    } catch (Exception ignored) {}
+                }
+            }
+        });
+    }
+
+    /** "Speed over 120 km/h" in the launcher's language (forSpeech: no sign, no unit). */
+    private static String speedAlertText(int limit, String lang, boolean eastern, boolean forSpeech) {
+        String n = digits(limit, eastern && !forSpeech);
+        String sign = forSpeech ? "" : "⚠ ";
+        if ("ar".equals(lang)) return sign + "السرعة فوق " + n + (forSpeech ? "" : " كم/س");
+        if ("ru".equals(lang)) return sign + "Скорость выше " + n + (forSpeech ? "" : " км/ч");
+        return sign + "Speed over " + n + (forSpeech ? "" : " km/h");
+    }
+
+    /** The spoken alert ("Speed over 120"), or just a short chime when the Voice switch is off. */
+    private void playSpeedAlertSound(int limit, String lang, boolean voice, FuelWarningVoice.ResultListener listener) {
+        if (mFuelVoice == null) mFuelVoice = new FuelWarningVoice(this);
+        if (voice) {
+            mFuelVoice.speak(speedAlertText(limit, lang, false, true) + ".", lang, listener);
+        } else {
+            mFuelVoice.chimeOnly();
+        }
     }
 
     private void buildSimulatedTelemetry(JSONObject tele) throws JSONException {
@@ -1207,6 +1687,8 @@ public class MainActivity extends Activity implements CockpitMediaListenerServic
         if (mSwcHandler != null) mSwcHandler.release();
         if (mCanBusClient != null) mCanBusClient.release();
         mHandler.removeCallbacksAndMessages(null);
+        dismissFuelWarningDialog();
+        if (mFuelVoice != null) mFuelVoice.shutdown();
         if (!mTelemetryExecutor.isShutdown()) mTelemetryExecutor.shutdown();
         if (!mExecutor.isShutdown()) mExecutor.shutdown();
         if (!mNetExecutor.isShutdown()) mNetExecutor.shutdownNow();
