@@ -14,6 +14,8 @@ import android.content.Intent;
 import android.content.SharedPreferences;
 import android.content.pm.ApplicationInfo;
 import android.content.pm.PackageManager;
+import android.content.pm.ResolveInfo;
+import android.net.Uri;
 import android.net.ConnectivityManager;
 import android.net.NetworkInfo;
 import android.net.wifi.WifiManager;
@@ -24,6 +26,7 @@ import android.util.Log;
 
 import org.json.JSONObject;
 
+import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 
@@ -171,13 +174,17 @@ public final class SystemControlHelper {
 
             PackageManager pm = context.getPackageManager();
             List<ApplicationInfo> packages = pm.getInstalledApplications(0);
-            String myPkg = context.getPackageName();
+            // Apps the driver may be relying on right now: never close these.
+            Set<String> keep = findAppsToKeep(context, pm);
             int killedCount = 0;
             if (packages != null) {
                 for (ApplicationInfo appInfo : packages) {
                     String pkg = appInfo.packageName;
-                    if (pkg == null || pkg.equals(myPkg)) continue;
-                    if (pkg.startsWith("com.qinggan.canbus") || pkg.startsWith("com.qinggan.system")) continue;
+                    if (pkg == null || keep.contains(pkg)) continue;
+                    // Built-in system and car apps (Bluetooth phone, radio, CAN service, keyboard...)
+                    // are left alone; only apps the owner installed are closed.
+                    if ((appInfo.flags & (ApplicationInfo.FLAG_SYSTEM | ApplicationInfo.FLAG_UPDATED_SYSTEM_APP)) != 0) continue;
+                    if (pkg.startsWith("com.qinggan.")) continue;
                     try {
                         am.killBackgroundProcesses(pkg);
                         killedCount++;
@@ -189,10 +196,10 @@ public final class SystemControlHelper {
 
             ActivityManager.MemoryInfo miAfter = new ActivityManager.MemoryInfo();
             am.getMemoryInfo(miAfter);
-            long diffMb = (miAfter.availMem - availBefore) / (1024L * 1024L);
-            if (diffMb <= 12) {
-                diffMb = 48L + (System.currentTimeMillis() % 65L);
-            }
+            // The REAL amount freed. It can be 0 when nothing was running; the screen then
+            // says "apps closed" without a number instead of showing a made-up one.
+            long diffMb = Math.max(0L, (miAfter.availMem - availBefore) / (1024L * 1024L));
+            res.put("ok", true);
             res.put("freedMb", diffMb);
             res.put("availMb", miAfter.availMem / (1024L * 1024L));
             res.put("totalMb", miAfter.totalMem / (1024L * 1024L));
@@ -200,11 +207,43 @@ public final class SystemControlHelper {
         } catch (Exception e) {
             Log.e(TAG, "Error in cleanMemory", e);
             try {
-                res.put("freedMb", 84);
-                res.put("availMb", 1420);
+                res.put("ok", false);
             } catch (Exception ignored) {}
         }
         return res.toString();
+    }
+
+    /**
+     * Lists the apps the memory cleanup must not close, because the driver may be using them:
+     * the launcher itself, the on-screen keyboard, every music / radio / podcast app,
+     * and every navigation (maps) app.
+     */
+    private static Set<String> findAppsToKeep(Context context, PackageManager pm) {
+        Set<String> keep = new HashSet<>();
+        keep.add(context.getPackageName());
+        try {
+            String ime = Settings.Secure.getString(context.getContentResolver(), Settings.Secure.DEFAULT_INPUT_METHOD);
+            if (ime != null && ime.contains("/")) keep.add(ime.substring(0, ime.indexOf('/')));
+        } catch (Exception ignored) {}
+        try {
+            // Music apps that offer their library to car screens (Spotify, Anghami, YouTube Music...).
+            for (ResolveInfo ri : pm.queryIntentServices(new Intent("android.media.browse.MediaBrowserService"), 0)) {
+                if (ri.serviceInfo != null) keep.add(ri.serviceInfo.packageName);
+            }
+            // Apps that can play an audio file.
+            Intent audio = new Intent(Intent.ACTION_VIEW);
+            audio.setDataAndType(Uri.parse("file:///sdcard/a.mp3"), "audio/*");
+            for (ResolveInfo ri : pm.queryIntentActivities(audio, 0)) {
+                if (ri.activityInfo != null) keep.add(ri.activityInfo.packageName);
+            }
+            // Navigation apps (Google Maps, Waze...): they open "geo:" map links.
+            for (ResolveInfo ri : pm.queryIntentActivities(new Intent(Intent.ACTION_VIEW, Uri.parse("geo:0,0?q=")), 0)) {
+                if (ri.activityInfo != null) keep.add(ri.activityInfo.packageName);
+            }
+        } catch (Exception e) {
+            Log.w(TAG, "Could not list media/navigation apps to keep", e);
+        }
+        return keep;
     }
 
     public static void openDefaultLauncherSettings(Context context) {
