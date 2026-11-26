@@ -3188,3 +3188,13 @@ html, body, button, input, select, textarea, .hud, .modal-box { font-family: 'Pl
       font-size: 18px;
       font-weight: 800;
     }
+    .fuel-voice-row {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .fuel-voice-label {
+      color: #e0f2fe;
+      font-size: 16px;
+      font-weight: 700;
+    }

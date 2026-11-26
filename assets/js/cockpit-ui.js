@@ -1393,6 +1393,8 @@
     function applyFuelWarnSettings(s) {
       const chk = document.getElementById('chk-fuel-warn');
       if (chk) chk.checked = (s.fuelWarnEnabled !== false);
+      const chkVoice = document.getElementById('chk-fuel-voice');
+      if (chkVoice) chkVoice.checked = (s.fuelWarnVoice !== false);
       if (Array.isArray(s.fuelWarnLevels) && s.fuelWarnLevels.length >= 2) {
         const hi = Math.round(Number(s.fuelWarnLevels[0]));
         const lo = Math.round(Number(s.fuelWarnLevels[1]));
@@ -1446,7 +1448,19 @@
     // "Try" button in Settings: shows the popup for the lower level, so the driver can see it.
     function previewFuelWarning() {
       showFuelWarning(fuelWarnLevels[1], fuelWarnLevels[1]);
+      // Also say it out loud (in the car), if the Voice switch is on.
+      const chkVoice = document.getElementById('chk-fuel-voice');
+      if ((!chkVoice || chkVoice.checked) && window.AndroidBridge && window.AndroidBridge.previewFuelWarningVoice) {
+        try { window.AndroidBridge.previewFuelWarningVoice(true, fuelWarnLevels[1], state.lang || 'en'); } catch (e) {}
+      }
     }
+
+    // Java tells us whether the words were spoken; if not, explain why only a chime was heard.
+    window.onFuelVoicePreviewResult = function (spoken) {
+      if (spoken) return;
+      const dict = I18N[state.lang] || I18N['en'];
+      if (typeof showLauncherToast === 'function') showLauncherToast(dict['fuelwarn_novoice'] || 'No voice for this language', 4000);
+    };
 
     function saveAllSettings() {
       const chkSpeed = document.getElementById('chk-speed-lock');
@@ -1455,6 +1469,7 @@
       const chkAutoBoot = document.getElementById('chk-auto-boot');
       const chkWatchdog = document.getElementById('chk-watchdog');
       const chkFuelWarn = document.getElementById('chk-fuel-warn');
+      const chkFuelVoice = document.getElementById('chk-fuel-voice');
 
       const settings = {
         lang: state.lang,
@@ -1471,7 +1486,8 @@
         autoBoot: chkAutoBoot ? chkAutoBoot.checked : true,
         watchdogEnabled: chkWatchdog ? chkWatchdog.checked : true,
         fuelWarnEnabled: chkFuelWarn ? chkFuelWarn.checked : true,
-        fuelWarnLevels: fuelWarnLevels.slice()
+        fuelWarnLevels: fuelWarnLevels.slice(),
+        fuelWarnVoice: chkFuelVoice ? chkFuelVoice.checked : true
       };
 
       const jsonStr = JSON.stringify(settings);

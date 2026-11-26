@@ -83,6 +83,7 @@ public class MainActivity extends Activity implements CockpitMediaListenerServic
     private FuelWarningMonitor mFuelWarning;
     private long mLastBackgroundFuelCheckMs = 0L;
     private Dialog mFuelWarningDialog;
+    private FuelWarningVoice mFuelVoice;
     /** How long the low-fuel popup stays on screen if OK is not pressed. */
     private static final long FUEL_POPUP_AUTO_CLOSE_MS = 20000L;
     /** While another app (e.g. Maps) is on screen, check the fuel this often. */
@@ -818,6 +819,28 @@ public class MainActivity extends Activity implements CockpitMediaListenerServic
             }
         }
 
+        /**
+         * "Try" button in Settings: says the low-fuel warning out loud, so the driver can hear it.
+         * Tells the page whether the words were spoken or only the chime played (no voice installed).
+         */
+        @JavascriptInterface
+        public void previewFuelWarningVoice(final boolean urgent, final int pct, final String lang) {
+            final int safePct = Math.max(0, Math.min(100, pct));
+            final String safeLang = ("ar".equals(lang) || "ru".equals(lang)) ? lang : "en";
+            mHandler.post(new Runnable() {
+                @Override
+                public void run() {
+                    speakFuelWarning(urgent, safePct, safeLang, new FuelWarningVoice.ResultListener() {
+                        @Override
+                        public void onResult(boolean spoken) {
+                            evalWebViewJs("if (typeof window.onFuelVoicePreviewResult === 'function') { window.onFuelVoicePreviewResult("
+                                    + spoken + "); }");
+                        }
+                    });
+                }
+            });
+        }
+
         @JavascriptInterface
         public String getSettings() {
             try {
@@ -1024,10 +1047,12 @@ public class MainActivity extends Activity implements CockpitMediaListenerServic
         final String lang = readSettingString(settings, "lang", "en");
         final boolean eastern = "eastern".equals(readSettingString(settings, "numFormat", "western"));
         final boolean urgent = mFuelWarning.isLowestLevel(level);
+        final boolean voice = readSettingBoolean(settings, "fuelWarnVoice", true);
         Log.i(TAG, "Low fuel warning: tank " + shownPct + "% reached level " + level + "%");
         mHandler.post(new Runnable() {
             @Override
             public void run() {
+                if (voice) speakFuelWarning(urgent, shownPct, lang, null);
                 if (mIsForeground && mWebView != null) {
                     // Launcher on screen: the launcher's own popup (OK button, closes after 20 s).
                     mWebView.evaluateJavascript("if (typeof window.showFuelWarning === 'function') { window.showFuelWarning("
@@ -1038,6 +1063,13 @@ public class MainActivity extends Activity implements CockpitMediaListenerServic
                 }
             }
         });
+    }
+
+    private static boolean readSettingBoolean(String json, String key, boolean fallback) {
+        try {
+            if (json != null && !json.isEmpty()) return new JSONObject(json).optBoolean(key, fallback);
+        } catch (Exception ignored) {}
+        return fallback;
     }
 
     private static String readSettingString(String json, String key, String fallback) {
@@ -1051,26 +1083,44 @@ public class MainActivity extends Activity implements CockpitMediaListenerServic
      * Popup shown above other apps (Maps, music...): about 65% of the screen wide and 25% high.
      * OK closes it; it also closes by itself after 20 seconds.
      */
-    private void showFuelWarningOverOtherApps(boolean urgent, int pct, String lang, boolean eastern) {
-        // First level: "Plan a stop at a petrol station." Lowest level: "Refuel soon."
-        String title, body, ok;
-        String p = digits(pct, eastern);
+    /**
+     * The warning words, in the launcher's language: {title, message, OK button}.
+     * First level: "Plan a stop at a petrol station." Lowest level: "Refuel soon."
+     * forSpeech: no fuel-pump emoji, plain digits, and "percent" as a word so the voice reads it well.
+     */
+    private static String[] fuelWarningTexts(boolean urgent, int pct, String lang, boolean eastern, boolean forSpeech) {
+        String p = digits(pct, eastern && !forSpeech);
+        String pump = forSpeech ? "" : "⛽ ";
         if ("ar".equals(lang)) {
-            title = "⛽ وقود منخفض";
-            body = "الوقود في الخزان " + p + "٪.\n"
-                    + (urgent ? "تزوّد بالوقود قريباً." : "خطط للتوقف في محطة وقود.");
-            ok = "حسناً";
+            return new String[] {
+                    pump + "وقود منخفض",
+                    "الوقود في الخزان " + p + (forSpeech ? " بالمئة" : "٪") + ".\n"
+                            + (urgent ? "تزوّد بالوقود قريباً." : "خطط للتوقف في محطة وقود."),
+                    "حسناً" };
         } else if ("ru".equals(lang)) {
-            title = "⛽ Мало топлива";
-            body = "В баке " + p + "%.\n"
-                    + (urgent ? "Заправьтесь как можно скорее." : "Запланируйте заправку.");
-            ok = "ОК";
-        } else {
-            title = "⛽ Low fuel";
-            body = "Fuel tank is at " + p + "%.\n"
-                    + (urgent ? "Refuel soon." : "Plan a stop at a petrol station.");
-            ok = "OK";
+            return new String[] {
+                    pump + "Мало топлива",
+                    "В баке " + p + (forSpeech ? " процентов" : "%") + ".\n"
+                            + (urgent ? "Заправьтесь как можно скорее." : "Запланируйте заправку."),
+                    "ОК" };
         }
+        return new String[] {
+                pump + "Low fuel",
+                "Fuel tank is at " + p + (forSpeech ? " percent" : "%") + ".\n"
+                        + (urgent ? "Refuel soon." : "Plan a stop at a petrol station."),
+                "OK" };
+    }
+
+    /** Says the warning out loud (or plays a chime if the head unit has no voice for this language). */
+    private void speakFuelWarning(boolean urgent, int pct, String lang, FuelWarningVoice.ResultListener listener) {
+        if (mFuelVoice == null) mFuelVoice = new FuelWarningVoice(this);
+        String[] t = fuelWarningTexts(urgent, pct, lang, false, true);
+        mFuelVoice.speak(t[0] + ". " + t[1].replace('\n', ' '), lang, listener);
+    }
+
+    private void showFuelWarningOverOtherApps(boolean urgent, int pct, String lang, boolean eastern) {
+        String[] t = fuelWarningTexts(urgent, pct, lang, eastern, false);
+        String title = t[0], body = t[1], ok = t[2];
         try {
             dismissFuelWarningDialog();
             @SuppressWarnings("deprecation")
@@ -1213,6 +1263,7 @@ public class MainActivity extends Activity implements CockpitMediaListenerServic
         if (mCanBusClient != null) mCanBusClient.release();
         mHandler.removeCallbacksAndMessages(null);
         dismissFuelWarningDialog();
+        if (mFuelVoice != null) mFuelVoice.shutdown();
         if (!mTelemetryExecutor.isShutdown()) mTelemetryExecutor.shutdown();
         if (!mExecutor.isShutdown()) mExecutor.shutdown();
         if (!mNetExecutor.isShutdown()) mNetExecutor.shutdownNow();
