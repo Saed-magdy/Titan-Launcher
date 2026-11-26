@@ -27,6 +27,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 import javax.net.ssl.HostnameVerifier;
 import javax.net.ssl.HttpsURLConnection;
 import javax.net.ssl.SSLContext;
+import javax.net.ssl.SSLException;
 import javax.net.ssl.SSLSession;
 import javax.net.ssl.SSLSocketFactory;
 import javax.net.ssl.TrustManager;
@@ -115,9 +116,15 @@ public final class LocalStreamProxy {
         return trustAllSslFactory;
     }
 
+    /**
+     * Opens a normal web address (used for the radio station directory).
+     * The security certificate is ALWAYS checked here: if someone on the same Wi-Fi
+     * pretends to be the station directory, the connection is refused instead of
+     * accepting their fake station list.
+     */
     public static HttpURLConnection openFollowingRedirects(
             String urlStr, int connectTimeoutMs, int readTimeoutMs) throws IOException {
-        return openFollowingRedirectsWithFinalUrl(urlStr, connectTimeoutMs, readTimeoutMs, false).conn;
+        return openFollowingRedirectsWithFinalUrl(urlStr, connectTimeoutMs, readTimeoutMs, false, false).conn;
     }
 
     public static final class ResolvedStream {
@@ -191,7 +198,7 @@ public final class LocalStreamProxy {
     private static RedirectResult openAudioTargetStatic(
             String startUrl, int connectTimeoutMs, int readTimeoutMs) throws IOException {
         RedirectResult res = openFollowingRedirectsWithFinalUrl(
-                startUrl, connectTimeoutMs, readTimeoutMs, true);
+                startUrl, connectTimeoutMs, readTimeoutMs, true, true);
         if (res.code >= 200 && res.code < 300 && isPlaylistResponse(res.finalUrl, res.conn.getContentType())) {
             String resolvedStream = extractFirstPlaylistStreamUrl(res.conn, res.finalUrl);
             res.conn.disconnect();
@@ -199,7 +206,7 @@ public final class LocalStreamProxy {
                 throw new IOException("Empty playlist at " + res.finalUrl);
             }
             res = openFollowingRedirectsWithFinalUrl(
-                    resolvedStream, connectTimeoutMs, readTimeoutMs, true);
+                    resolvedStream, connectTimeoutMs, readTimeoutMs, true, true);
         }
         return res;
     }
@@ -255,33 +262,39 @@ public final class LocalStreamProxy {
         }
     }
 
+    /**
+     * Follows up to MAX_REDIRECTS "moved to another address" answers.
+     *
+     * About the security check ("certificate") on https addresses, in plain words:
+     * - Every connection first tries the normal, safe check.
+     * - Only when allowInsecureFallback is true (the radio AUDIO stream itself) and the
+     *   safe check fails, the same address is tried once more without the check.
+     *   Some small radio stations use expired or home-made certificates, and this keeps
+     *   them playing. The worst a fake hotspot could do there is play different audio.
+     * - The station directory never uses the fallback (see openFollowingRedirects).
+     */
     private static RedirectResult openFollowingRedirectsWithFinalUrl(
-            String urlStr, int connectTimeoutMs, int readTimeoutMs, boolean disableIcyMeta) throws IOException {
+            String urlStr, int connectTimeoutMs, int readTimeoutMs, boolean disableIcyMeta,
+            boolean allowInsecureFallback) throws IOException {
         String current = urlStr;
         IOException lastError = null;
         for (int i = 0; i <= MAX_REDIRECTS; i++) {
             URL url = new URL(current);
-            HttpURLConnection conn = (HttpURLConnection) url.openConnection();
-            conn.setInstanceFollowRedirects(false);
-            conn.setConnectTimeout(connectTimeoutMs);
-            conn.setReadTimeout(readTimeoutMs);
-            conn.setRequestMethod("GET");
-            conn.setRequestProperty("User-Agent", USER_AGENT);
-            conn.setRequestProperty("Accept", "*/*");
-            conn.setRequestProperty("Connection", "close");
-            if (disableIcyMeta) {
-                conn.setRequestProperty("Icy-MetaData", "0");
-            }
-            if (conn instanceof HttpsURLConnection) {
-                HttpsURLConnection https = (HttpsURLConnection) conn;
-                SSLSocketFactory sf = getTrustAllSslSocketFactory();
-                if (sf != null) {
-                    https.setSSLSocketFactory(sf);
-                }
-                https.setHostnameVerifier(TRUST_ALL_HOSTNAME);
-            }
+            HttpURLConnection conn = openOnce(url, connectTimeoutMs, readTimeoutMs, disableIcyMeta, false);
             try {
-                int code = conn.getResponseCode();
+                int code;
+                try {
+                    code = conn.getResponseCode();
+                } catch (SSLException safeCheckFailed) {
+                    if (!allowInsecureFallback || !(conn instanceof HttpsURLConnection)) {
+                        throw safeCheckFailed;
+                    }
+                    conn.disconnect();
+                    Log.w(TAG, "Certificate check failed for audio stream " + url.getHost()
+                            + " (" + safeCheckFailed.getMessage() + "); retrying this stream without the check");
+                    conn = openOnce(url, connectTimeoutMs, readTimeoutMs, disableIcyMeta, true);
+                    code = conn.getResponseCode();
+                }
                 if (code == HttpURLConnection.HTTP_MOVED_PERM
                         || code == HttpURLConnection.HTTP_MOVED_TEMP
                         || code == HttpURLConnection.HTTP_SEE_OTHER
@@ -306,6 +319,31 @@ public final class LocalStreamProxy {
             throw lastError;
         }
         throw new IOException("Too many redirects for " + urlStr);
+    }
+
+    /** Prepares one connection. skipCertificateCheck = true only for the audio-stream retry above. */
+    private static HttpURLConnection openOnce(URL url, int connectTimeoutMs, int readTimeoutMs,
+            boolean disableIcyMeta, boolean skipCertificateCheck) throws IOException {
+        HttpURLConnection conn = (HttpURLConnection) url.openConnection();
+        conn.setInstanceFollowRedirects(false);
+        conn.setConnectTimeout(connectTimeoutMs);
+        conn.setReadTimeout(readTimeoutMs);
+        conn.setRequestMethod("GET");
+        conn.setRequestProperty("User-Agent", USER_AGENT);
+        conn.setRequestProperty("Accept", "*/*");
+        conn.setRequestProperty("Connection", "close");
+        if (disableIcyMeta) {
+            conn.setRequestProperty("Icy-MetaData", "0");
+        }
+        if (skipCertificateCheck && conn instanceof HttpsURLConnection) {
+            HttpsURLConnection https = (HttpsURLConnection) conn;
+            SSLSocketFactory sf = getTrustAllSslSocketFactory();
+            if (sf != null) {
+                https.setSSLSocketFactory(sf);
+            }
+            https.setHostnameVerifier(TRUST_ALL_HOSTNAME);
+        }
+        return conn;
     }
 
     public synchronized String getProxyStreamUrl(String upstreamUrl) {
@@ -771,7 +809,7 @@ public final class LocalStreamProxy {
 
         private RedirectResult openAudioTarget(String startUrl) throws IOException {
             RedirectResult res = openFollowingRedirectsWithFinalUrl(
-                    startUrl, UPSTREAM_CONNECT_TIMEOUT_MS, UPSTREAM_READ_TIMEOUT_MS, true);
+                    startUrl, UPSTREAM_CONNECT_TIMEOUT_MS, UPSTREAM_READ_TIMEOUT_MS, true, true);
             currentConn = res.conn;
             if (closed) {
                 res.conn.disconnect();
@@ -784,7 +822,7 @@ public final class LocalStreamProxy {
                     throw new IOException("Empty playlist at " + res.finalUrl);
                 }
                 res = openFollowingRedirectsWithFinalUrl(
-                        resolvedStream, UPSTREAM_CONNECT_TIMEOUT_MS, UPSTREAM_READ_TIMEOUT_MS, true);
+                        resolvedStream, UPSTREAM_CONNECT_TIMEOUT_MS, UPSTREAM_READ_TIMEOUT_MS, true, true);
                 currentConn = res.conn;
             }
             return res;
