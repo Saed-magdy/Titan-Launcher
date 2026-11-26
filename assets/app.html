@@ -544,6 +544,22 @@
               <label class="switch"><input type="checkbox" id="chk-fuel-warn" checked onchange="onFuelWarnToggle()"><span class="slider-toggle"></span></label>
             </div>
           </div>
+          <div class="lock-control-card tyre-warn-card" style="margin-top: 12px;">
+            <div class="lock-info-col">
+              <span class="toggle-label" id="lbl-tyre-warn">Tyre Pressure Warning</span>
+              <span class="lock-can-stat" id="desc-tyre-warn">Popup when a tyre is low</span>
+              <div class="fuel-warn-levels tyre-warn-options">
+                <button type="button" class="settings-btn" id="btn-tyre-warn-try" onclick="previewTyreWarning()">Try</button>
+                <div class="fuel-voice-row">
+                  <span class="fuel-voice-label" id="lbl-tyre-voice">Voice</span>
+                  <label class="switch"><input type="checkbox" id="chk-tyre-voice" checked><span class="slider-toggle"></span></label>
+                </div>
+              </div>
+            </div>
+            <div class="lock-action-wrap">
+              <label class="switch"><input type="checkbox" id="chk-tyre-warn" checked onchange="onTyreWarnToggle()"><span class="slider-toggle"></span></label>
+            </div>
+          </div>
         </div>
       </div>
       

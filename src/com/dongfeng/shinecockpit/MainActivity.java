@@ -81,6 +81,7 @@ public class MainActivity extends Activity implements CockpitMediaListenerServic
     private int mLastSentFuelPct = -1;
     private String mLastFastSig = "";
     private FuelWarningMonitor mFuelWarning;
+    private TyreWarningMonitor mTyreWarning;
     private long mLastBackgroundFuelCheckMs = 0L;
     private Dialog mFuelWarningDialog;
     private FuelWarningVoice mFuelVoice;
@@ -173,6 +174,7 @@ public class MainActivity extends Activity implements CockpitMediaListenerServic
         long canInitStartMs = SystemClock.elapsedRealtime();
         mCanBusClient = new CanBusClient(this);
         mFuelWarning = new FuelWarningMonitor(getSharedPreferences(PREF_HUB, MODE_PRIVATE));
+        mTyreWarning = new TyreWarningMonitor(getSharedPreferences(PREF_HUB, MODE_PRIVATE));
         Log.i(TAG, "Startup: CAN client initialized in " + (SystemClock.elapsedRealtime() - canInitStartMs)
                 + "ms; connected=" + mCanBusClient.isConnected());
 
@@ -835,6 +837,24 @@ public class MainActivity extends Activity implements CockpitMediaListenerServic
             });
         }
 
+        /** "Try" button of the tyre warning: says an example tyre warning out loud. */
+        @JavascriptInterface
+        public void previewTyreWarningVoice(final String lang) {
+            final String safeLang = ("ar".equals(lang) || "ru".equals(lang)) ? lang : "en";
+            mHandler.post(new Runnable() {
+                @Override
+                public void run() {
+                    speakTyreWarning(1, safeLang, new FuelWarningVoice.ResultListener() {
+                        @Override
+                        public void onResult(boolean spoken) {
+                            evalWebViewJs("if (typeof window.onFuelVoicePreviewResult === 'function') { window.onFuelVoicePreviewResult("
+                                    + spoken + "); }");
+                        }
+                    });
+                }
+            });
+        }
+
         @JavascriptInterface
         public void previewFuelWarningVoice(final boolean urgent, final int pct, final String lang) {
             final int safePct = Math.max(0, Math.min(100, pct));
@@ -960,6 +980,7 @@ public class MainActivity extends Activity implements CockpitMediaListenerServic
                         mLastFullTelemetryMs = nowElapsed;
                         CanBusClient.TelemetrySnapshot snap = mCanBusClient.getTelemetrySnapshot(false);
                         if (snap.fuelPctValid) checkFuelWarning(snap.fuelPercentage);
+                        if (snap.tpmsValid) checkTyreWarning(snap);
                         mLastFastSig = buildFastControlSig(snap);
                         appendFastControlFields(tele, snap);
                         tele.put("coolant", snap.coolantTemp > 0 ? snap.coolantTemp : 90);
@@ -1032,7 +1053,7 @@ public class MainActivity extends Activity implements CockpitMediaListenerServic
        LOW FUEL WARNING POPUP
        ======================================================== */
 
-    /** While another app is on screen, the normal 1-second poll is paused; check the fuel every 15 s instead. */
+    /** While another app is on screen, the normal 1-second poll is paused; check fuel and tyres every 15 s instead. */
     private void backgroundFuelCheck() {
         long now = SystemClock.elapsedRealtime();
         if (now - mLastBackgroundFuelCheckMs < BACKGROUND_FUEL_CHECK_MS) return;
@@ -1041,8 +1062,10 @@ public class MainActivity extends Activity implements CockpitMediaListenerServic
         try {
             CanBusClient.TelemetrySnapshot snap = mCanBusClient.getTelemetrySnapshot(true);
             if (snap.canConnected && snap.fuelPctValid) checkFuelWarning(snap.fuelPercentage);
+            CanBusClient.TelemetrySnapshot tyres = mCanBusClient.getTpmsSnapshot();
+            if (tyres.canConnected && tyres.tpmsValid) checkTyreWarning(tyres);
         } catch (Exception e) {
-            Log.e(TAG, "Background fuel check failed", e);
+            Log.e(TAG, "Background fuel/tyre check failed", e);
         }
     }
 
@@ -1091,10 +1114,6 @@ public class MainActivity extends Activity implements CockpitMediaListenerServic
         return fallback;
     }
 
-    /**
-     * Popup shown above other apps (Maps, music...): about 65% of the screen wide and 25% high.
-     * OK closes it; it also closes by itself after 20 seconds.
-     */
     /**
      * The warning words, in the launcher's language: {title, message, OK button}.
      * First level: "Plan a stop at a petrol station." Lowest level: "Refuel soon."
@@ -1163,7 +1182,23 @@ public class MainActivity extends Activity implements CockpitMediaListenerServic
 
     private void showFuelWarningOverOtherApps(boolean urgent, int pct, final String lang, boolean eastern) {
         String[] t = fuelWarningTexts(urgent, pct, lang, eastern, false);
-        String title = t[0], body = t[1], ok = t[2];
+        // Second (lowest) level only: a button that opens Maps at the nearest petrol stations.
+        Runnable findStation = urgent ? new Runnable() {
+            @Override
+            public void run() {
+                openFuelStationSearch(lang);
+            }
+        } : null;
+        showAlertOverOtherApps(t[0], t[1], t[2], urgent ? findStationLabel(lang) : null, findStation);
+    }
+
+    /**
+     * Popup shown above other apps (Maps, music...) for the fuel and tyre warnings:
+     * about 65% of the screen wide and 25% high. OK closes it; it also closes by itself
+     * after 20 seconds. extraLabel/extraAction add an optional second button.
+     */
+    private void showAlertOverOtherApps(String title, String body, String ok,
+                                        String extraLabel, final Runnable extraAction) {
         try {
             dismissFuelWarningDialog();
             @SuppressWarnings("deprecation")
@@ -1171,12 +1206,11 @@ public class MainActivity extends Activity implements CockpitMediaListenerServic
                     .setTitle(title)
                     .setMessage(body)
                     .setPositiveButton(ok, null);
-            if (urgent) {
-                // Second (lowest) level only: a button that opens Maps at the nearest petrol stations.
-                builder.setNegativeButton(findStationLabel(lang), new android.content.DialogInterface.OnClickListener() {
+            if (extraLabel != null && extraAction != null) {
+                builder.setNegativeButton(extraLabel, new android.content.DialogInterface.OnClickListener() {
                     @Override
                     public void onClick(android.content.DialogInterface d, int which) {
-                        openFuelStationSearch(lang);
+                        extraAction.run();
                     }
                 });
             }
@@ -1208,7 +1242,7 @@ public class MainActivity extends Activity implements CockpitMediaListenerServic
             }, FUEL_POPUP_AUTO_CLOSE_MS);
         } catch (Exception e) {
             // No permission to draw over other apps: fall back to a plain message.
-            Log.w(TAG, "Fuel popup over other apps not allowed; showing a toast instead", e);
+            Log.w(TAG, "Popup over other apps not allowed; showing a toast instead", e);
             try {
                 Toast.makeText(getApplicationContext(), title + "\n" + body, Toast.LENGTH_LONG).show();
             } catch (Exception ignored) {}
@@ -1228,6 +1262,108 @@ public class MainActivity extends Activity implements CockpitMediaListenerServic
         StringBuilder b = new StringBuilder();
         for (char c : s.toCharArray()) b.append(c >= '0' && c <= '9' ? (char) ('٠' + (c - '0')) : c);
         return b.toString();
+    }
+
+    /* ========================================================
+       TYRE PRESSURE WARNING POPUP
+       ======================================================== */
+
+    /** Called with every real tyre reading; shows the popup when a tyre is low. */
+    private void checkTyreWarning(CanBusClient.TelemetrySnapshot snap) {
+        if (mTyreWarning == null) return;
+        String settings = "";
+        try {
+            settings = getSharedPreferences(PREF_HUB, MODE_PRIVATE).getString("user_settings", "");
+        } catch (Exception ignored) {}
+        final boolean[] flags = { snap.tpmsFLWarn, snap.tpmsFRWarn, snap.tpmsRLWarn, snap.tpmsRRWarn };
+        final float[] bars = { snap.tpmsFL, snap.tpmsFR, snap.tpmsRL, snap.tpmsRR };
+        final boolean[] valid = snap.tpmsPressureValid.clone();
+        boolean enabled = readSettingBoolean(settings, "tyreWarnEnabled", true);
+        final int mask = mTyreWarning.onReading(flags, bars, valid, enabled, SystemClock.elapsedRealtime());
+        if (mask == 0) return;
+        final String lang = readSettingString(settings, "lang", "en");
+        final boolean eastern = "eastern".equals(readSettingString(settings, "numFormat", "western"));
+        final boolean voice = readSettingBoolean(settings, "tyreWarnVoice", true);
+        Log.i(TAG, "Tyre pressure warning for tyres (mask) " + mask);
+        // For the launcher's own popup: [{"pos":"fl","bar":1.6}, ...] (bar is null when the car gave no pressure).
+        final StringBuilder json = new StringBuilder("[");
+        for (int i = 0; i < TyreWarningMonitor.TYRES; i++) {
+            if ((mask & (1 << i)) == 0) continue;
+            if (json.length() > 1) json.append(',');
+            json.append("{\"pos\":\"").append(TYRE_KEYS[i]).append("\",\"bar\":")
+                    .append(valid[i] ? String.valueOf(bars[i]) : "null").append('}');
+        }
+        json.append(']');
+        mHandler.post(new Runnable() {
+            @Override
+            public void run() {
+                if (voice) speakTyreWarning(mask, lang, null);
+                if (mIsForeground && mWebView != null) {
+                    mWebView.evaluateJavascript("if (typeof window.showTyreWarning === 'function') { window.showTyreWarning("
+                            + json + "); }", null);
+                } else {
+                    String[] t = tyreWarningTexts(mask, bars, valid, lang, eastern, false);
+                    showAlertOverOtherApps(t[0], t[1], t[2], null, null);
+                }
+            }
+        });
+    }
+
+    private static final String[] TYRE_KEYS = { "fl", "fr", "rl", "rr" };
+
+    /**
+     * The tyre warning words, in the launcher's language: {title, message, OK button}.
+     * Example: "Check the tyre pressure: front-left 1.6 bar."
+     * forSpeech: no warning sign and no numbers, so the voice reads it clearly.
+     */
+    private static String[] tyreWarningTexts(int mask, float[] bars, boolean[] valid, String lang,
+                                             boolean eastern, boolean forSpeech) {
+        String[] names;
+        String unit;
+        if ("ar".equals(lang)) {
+            names = new String[] { "الأمامي الأيسر", "الأمامي الأيمن", "الخلفي الأيسر", "الخلفي الأيمن" };
+            unit = " بار";
+        } else if ("ru".equals(lang)) {
+            names = new String[] { "переднее левое", "переднее правое", "заднее левое", "заднее правое" };
+            unit = " бар";
+        } else {
+            names = new String[] { "front-left", "front-right", "rear-left", "rear-right" };
+            unit = " bar";
+        }
+        StringBuilder list = new StringBuilder();
+        for (int i = 0; i < TyreWarningMonitor.TYRES; i++) {
+            if ((mask & (1 << i)) == 0) continue;
+            if (list.length() > 0) list.append("ar".equals(lang) ? "، " : ", ");
+            list.append(names[i]);
+            if (!forSpeech && valid[i]) {
+                String v = String.valueOf(Math.round(bars[i] * 10f) / 10f);
+                if (eastern) {
+                    StringBuilder e = new StringBuilder();
+                    for (char c : v.toCharArray()) {
+                        e.append(c >= '0' && c <= '9' ? (char) ('٠' + (c - '0')) : (c == '.' ? '٫' : c));
+                    }
+                    v = e.toString();
+                }
+                list.append(' ').append(v).append(unit);
+            }
+        }
+        String sign = forSpeech ? "" : "⚠ ";
+        if ("ar".equals(lang)) {
+            return new String[] { sign + "ضغط الإطارات",
+                    "افحص ضغط الإطارات: " + list + ".", "حسناً" };
+        } else if ("ru".equals(lang)) {
+            return new String[] { sign + "Давление в шинах",
+                    "Проверьте давление в шинах: " + list + ".", "ОК" };
+        }
+        return new String[] { sign + "Tyre pressure",
+                "Check the tyre pressure: " + list + ".", "OK" };
+    }
+
+    /** Says the tyre warning out loud (or a chime if the head unit has no voice for this language). */
+    private void speakTyreWarning(int mask, String lang, FuelWarningVoice.ResultListener listener) {
+        if (mFuelVoice == null) mFuelVoice = new FuelWarningVoice(this);
+        String[] t = tyreWarningTexts(mask, new float[4], new boolean[4], lang, false, true);
+        mFuelVoice.speak(t[0] + ". " + t[1], lang, listener);
     }
 
     private void buildSimulatedTelemetry(JSONObject tele) throws JSONException {

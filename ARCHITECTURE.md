@@ -28,6 +28,7 @@ DongfengShineApp/
 │   │   ├── LauncherWatchdog.java               # Crash watchdog: restarts the launcher, falls back to the factory launcher on a crash loop
 │   │   ├── FuelWarningMonitor.java             # Low-fuel popup rules: levels from Settings (default 50% / 25%), once per level until refuelled
 │   │   ├── FuelWarningVoice.java               # Says the low-fuel warning out loud (text-to-speech), or a chime if there is no voice
+│   │   ├── TyreWarningMonitor.java             # Tyre-pressure popup rules: car's TPMS flag or under 1.9 bar, once per tyre until fixed
 │   │   ├── SteeringWheelKeyHandler.java        # Steering-wheel (SWC) keys for OEM and standard media key events
 │   │   ├── AppRepository.java                  # Installed & OEM head-unit apps: list, icons, cache and launch
 │   │   ├── SystemControlHelper.java            # Wi-Fi / Bluetooth / cellular toggles, memory cleanup, default home, listener rebind

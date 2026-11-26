@@ -1457,6 +1457,69 @@
     }
     window.findFuelStation = findFuelStation;
 
+    /* ========================================================
+       TYRE PRESSURE WARNING
+       The check is in Java (TyreWarningMonitor). Java calls
+       window.showTyreWarning([{pos: 'fl', bar: 1.6}, ...]) when tyres are low
+       while the launcher is on screen. It uses the same popup as the fuel
+       warning (orange, OK, closes after 20 s), without the petrol-station button.
+       Settings: tyreWarnEnabled + tyreWarnVoice.
+       ======================================================== */
+    function showTyreWarning(tyres) {
+      const modal = document.getElementById('fuel-warn-modal');
+      const box = document.getElementById('fuel-warn-box');
+      if (!modal || !Array.isArray(tyres) || !tyres.length) return;
+      const dict = I18N[state.lang] || I18N['en'];
+      const ar = state.lang === 'ar';
+      const list = tyres.map(function (t) {
+        let txt = dict['tyre_' + t.pos] || t.pos;
+        if (typeof t.bar === 'number' && isFinite(t.bar)) {
+          txt += ' ' + window.toLangDigits((Math.round(t.bar * 10) / 10).toFixed(1)) + ' ' + (dict['tyre_unit'] || 'bar');
+        }
+        return txt;
+      }).join(ar ? '\u060C ' : ', ');
+      const title = document.getElementById('fuel-warn-title');
+      const msg = document.getElementById('fuel-warn-msg');
+      if (title) title.innerText = dict['tyrewarn_title_tpl'] || '\u26A0 Tyre pressure';
+      if (msg) msg.innerText = (dict['tyrewarn_body_tpl'] || 'Check the tyre pressure: {list}.').replace('{list}', list);
+      if (box) {
+        box.classList.add('critical');
+        box.classList.toggle('rtl-mode', ar);
+        box.classList.toggle('ltr-mode', !ar);
+      }
+      const findBtn = document.getElementById('fuel-warn-find');
+      if (findBtn) findBtn.style.display = 'none';
+      modal.style.display = 'flex';
+      if (fuelWarnTimer) clearTimeout(fuelWarnTimer);
+      fuelWarnTimer = setTimeout(closeFuelWarning, FUEL_WARN_AUTO_CLOSE_MS);
+      if (typeof requestRender === 'function') requestRender();
+    }
+    window.showTyreWarning = showTyreWarning;
+
+    // "Try" button: an example popup for the front-left tyre, and the voice in the car.
+    function previewTyreWarning() {
+      showTyreWarning([{ pos: 'fl', bar: 1.6 }]);
+      const chkVoice = document.getElementById('chk-tyre-voice');
+      if ((!chkVoice || chkVoice.checked) && window.AndroidBridge && window.AndroidBridge.previewTyreWarningVoice) {
+        try { window.AndroidBridge.previewTyreWarningVoice(state.lang || 'en'); } catch (e) {}
+      }
+    }
+
+    // When the switch is off, hide Try and Voice so the card is one line.
+    function onTyreWarnToggle() {
+      const chk = document.getElementById('chk-tyre-warn');
+      const opts = document.querySelector('.tyre-warn-options');
+      if (opts) opts.style.display = (chk && !chk.checked) ? 'none' : '';
+    }
+
+    function applyTyreWarnSettings(s) {
+      const chk = document.getElementById('chk-tyre-warn');
+      if (chk) chk.checked = (s.tyreWarnEnabled !== false);
+      const chkVoice = document.getElementById('chk-tyre-voice');
+      if (chkVoice) chkVoice.checked = (s.tyreWarnVoice !== false);
+      onTyreWarnToggle();
+    }
+
     // "Try" button in Settings: shows the popup for the lower level, so the driver can see it.
     function previewFuelWarning() {
       showFuelWarning(fuelWarnLevels[1], fuelWarnLevels[1]);
@@ -1482,6 +1545,8 @@
       const chkWatchdog = document.getElementById('chk-watchdog');
       const chkFuelWarn = document.getElementById('chk-fuel-warn');
       const chkFuelVoice = document.getElementById('chk-fuel-voice');
+      const chkTyreWarn = document.getElementById('chk-tyre-warn');
+      const chkTyreVoice = document.getElementById('chk-tyre-voice');
 
       const settings = {
         lang: state.lang,
@@ -1499,7 +1564,9 @@
         watchdogEnabled: chkWatchdog ? chkWatchdog.checked : true,
         fuelWarnEnabled: chkFuelWarn ? chkFuelWarn.checked : true,
         fuelWarnLevels: fuelWarnLevels.slice(),
-        fuelWarnVoice: chkFuelVoice ? chkFuelVoice.checked : true
+        fuelWarnVoice: chkFuelVoice ? chkFuelVoice.checked : true,
+        tyreWarnEnabled: chkTyreWarn ? chkTyreWarn.checked : true,
+        tyreWarnVoice: chkTyreVoice ? chkTyreVoice.checked : true
       };
 
       const jsonStr = JSON.stringify(settings);
@@ -1637,6 +1704,7 @@
           if (chkWd) chkWd.checked = !!s.watchdogEnabled;
         }
         applyFuelWarnSettings(s);
+        applyTyreWarnSettings(s);
       } catch(e) {
         console.error('[Settings] Error applying saved settings JSON:', e);
       }
