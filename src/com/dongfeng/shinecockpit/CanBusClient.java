@@ -295,6 +295,8 @@ public class CanBusClient {
         public int dte = 290;
         public boolean isFuelShortage = false;
         public int totalMileage = 14593;
+        /** True only when totalMileage really came from the car (14593 is a made-up placeholder). */
+        public boolean odometerValid = false;
         public int outsideTemp = 22;
         public int coolantTemp = 90;
         public boolean lowBeam = false;
@@ -581,6 +583,7 @@ public class CanBusClient {
                 if (reply1.readInt() != 0) {
                     snap.dte = reply1.readInt(); // mCanTravelMileage
                     snap.totalMileage = reply1.readInt(); // mBeenTravelingMileage
+                    snap.odometerValid = snap.totalMileage > 0;
                 }
             }
         } catch (Exception ignored) {}

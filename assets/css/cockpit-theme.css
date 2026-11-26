@@ -2702,6 +2702,30 @@
       white-space: nowrap;
     }
 
+    /* Trip computer popup */
+    .trip-box {
+      width: 860px !important;
+      max-width: 90vw !important;
+      padding: 28px 32px !important;
+      border-radius: 26px !important;
+      background: linear-gradient(160deg, rgba(8, 28, 34, 0.94) 0%, rgba(4, 15, 20, 0.94) 100%) !important;
+      border: 1px solid rgba(186, 230, 253, 0.28) !important;
+      box-shadow: 0 24px 64px rgba(0, 0, 0, 0.72) !important;
+      color: #ffffff;
+    }
+    .trip-title { font-size: 28px; font-weight: 800; margin-bottom: 18px; text-align: center; color: #93c5fd; }
+    .trip-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
+    .trip-col { background: rgba(255, 255, 255, 0.06); border-radius: 18px; padding: 16px 20px; }
+    .trip-col-title { font-size: 22px; font-weight: 800; margin-bottom: 10px; }
+    .trip-row { display: flex; justify-content: space-between; gap: 12px; font-size: 19px; padding: 6px 0; border-bottom: 1px solid rgba(255, 255, 255, 0.07); }
+    .trip-row span:first-child { color: #9fb3bb; font-weight: 600; }
+    .trip-row span:last-child { font-weight: 800; }
+    .trip-reset-btn { margin-top: 12px; width: 100%; height: 48px; border: none; border-radius: 14px; background: rgba(255, 255, 255, 0.1); color: #e0f2fe; font-size: 18px; font-weight: 800; cursor: pointer; }
+    .trip-reset-btn.confirm { background: rgba(251, 146, 60, 0.3); color: #fed7aa; }
+    .trip-price-row { display: flex; align-items: center; justify-content: center; gap: 14px; margin-top: 18px; font-size: 18px; color: #9fb3bb; font-weight: 700; }
+    .trip-price-row input { width: 140px; height: 44px; border-radius: 12px; border: 1px solid rgba(186, 230, 253, 0.3); background: rgba(255, 255, 255, 0.08); color: #ffffff; font-size: 20px; font-weight: 800; text-align: center; }
+    .trip-close-btn { display: block; margin: 18px auto 0; min-width: 200px; height: 56px; border: none; border-radius: 16px; background: rgba(147, 197, 253, 0.22); color: #e0f2fe; font-size: 22px; font-weight: 800; cursor: pointer; }
+
     /* ========================================================
        QUICK APPS DOCK (5 Customizable App Tiles Lowered Above Glowing Nav Bar)
        ======================================================== */

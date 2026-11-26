@@ -32,6 +32,7 @@ DongfengShineApp/
 │   │   ├── SpeedAlertMonitor.java              # Speed alert rules: chosen speed (off by default), 3 s over, once until 5 km/h below
 │   │   ├── SteeringWheelKeyHandler.java        # Steering-wheel (SWC) keys for OEM and standard media key events
 │   │   ├── AppRepository.java                  # Installed & OEM head-unit apps: list, icons, cache and launch
+│   │   ├── TripComputer.java                   # Trip A / B: distance from the odometer, fuel used, driving time, average (saved)
 │   │   ├── SystemControlHelper.java            # Wi-Fi / Bluetooth / cellular toggles, memory cleanup, default home, listener rebind
 │   │   ├── AudioSpectrumAnalyzer.java          # Live audio energy, bass beat and 16-band spectrum for the visualizers
 │   │   ├── GitHubUpdateChecker.java            # In-app updater: checks the latest GitHub Release, downloads and opens the installer

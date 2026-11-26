@@ -32,6 +32,7 @@ Since version `2.1.0` the launcher fully merges the **Shine Wave** audio engine 
   - Back up and restore settings (Settings → Launcher): saves the launcher's own settings (quick apps, car colour, language, alerts; never passwords or Wi-Fi) to a USB stick or a file with Android's file picker, and loads them back after asking first.
 - **Desktop Browser Simulation Mode:**
   - Opening `assets/app.html` over any local static HTTP server automatically runs interactive frontend simulations for telemetry and all 5 Shine Wave audio sources when `window.AndroidBridge` is absent.
+- **Trip Computer:** tap the consumption / range card. Trip A and Trip B (each resettable) show distance, driving time, fuel used, average consumption and cost (after typing the fuel price once). Counted from the car's odometer and fuel level every 10 seconds, also while Maps is open (`TripComputer.java`).
 
 ---
 
