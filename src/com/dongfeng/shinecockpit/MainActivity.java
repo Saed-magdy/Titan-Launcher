@@ -936,6 +936,9 @@ public class MainActivity extends Activity implements CockpitMediaListenerServic
                     @Override
                     public void run() {
                         int result = h.mCanBusClient.dispatchCommand(command, fVal);
+                        if ("TIRE_PRESSURE_RESET".equalsIgnoreCase(command) && h.mTyreWarning != null) {
+                            h.mTyreWarning.resetWarned();
+                        }
                         final String message;
                         if (result == CanBusClient.COMMAND_REFUSED_MOVING) {
                             message = "لا يمكن فتح الشنطة أثناء سير السيارة"
@@ -981,11 +984,12 @@ public class MainActivity extends Activity implements CockpitMediaListenerServic
         /** "Find a petrol station" button in the launcher's low-fuel popup. */
         @JavascriptInterface
         public void openFuelStationSearch(final String lang) {
+            final MainActivity h = host();
             final String safeLang = ("ar".equals(lang) || "ru".equals(lang)) ? lang : "en";
-            mHandler.post(new Runnable() {
+            h.mHandler.post(new Runnable() {
                 @Override
                 public void run() {
-                    MainActivity.this.openFuelStationSearch(safeLang);
+                    h.openFuelStationSearch(safeLang);
                 }
             });
         }
@@ -993,15 +997,16 @@ public class MainActivity extends Activity implements CockpitMediaListenerServic
         /** "Try" button of the speed alert: plays the alert (voice or chime) for the chosen speed. */
         @JavascriptInterface
         public void previewSpeedAlert(final int limit, final boolean voice, final String lang) {
+            final MainActivity h = host();
             final int safeLimit = Math.max(SpeedAlertMonitor.MIN_LIMIT, Math.min(SpeedAlertMonitor.MAX_LIMIT, limit));
             final String safeLang = ("ar".equals(lang) || "ru".equals(lang)) ? lang : "en";
-            mHandler.post(new Runnable() {
+            h.mHandler.post(new Runnable() {
                 @Override
                 public void run() {
-                    playSpeedAlertSound(safeLimit, safeLang, voice, voice ? new FuelWarningVoice.ResultListener() {
+                    h.playSpeedAlertSound(safeLimit, safeLang, voice, voice ? new FuelWarningVoice.ResultListener() {
                         @Override
                         public void onResult(boolean spoken) {
-                            evalWebViewJs("if (typeof window.onFuelVoicePreviewResult === 'function') { window.onFuelVoicePreviewResult("
+                            h.evalWebViewJs("if (typeof window.onFuelVoicePreviewResult === 'function') { window.onFuelVoicePreviewResult("
                                     + spoken + "); }");
                         }
                     } : null);
@@ -1009,17 +1014,18 @@ public class MainActivity extends Activity implements CockpitMediaListenerServic
             });
         }
 
-        /** "Try" button of the tyre warning: says an example tyre warning out loud. */
+        /** "Try" button of the tyre warning: says an example indirect TPMS warning out loud. */
         @JavascriptInterface
         public void previewTyreWarningVoice(final String lang) {
+            final MainActivity h = host();
             final String safeLang = ("ar".equals(lang) || "ru".equals(lang)) ? lang : "en";
-            mHandler.post(new Runnable() {
+            h.mHandler.post(new Runnable() {
                 @Override
                 public void run() {
-                    speakTyreWarning(1, safeLang, new FuelWarningVoice.ResultListener() {
+                    h.speakTyreWarning(TyreWarningMonitor.SYSTEM_BIT, safeLang, new FuelWarningVoice.ResultListener() {
                         @Override
                         public void onResult(boolean spoken) {
-                            evalWebViewJs("if (typeof window.onFuelVoicePreviewResult === 'function') { window.onFuelVoicePreviewResult("
+                            h.evalWebViewJs("if (typeof window.onFuelVoicePreviewResult === 'function') { window.onFuelVoicePreviewResult("
                                     + spoken + "); }");
                         }
                     });
@@ -1029,15 +1035,16 @@ public class MainActivity extends Activity implements CockpitMediaListenerServic
 
         @JavascriptInterface
         public void previewFuelWarningVoice(final boolean urgent, final int pct, final String lang) {
+            final MainActivity h = host();
             final int safePct = Math.max(0, Math.min(100, pct));
             final String safeLang = ("ar".equals(lang) || "ru".equals(lang)) ? lang : "en";
-            mHandler.post(new Runnable() {
+            h.mHandler.post(new Runnable() {
                 @Override
                 public void run() {
-                    speakFuelWarning(urgent, safePct, safeLang, new FuelWarningVoice.ResultListener() {
+                    h.speakFuelWarning(urgent, safePct, safeLang, new FuelWarningVoice.ResultListener() {
                         @Override
                         public void onResult(boolean spoken) {
-                            evalWebViewJs("if (typeof window.onFuelVoicePreviewResult === 'function') { window.onFuelVoicePreviewResult("
+                            h.evalWebViewJs("if (typeof window.onFuelVoicePreviewResult === 'function') { window.onFuelVoicePreviewResult("
                                     + spoken + "); }");
                         }
                     });
@@ -1064,10 +1071,11 @@ public class MainActivity extends Activity implements CockpitMediaListenerServic
         @JavascriptInterface
         public void backupSettings(final String backupJson) {
             if (backupJson == null || backupJson.length() > SETTINGS_BACKUP_MAX_BYTES) return;
-            mHandler.post(new Runnable() {
+            final MainActivity h = host();
+            h.mHandler.post(new Runnable() {
                 @Override
                 public void run() {
-                    startSettingsBackup(backupJson);
+                    h.startSettingsBackup(backupJson);
                 }
             });
         }
@@ -1075,10 +1083,11 @@ public class MainActivity extends Activity implements CockpitMediaListenerServic
         /** "Restore" button in Settings: lets the driver pick a backup file; the page checks it and asks first. */
         @JavascriptInterface
         public void restoreSettings() {
-            mHandler.post(new Runnable() {
+            final MainActivity h = host();
+            h.mHandler.post(new Runnable() {
                 @Override
                 public void run() {
-                    startSettingsRestore();
+                    h.startSettingsRestore();
                 }
             });
         }
@@ -1103,7 +1112,8 @@ public class MainActivity extends Activity implements CockpitMediaListenerServic
         @JavascriptInterface
         public void fetchWeather(final double lat, final double lon) {
             if (!(lat >= -90 && lat <= 90 && lon >= -180 && lon <= 180)) return;
-            mNetExecutor.execute(new Runnable() {
+            final MainActivity h = host();
+            h.mNetExecutor.execute(new Runnable() {
                 @Override
                 public void run() {
                     String url = String.format(java.util.Locale.US,
@@ -1112,7 +1122,7 @@ public class MainActivity extends Activity implements CockpitMediaListenerServic
                                     + "&daily=temperature_2m_max,temperature_2m_min,precipitation_probability_max"
                                     + "&timezone=auto&forecast_days=1", lat, lon);
                     String body = weatherHttpGet(url);
-                    evalWebViewJs("if (typeof window.onWeatherData === 'function') { window.onWeatherData("
+                    h.evalWebViewJs("if (typeof window.onWeatherData === 'function') { window.onWeatherData("
                             + (body == null ? "null" : JSONObject.quote(body)) + "); }");
                 }
             });
@@ -1125,7 +1135,8 @@ public class MainActivity extends Activity implements CockpitMediaListenerServic
             final String q = name.trim();
             if (q.isEmpty() || q.length() > 60) return;
             final String l = ("ar".equals(lang) || "ru".equals(lang)) ? lang : "en";
-            mNetExecutor.execute(new Runnable() {
+            final MainActivity h = host();
+            h.mNetExecutor.execute(new Runnable() {
                 @Override
                 public void run() {
                     String body = null;
@@ -1134,7 +1145,7 @@ public class MainActivity extends Activity implements CockpitMediaListenerServic
                                 + "&name=" + java.net.URLEncoder.encode(q, "UTF-8");
                         body = weatherHttpGet(url);
                     } catch (Exception ignored) {}
-                    evalWebViewJs("if (typeof window.onWeatherCities === 'function') { window.onWeatherCities("
+                    h.evalWebViewJs("if (typeof window.onWeatherCities === 'function') { window.onWeatherCities("
                             + (body == null ? "null" : JSONObject.quote(body)) + "); }");
                 }
             });
@@ -1176,13 +1187,15 @@ public class MainActivity extends Activity implements CockpitMediaListenerServic
         /** Trip computer popup: the current trips A and B as JSON. */
         @JavascriptInterface
         public String getTripData() {
-            return mTrip == null ? "{}" : mTrip.toJson();
+            MainActivity h = host();
+            return h.mTrip == null ? "{}" : h.mTrip.toJson();
         }
 
         /** Trip computer "Reset" button: "a" or "b". */
         @JavascriptInterface
         public void resetTrip(final String which) {
-            if (mTrip != null) mTrip.reset("b".equals(which) ? 1 : 0);
+            MainActivity h = host();
+            if (h.mTrip != null) h.mTrip.reset("b".equals(which) ? 1 : 0);
         }
     }
 
@@ -1309,6 +1322,7 @@ public class MainActivity extends Activity implements CockpitMediaListenerServic
                         JSONObject rl = new JSONObject(); rl.put("pressure", snap.tpmsRL); rl.put("warn", snap.tpmsRLWarn);
                         JSONObject rr = new JSONObject(); rr.put("pressure", snap.tpmsRR); rr.put("warn", snap.tpmsRRWarn);
                         tpms.put("fl", fl); tpms.put("fr", fr); tpms.put("rl", rl); tpms.put("rr", rr);
+                        tpms.put("sysWarn", snap.tpmsSystemWarn);
                         tele.put("tpms", tpms);
                         tele.put("sunroof", snap.sunroofState);
                         tele.put("sunroofPos", snap.sunroofPos);
@@ -1567,10 +1581,10 @@ public class MainActivity extends Activity implements CockpitMediaListenerServic
     }
 
     /* ========================================================
-       TYRE PRESSURE WARNING POPUP
+       TYRE PRESSURE WARNING POPUP (Indirect ABS TPMS)
        ======================================================== */
 
-    /** Called with every real tyre reading; shows the popup when a tyre is low. */
+    /** Called with every real TPMS reading; shows the popup when the car flags a tyre or system warning. */
     private void checkTyreWarning(CanBusClient.TelemetrySnapshot snap) {
         if (mTyreWarning == null) return;
         String settings = "";
@@ -1578,22 +1592,21 @@ public class MainActivity extends Activity implements CockpitMediaListenerServic
             settings = getSharedPreferences(PREF_HUB, MODE_PRIVATE).getString("user_settings", "");
         } catch (Exception ignored) {}
         final boolean[] flags = { snap.tpmsFLWarn, snap.tpmsFRWarn, snap.tpmsRLWarn, snap.tpmsRRWarn };
-        final float[] bars = { snap.tpmsFL, snap.tpmsFR, snap.tpmsRL, snap.tpmsRR };
-        final boolean[] valid = snap.tpmsPressureValid.clone();
         boolean enabled = readSettingBoolean(settings, "tyreWarnEnabled", true);
-        final int mask = mTyreWarning.onReading(flags, bars, valid, enabled, SystemClock.elapsedRealtime());
+        final int mask = mTyreWarning.onReading(flags, snap.tpmsSystemWarn, enabled, SystemClock.elapsedRealtime());
         if (mask == 0) return;
         final String lang = readSettingString(settings, "lang", "en");
-        final boolean eastern = "eastern".equals(readSettingString(settings, "numFormat", "western"));
         final boolean voice = readSettingBoolean(settings, "tyreWarnVoice", true);
-        Log.i(TAG, "Tyre pressure warning for tyres (mask) " + mask);
-        // For the launcher's own popup: [{"pos":"fl","bar":1.6}, ...] (bar is null when the car gave no pressure).
+        Log.i(TAG, "Tyre pressure warning triggered (mask=" + mask + ")");
         final StringBuilder json = new StringBuilder("[");
-        for (int i = 0; i < TyreWarningMonitor.TYRES; i++) {
-            if ((mask & (1 << i)) == 0) continue;
-            if (json.length() > 1) json.append(',');
-            json.append("{\"pos\":\"").append(TYRE_KEYS[i]).append("\",\"bar\":")
-                    .append(valid[i] ? String.valueOf(bars[i]) : "null").append('}');
+        if ((mask & 0x0F) != 0) {
+            for (int i = 0; i < TyreWarningMonitor.TYRES; i++) {
+                if ((mask & (1 << i)) == 0) continue;
+                if (json.length() > 1) json.append(',');
+                json.append('"').append(TYRE_KEYS[i]).append('"');
+            }
+        } else {
+            json.append("\"general\"");
         }
         json.append(']');
         mHandler.post(new Runnable() {
@@ -1604,8 +1617,24 @@ public class MainActivity extends Activity implements CockpitMediaListenerServic
                     mWebView.evaluateJavascript("if (typeof window.showTyreWarning === 'function') { window.showTyreWarning("
                             + json + "); }", null);
                 } else {
-                    String[] t = tyreWarningTexts(mask, bars, valid, lang, eastern, false);
-                    showAlertOverOtherApps(t[0], t[1], t[2], null, null);
+                    String[] t = tyreWarningTexts(mask, lang, false);
+                    Runnable openTpmsAction = new Runnable() {
+                        @Override
+                        public void run() {
+                            try {
+                                Intent i = new Intent(MainActivity.this, MainActivity.class);
+                                i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_SINGLE_TOP);
+                                startActivity(i);
+                                mHandler.postDelayed(new Runnable() {
+                                    @Override
+                                    public void run() {
+                                        evalWebViewJs("if (typeof openTpmsModal === 'function') openTpmsModal();");
+                                    }
+                                }, 350L);
+                            } catch (Exception ignored) {}
+                        }
+                    };
+                    showAlertOverOtherApps(t[0], t[1], t[2], openTpmsScreenLabel(lang), openTpmsAction);
                 }
             }
         });
@@ -1613,58 +1642,54 @@ public class MainActivity extends Activity implements CockpitMediaListenerServic
 
     private static final String[] TYRE_KEYS = { "fl", "fr", "rl", "rr" };
 
+    private static String openTpmsScreenLabel(String lang) {
+        if ("ar".equals(lang)) return "شاشة ضبط الإطارات";
+        if ("ru".equals(lang)) return "Экран TPMS";
+        return "TPMS Screen";
+    }
+
     /**
-     * The tyre warning words, in the launcher's language: {title, message, OK button}.
-     * Example: "Check the tyre pressure: front-left 1.6 bar."
-     * forSpeech: no warning sign and no numbers, so the voice reads it clearly.
+     * Indirect TPMS warning strings in the launcher's language (no bar pressure values).
      */
-    private static String[] tyreWarningTexts(int mask, float[] bars, boolean[] valid, String lang,
-                                             boolean eastern, boolean forSpeech) {
+    private static String[] tyreWarningTexts(int mask, String lang, boolean forSpeech) {
         String[] names;
-        String unit;
         if ("ar".equals(lang)) {
             names = new String[] { "الأمامي الأيسر", "الأمامي الأيمن", "الخلفي الأيسر", "الخلفي الأيمن" };
-            unit = " بار";
         } else if ("ru".equals(lang)) {
             names = new String[] { "переднее левое", "переднее правое", "заднее левое", "заднее правое" };
-            unit = " бар";
         } else {
             names = new String[] { "front-left", "front-right", "rear-left", "rear-right" };
-            unit = " bar";
         }
         StringBuilder list = new StringBuilder();
         for (int i = 0; i < TyreWarningMonitor.TYRES; i++) {
             if ((mask & (1 << i)) == 0) continue;
             if (list.length() > 0) list.append("ar".equals(lang) ? "، " : ", ");
             list.append(names[i]);
-            if (!forSpeech && valid[i]) {
-                String v = String.valueOf(Math.round(bars[i] * 10f) / 10f);
-                if (eastern) {
-                    StringBuilder e = new StringBuilder();
-                    for (char c : v.toCharArray()) {
-                        e.append(c >= '0' && c <= '9' ? (char) ('٠' + (c - '0')) : (c == '.' ? '٫' : c));
-                    }
-                    v = e.toString();
-                }
-                list.append(' ').append(v).append(unit);
-            }
         }
+        boolean hasWheel = list.length() > 0;
         String sign = forSpeech ? "" : "⚠ ";
+        String sep = forSpeech ? " " : "\n";
         if ("ar".equals(lang)) {
-            return new String[] { sign + "ضغط الإطارات",
-                    "افحص ضغط الإطارات: " + list + ".", "حسناً" };
+            String body = hasWheel
+                    ? ("يوجد خلل في ضغط الإطار: " + list + "." + sep + "يرجى فحص الإطارات وإعادة الضبط.")
+                    : ("تم رصد انخفاض في ضغط أحد الإطارات." + sep + "يرجى فحص جميع الإطارات وإعادة الضبط.");
+            return new String[] { sign + "تحذير ضغط الإطارات", body, "حسناً" };
         } else if ("ru".equals(lang)) {
-            return new String[] { sign + "Давление в шинах",
-                    "Проверьте давление в шинах: " + list + ".", "ОК" };
+            String body = hasWheel
+                    ? ("Проблема с шиной: " + list + "." + sep + "Проверьте шины и выполните сброс TPMS.")
+                    : ("Обнаружено падение давления в шинах." + sep + "Проверьте все шины и выполните сброс TPMS.");
+            return new String[] { sign + "Давление в шинах", body, "ОК" };
         }
-        return new String[] { sign + "Tyre pressure",
-                "Check the tyre pressure: " + list + ".", "OK" };
+        String body = hasWheel
+                ? ("Abnormal tyre status: " + list + "." + sep + "Please check the tyres and reset TPMS.")
+                : ("Low tyre pressure warning from vehicle." + sep + "Please check all tyres and reset TPMS.");
+        return new String[] { sign + "Tyre Pressure Warning", body, "OK" };
     }
 
     /** Says the tyre warning out loud (or a chime if the head unit has no voice for this language). */
     private void speakTyreWarning(int mask, String lang, FuelWarningVoice.ResultListener listener) {
         if (mFuelVoice == null) mFuelVoice = new FuelWarningVoice(this);
-        String[] t = tyreWarningTexts(mask, new float[4], new boolean[4], lang, false, true);
+        String[] t = tyreWarningTexts(mask, lang, true);
         mFuelVoice.speak(t[0] + ". " + t[1], lang, listener);
     }
 

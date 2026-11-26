@@ -703,6 +703,7 @@
     function openTripModal() {
       const modal = document.getElementById('trip-modal');
       if (!modal) return;
+      if (typeof window.setCar3DFrozen === 'function') window.setCar3DFrozen(true);
       const box = document.getElementById('trip-box');
       const ar = state.lang === 'ar';
       if (box) { box.classList.toggle('rtl-mode', ar); box.classList.toggle('ltr-mode', !ar); }
@@ -720,6 +721,7 @@
       const modal = document.getElementById('trip-modal');
       if (modal) modal.style.display = 'none';
       if (tripRefreshTimer) { clearInterval(tripRefreshTimer); tripRefreshTimer = null; }
+      if (typeof window.setCar3DFrozen === 'function') window.setCar3DFrozen(false);
     }
     window.closeTripModal = closeTripModal;
 
@@ -739,6 +741,7 @@
       closeTpmsResetConfirm();
       sendCanCommand('TIRE_PRESSURE_RESET', 2);
       state.tpmsWarnings = { fl: false, fr: false, rl: false, rr: false };
+      state.tpmsSystemWarn = false;
       state.tpmsResetJustDone = true;
       updateTpmsOverallBadge();
 
@@ -769,13 +772,13 @@
 
     function updateTpmsTire(tire, info) {
       if (!info) return;
-      const isLow = (info.pressure !== undefined && info.pressure < 1.9) || !!info.warn;
+      const isLow = !!info.warn;
       state.tpmsWarnings[tire] = isLow;
       updateTpmsOverallBadge();
     }
 
     function updateTpmsOverallBadge() {
-      const hasWarn = state.tpmsWarnings.fl || state.tpmsWarnings.fr || state.tpmsWarnings.rl || state.tpmsWarnings.rr;
+      const hasWarn = !!(state.tpmsSystemWarn || state.tpmsWarnings.fl || state.tpmsWarnings.fr || state.tpmsWarnings.rl || state.tpmsWarnings.rr);
       const badge = document.getElementById('tpms-badge');
       if (badge) {
         badge.classList.toggle('tpms-warn-state', !!hasWarn);
@@ -1167,6 +1170,9 @@
       closeQuickAppModal();
       closeCreditsModal();
       closeSettings();
+      closeFuelWarning();
+      closeTripModal();
+      closeRestoreConfirm();
       closeTpmsResetConfirm();
       closeTpmsModal();
       closeSunroofModal();
@@ -1527,7 +1533,7 @@
     var SETTINGS_BACKUP_KEYS = [
       'shine_cockpit_settings', 'shine_cockpit_lang', 'shine_cockpit_num_format',
       'shine_default_page', 'shine_quick_apps_slots_v3', 'shinewave_mascot_enabled',
-      'shine_wave_active_source'
+      'shine_wave_active_source', 'shine_weather', 'shine_fuel_price'
     ];
     var pendingRestore = null;
 
@@ -2519,6 +2525,7 @@
       }
 
       if (data.tpms) {
+        state.tpmsSystemWarn = !!data.tpms.sysWarn;
         updateTpmsTire('fl', data.tpms.fl);
         updateTpmsTire('fr', data.tpms.fr);
         updateTpmsTire('rl', data.tpms.rl);

@@ -322,7 +322,8 @@ public class CanBusClient {
         public boolean tpmsFRWarn = false;
         public boolean tpmsRLWarn = false;
         public boolean tpmsRRWarn = false;
-        /** True only when the tyre data really came from the car (2.3 bar is a made-up placeholder). */
+        public boolean tpmsSystemWarn = false;
+        /** True only when the tyre data really came from the car. */
         public boolean tpmsValid = false;
         /** Per tyre (front-left, front-right, rear-left, rear-right): true when that pressure is a real reading. */
         public final boolean[] tpmsPressureValid = new boolean[4];
@@ -787,8 +788,9 @@ public class CanBusClient {
                 if (reply66.readInt() != 0) {
                     snap.tpmsValid = true;
                     reply66.readInt(); // a: mTirePositionStatus
-                    reply66.readInt(); // b: mTemperatureWarningStatus
-                    reply66.readInt(); // c: mSystemWaringStatus
+                    int tempWarn = reply66.readInt(); // b: mTemperatureWarningStatus
+                    int sysWarn = reply66.readInt();  // c: mSystemWaringStatus
+                    snap.tpmsSystemWarn = (sysWarn != 0 || tempWarn != 0);
                     int warnFL = reply66.readInt(); // d: mLeftFrontTireWarningStatus
                     int warnFR = reply66.readInt(); // e: mRightFrontTireWarningStatus
                     int warnRL = reply66.readInt(); // f: mLeftRearTireWarningStatus

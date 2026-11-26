@@ -186,6 +186,7 @@ const state = {
   defaultPage: 'main',
   offlineTimeGuard: true,
   offlineTzMode: 'auto',
+  tpmsSystemWarn: false,
   tpmsWarnings: { fl: false, fr: false, rl: false, rr: false },
   telemetry: {
     speed: 0,

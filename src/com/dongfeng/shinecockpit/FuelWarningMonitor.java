@@ -13,7 +13,7 @@ import java.util.List;
  * Decides when to show the "low fuel" popup.
  *
  * In plain words:
- * - The driver picks warning levels in Settings (default 50% and 25%).
+ * - The driver picks warning levels in Settings (default 25% and 15%).
  * - Each level warns ONCE when the tank goes down to it.
  * - The level is ready to warn again only after refuelling at least 5% above it,
  *   so the needle moving a little on bumps or hills does not cause repeated popups.
@@ -25,7 +25,7 @@ import java.util.List;
  */
 final class FuelWarningMonitor {
 
-    static final int[] DEFAULT_LEVELS = {50, 25};
+    static final int[] DEFAULT_LEVELS = {25, 15};
     static final int MAX_LEVELS = 2;
     /** The two levels are always at least this far apart, so they can never be the same. */
     static final int MIN_GAP = 5;
