@@ -823,6 +823,18 @@ public class MainActivity extends Activity implements CockpitMediaListenerServic
          * "Try" button in Settings: says the low-fuel warning out loud, so the driver can hear it.
          * Tells the page whether the words were spoken or only the chime played (no voice installed).
          */
+        /** "Find a petrol station" button in the launcher's low-fuel popup. */
+        @JavascriptInterface
+        public void openFuelStationSearch(final String lang) {
+            final String safeLang = ("ar".equals(lang) || "ru".equals(lang)) ? lang : "en";
+            mHandler.post(new Runnable() {
+                @Override
+                public void run() {
+                    MainActivity.this.openFuelStationSearch(safeLang);
+                }
+            });
+        }
+
         @JavascriptInterface
         public void previewFuelWarningVoice(final boolean urgent, final int pct, final String lang) {
             final int safePct = Math.max(0, Math.min(100, pct));
@@ -1118,17 +1130,57 @@ public class MainActivity extends Activity implements CockpitMediaListenerServic
         mFuelVoice.speak(t[0] + ". " + t[1].replace('\n', ' '), lang, listener);
     }
 
-    private void showFuelWarningOverOtherApps(boolean urgent, int pct, String lang, boolean eastern) {
+    /** Text of the "Find a petrol station" button, in the launcher's language. */
+    private static String findStationLabel(String lang) {
+        if ("ar".equals(lang)) return "ابحث عن محطة وقود";
+        if ("ru".equals(lang)) return "Найти АЗС";
+        return "Find a petrol station";
+    }
+
+    /**
+     * Opens the map app searching for petrol stations near the car.
+     * Uses the standard "geo:" link, so it works with Google Maps, Waze or the car's own maps,
+     * whichever the head unit uses for maps. If no map app is installed, it says so.
+     */
+    private void openFuelStationSearch(String lang) {
+        String query = "ar".equals(lang) ? "محطة وقود" : "ru".equals(lang) ? "АЗС" : "petrol station";
+        try {
+            Intent i = new Intent(Intent.ACTION_VIEW, android.net.Uri.parse("geo:0,0?q=" + android.net.Uri.encode(query)));
+            i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            if (i.resolveActivity(getPackageManager()) != null) {
+                startActivity(i);
+                return;
+            }
+        } catch (Exception e) {
+            Log.w(TAG, "Could not open maps for petrol stations", e);
+        }
+        String msg = "ar".equals(lang) ? "لا يوجد تطبيق خرائط على الشاشة"
+                : "ru".equals(lang) ? "Нет приложения карт" : "No maps app found on this head unit";
+        try {
+            Toast.makeText(getApplicationContext(), msg, Toast.LENGTH_LONG).show();
+        } catch (Exception ignored) {}
+    }
+
+    private void showFuelWarningOverOtherApps(boolean urgent, int pct, final String lang, boolean eastern) {
         String[] t = fuelWarningTexts(urgent, pct, lang, eastern, false);
         String title = t[0], body = t[1], ok = t[2];
         try {
             dismissFuelWarningDialog();
             @SuppressWarnings("deprecation")
-            AlertDialog dialog = new AlertDialog.Builder(getApplicationContext(), AlertDialog.THEME_DEVICE_DEFAULT_DARK)
+            AlertDialog.Builder builder = new AlertDialog.Builder(getApplicationContext(), AlertDialog.THEME_DEVICE_DEFAULT_DARK)
                     .setTitle(title)
                     .setMessage(body)
-                    .setPositiveButton(ok, null)
-                    .create();
+                    .setPositiveButton(ok, null);
+            if (urgent) {
+                // Second (lowest) level only: a button that opens Maps at the nearest petrol stations.
+                builder.setNegativeButton(findStationLabel(lang), new android.content.DialogInterface.OnClickListener() {
+                    @Override
+                    public void onClick(android.content.DialogInterface d, int which) {
+                        openFuelStationSearch(lang);
+                    }
+                });
+            }
+            AlertDialog dialog = builder.create();
             Window w = dialog.getWindow();
             if (w != null) {
                 if (Build.VERSION.SDK_INT >= 26) {

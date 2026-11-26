@@ -1431,6 +1431,9 @@
         box.classList.toggle('rtl-mode', ar);
         box.classList.toggle('ltr-mode', !ar);
       }
+      // "Find a petrol station" appears only on the second (lowest) level.
+      const findBtn = document.getElementById('fuel-warn-find');
+      if (findBtn) findBtn.style.display = urgent ? '' : 'none';
       modal.style.display = 'flex';
       if (fuelWarnTimer) clearTimeout(fuelWarnTimer);
       fuelWarnTimer = setTimeout(closeFuelWarning, FUEL_WARN_AUTO_CLOSE_MS);
@@ -1444,6 +1447,15 @@
       if (fuelWarnTimer) { clearTimeout(fuelWarnTimer); fuelWarnTimer = null; }
     }
     window.closeFuelWarning = closeFuelWarning;
+
+    // Closes the popup and opens the map app searching for nearby petrol stations.
+    function findFuelStation() {
+      closeFuelWarning();
+      if (window.AndroidBridge && window.AndroidBridge.openFuelStationSearch) {
+        try { window.AndroidBridge.openFuelStationSearch(state.lang || 'en'); } catch (e) {}
+      }
+    }
+    window.findFuelStation = findFuelStation;
 
     // "Try" button in Settings: shows the popup for the lower level, so the driver can see it.
     function previewFuelWarning() {

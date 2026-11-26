@@ -3198,3 +3198,23 @@ html, body, button, input, select, textarea, .hud, .modal-box { font-family: 'Pl
       font-size: 16px;
       font-weight: 700;
     }
+    .fuel-warn-actions {
+      display: flex;
+      gap: 18px;
+      justify-content: center;
+      flex-wrap: wrap;
+    }
+    .fuel-warn-find {
+      min-width: 220px;
+      height: 64px;
+      padding: 0 26px;
+      border: 1.5px solid rgba(251, 146, 60, 0.75);
+      border-radius: 18px;
+      background: rgba(251, 146, 60, 0.12);
+      color: #fed7aa;
+      font-family: 'Plus Jakarta Sans', 'Noto Sans Arabic', sans-serif;
+      font-size: 24px;
+      font-weight: 800;
+      cursor: pointer;
+    }
+    .fuel-warn-find:active { transform: scale(0.96); }
